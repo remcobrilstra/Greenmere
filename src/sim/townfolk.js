@@ -3,8 +3,8 @@
 
 import { mulberry32 } from "./rng.js";
 import {
-  BUILDINGS, COTTAGES, PROPS, HEARTH, GATE, TOWN_ARRIVAL, FLOOR_Y, YARD_D,
-  buildingColliders, propColliders, localToWorld, doorPoint, worldYaw, buildingById
+  BUILDINGS, COTTAGES, PROPS, HEARTH, GATE, TOWN_ARRIVAL, FLOOR_Y, YARD_D, WALL_T,
+  buildingColliders, propColliders, localToWorld, worldToLocal, doorPoint, worldYaw, buildingById
 } from "./townplan.js";
 
 export const FOLK_RADIUS = 0.35;
@@ -22,16 +22,20 @@ export const KEEPERS = [
 ];
 
 export const WANDERERS = [
-  { id: "ada", name: "Ada", home: 0, likes: { browse: 3, well: 2, rest: 1, drink: 1 }, look: { tunic: 0x2d62c8, trim: 0xe7d7b4, skin: 0xe0a878, hair: 0xb06a2a, hat: "kerchief", height: 0.93 } },
+  { id: "ada", name: "Ada", home: 0, likes: { browse: 3, well: 2, rest: 1, drink: 1 }, look: { tunic: 0x2d62c8, trim: 0xe7d7b4, skin: 0xe0a878, hair: 0xb06a2a, hat: "kerchief", dress: true, height: 0.93 } },
   { id: "bram", name: "Bram", home: 1, likes: { drink: 3, warm: 2, read: 1 }, look: { tunic: 0x6b4428, trim: 0x3a2416, skin: 0xc68a5c, hair: 0x2a1c14, hat: "brim", beard: true, height: 1.03 } },
-  { id: "cora", name: "Cora", home: 2, likes: { browse: 2, rest: 2, shop: 2 }, look: { tunic: 0x3e9a36, trim: 0xd4a03a, skin: 0xf0c49a, hair: 0x1c1410, hat: "none", height: 0.95 } },
+  { id: "cora", name: "Cora", home: 2, likes: { browse: 2, rest: 2, shop: 2 }, look: { tunic: 0x3e9a36, trim: 0xd4a03a, skin: 0xf0c49a, hair: 0x1c1410, hat: "long", dress: true, height: 0.95 } },
   { id: "dunstan", name: "Dunstan", home: 3, likes: { train: 3, warm: 1, drink: 1 }, look: { tunic: 0x4c545e, trim: 0xb64034, skin: 0xb07a50, hair: 0x5a3a24, hat: "cap", height: 1.02 } },
   { id: "elsie", name: "Elsie", home: 4, likes: { well: 3, browse: 1, read: 1 }, look: { tunic: 0xd4a03a, trim: 0x6b4428, skin: 0xe8b88a, hair: 0x8a5a3a, hat: "hood", height: 0.88 } },
   { id: "finn", name: "Finn", home: 5, likes: { gate: 2, road: 2, read: 2 }, look: { tunic: 0x1c3f8c, trim: 0xc5d0dc, skin: 0xe0a878, hair: 0xd8b968, hat: "none", height: 0.97 } },
   { id: "greta", name: "Greta", home: 0, likes: { shop: 3, browse: 2, rest: 1 }, look: { tunic: 0x8e3a2e, trim: 0xf4e7c8, skin: 0xc68a5c, hair: 0xd8d0c0, hat: "kerchief", apron: 0xe7d7b4, height: 0.9 } },
   { id: "hob", name: "Hob", home: 1, likes: { drink: 2, warm: 3 }, look: { tunic: 0x5e6771, trim: 0x3a2416, skin: 0xf0c49a, hair: 0x6b4428, hat: "brim", height: 1.0 } },
-  { id: "isla", name: "Isla", home: 3, likes: { rest: 2, well: 2, browse: 2 }, look: { tunic: 0x7a4a8c, trim: 0xd4a03a, skin: 0xb07a50, hair: 0x1c1410, hat: "none", height: 0.92 } },
-  { id: "jory", name: "Jory", home: 5, likes: { train: 2, gate: 1, road: 1, drink: 1 }, look: { tunic: 0x3e4650, trim: 0x8d5b34, skin: 0xe0a878, hair: 0xb06a2a, hat: "cap", beard: true, height: 1.04 } }
+  { id: "isla", name: "Isla", home: 3, likes: { rest: 2, well: 2, browse: 2 }, look: { tunic: 0x7a4a8c, trim: 0xd4a03a, skin: 0xb07a50, hair: 0x1c1410, hat: "bun", dress: true, height: 0.92 } },
+  { id: "jory", name: "Jory", home: 5, likes: { train: 2, gate: 1, road: 1, drink: 1 }, look: { tunic: 0x3e4650, trim: 0x8d5b34, skin: 0xe0a878, hair: 0xb06a2a, hat: "cap", beard: true, height: 1.04 } },
+  // Children: small, quick, and never far from the well and the square.
+  { id: "pip", name: "Pip", child: true, home: 2, likes: { well: 4, square: 4, browse: 1, home: 1 }, look: { tunic: 0xd4a03a, trim: 0x6b4428, skin: 0xe8b88a, hair: 0xb06a2a, hat: "none", height: 0.66 } },
+  { id: "nell", name: "Nell", child: true, home: 4, likes: { square: 3, rest: 2, well: 3 }, look: { tunic: 0x8e3a2e, trim: 0xf4e7c8, skin: 0xb07a50, hair: 0x1c1410, hat: "bun", dress: true, height: 0.64 } },
+  { id: "wat", name: "Wat", child: true, home: 0, likes: { gate: 2, square: 4, train: 1, well: 2 }, look: { tunic: 0x2d62c8, trim: 0xe7d7b4, skin: 0xf0c49a, hair: 0xd8b968, hat: "cap", height: 0.7 } }
 ];
 
 export const BARKS = {
@@ -41,6 +45,7 @@ export const BARKS = {
   trainer: ["Stand in the circle when you're ready.", "Strength is a habit, Warden.", "The stones remember every oath."],
   banker: ["Every coin is counted. Twice.", "The vault was built by dwarves. Allegedly.", "Leave what you can't afford to lose."],
   innkeeper: ["Fire's banked, ale's cold.", "Sit a while. The wood isn't going anywhere.", "Heard the deep floors are getting louder."],
+  child: ["Are you a real Warden?", "I'm going down the gate when I'm big.", "Can I hold your sword? Just once?", "Race you to the well!", "Mum says the Underwood eats people."],
   folk: ["Morning, Warden.", "Back from the gate already?", "Fine day for it.", "The well water tastes of moss again.", "Is it true there's no bottom down there?", "Mind the cart.", "Smells like the smithy's busy.", "You look like you could use a draught."]
 };
 
@@ -144,6 +149,10 @@ function buildNodes() {
     const fx = Math.sin(p.yaw);
     const fz = Math.cos(p.yaw);
     node(n, p.x + fx * 1.65, p.z + fz * 1.65, "browse", Math.atan2(fx, fz));
+  }
+  for (const v of VENDORS) {
+    const vp = vendorPost(v);
+    node(n, vp.side.x, vp.side.z, "stallside");
   }
   // Gate road.
   node(n, 0, -15, "road");
@@ -482,4 +491,150 @@ export function createPet(def, graph, seed) {
   w.speed = def.kind === "cat" ? 0.7 + w.rng() * 0.2 : 1.5 + w.rng() * 0.3;
   w.pet = def.kind;
   return w;
+}
+
+// ---------- shifts: where keepers and vendors are at each hour ----------
+
+// "day" 0.27-0.72 at the post; "evening" until 0.84 out in town; then "night".
+export function shiftPart(phase) {
+  const p = ((phase % 1) + 1) % 1;
+  if (p >= 0.27 && p < 0.72) return "day";
+  if (p >= 0.72 && p < 0.84) return "evening";
+  return "night";
+}
+
+// evening: destination tastes; night: "post" (lives at the shop) or a cottage id.
+export const SHIFTS = {
+  maud: { evening: { drink: 4, warm: 1 }, night: "post" },
+  orrin: { evening: { drink: 5 }, night: "cottage-1" },
+  wen: { evening: { well: 3, rest: 2 }, night: "post" },
+  tamsin: { evening: { warm: 4, rest: 1 }, night: "cottage-3" },
+  aldous: { evening: { drink: 3, browse: 1 }, night: "cottage-0" },
+  pell: null
+};
+
+// Market vendors stand behind the square's stalls by day.
+export const VENDORS = [
+  { id: "hesk", name: "Hesk", stall: 0, home: "cottage-4", evening: { drink: 4 }, lines: ["Apples! Meadow apples!", "Two for a copper, Warden.", "Sweetest in the Outer Wood."], look: { tunic: 0x6b4428, trim: 0xe7d7b4, skin: 0xc68a5c, hair: 0x5a3a24, hat: "brim", apron: 0xe7d7b4, height: 1.0 } },
+  { id: "marra", name: "Marra", stall: 1, home: "cottage-2", evening: { warm: 3, drink: 2 }, lines: ["Wool and linen, dyed this week.", "Blue suits a Warden.", "Feel that weave."], look: { tunic: 0x2d62c8, trim: 0xd4a03a, skin: 0xe8b88a, hair: 0x8a5a3a, hat: "kerchief", dress: true, height: 0.94 } },
+  { id: "tobin", name: "Tobin", stall: 2, home: "cottage-5", evening: { drink: 3, rest: 2 }, lines: ["Pots that don't crack. Mostly.", "Fired in Orrin's forge, these.", "A jug for your draughts?"], look: { tunic: 0x8d5b34, trim: 0x3a2416, skin: 0xb07a50, hair: 0x2a1c14, hat: "cap", beard: true, height: 1.02 } }
+];
+
+export function vendorStall(def) {
+  const stalls = PROPS.filter((p) => p.type === "stall" && !p.tier);
+  return stalls[def.stall % stalls.length];
+}
+
+function stallPoint(stall, lx, lz) {
+  const c = Math.cos(stall.yaw);
+  const sn = Math.sin(stall.yaw);
+  return { x: stall.x + lx * c + lz * sn, z: stall.z - lx * sn + lz * c };
+}
+
+// Behind the stall facing the square, plus a side spot to walk in from.
+export function vendorPost(def) {
+  const st = vendorStall(def);
+  const p = stallPoint(st, 0, -st.d / 2 - 0.4);
+  // Step in from whichever end of the stall is clear.
+  const cols = staticColliders();
+  let side = null;
+  let best = -Infinity;
+  for (const sgn of [1, -1]) {
+    const cand = stallPoint(st, sgn * (st.w / 2 + 0.75), -st.d / 2 - 0.4);
+    const ok = segmentClear(cols, cand.x, cand.z, p.x, p.z, 0.3);
+    const clr = clearanceAt(cols, cand.x, cand.z) + (ok ? 10 : 0);
+    if (clr > best) { best = clr; side = cand; }
+  }
+  return { x: p.x, z: p.z, yaw: st.yaw + Math.PI, side, route: [side, p] };
+}
+
+// Walking path inside a building from its threshold to the keeper's post,
+// found once on a 0.2 m grid with A* and straightened. Returns world points.
+export function staffRoute(b, colliders) {
+  const res = 0.2;
+  const clear = 0.32;
+  const near = colliders.filter((c) => {
+    const r = c.kind === "box" ? Math.hypot(c.hx, c.hz) : c.r;
+    return Math.hypot(c.x - b.x, c.z - b.z) < Math.hypot(b.w, b.d) / 2 + r + 1;
+  });
+  const x0 = -b.w / 2 + WALL_T;
+  const z0 = -b.d / 2 + WALL_T;
+  const nx = Math.floor((b.w - 2 * WALL_T) / res);
+  const nz = Math.floor((b.d - 2 * WALL_T) / res);
+  const free = new Uint8Array(nx * nz);
+  const local = (i, j) => ({ x: x0 + (i + 0.5) * res, z: z0 + (j + 0.5) * res });
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const l = local(i, j);
+      const w = localToWorld(b, l.x, l.z);
+      free[j * nx + i] = clearanceAt(near, w.x, w.z) >= clear ? 1 : 0;
+    }
+  }
+  const cellOf = (l) => [Math.max(0, Math.min(nx - 1, Math.floor((l.x - x0) / res))), Math.max(0, Math.min(nz - 1, Math.floor((l.z - z0) / res)))];
+  const startL = doorPoint(b, b.doors[0], -1.3);
+  const goalL = { x: b.keeper.x, z: b.keeper.z };
+  const [si, sj] = cellOf(startL);
+  const [gi, gj] = cellOf(goalL);
+  free[sj * nx + si] = 1;
+  free[gj * nx + gi] = 1;
+  const g = new Float64Array(nx * nz).fill(Infinity);
+  const prev = new Int32Array(nx * nz).fill(-1);
+  const closed = new Uint8Array(nx * nz);
+  const open = [sj * nx + si];
+  g[sj * nx + si] = 0;
+  const h = (k) => Math.hypot((k % nx) - gi, Math.floor(k / nx) - gj);
+  const goal = gj * nx + gi;
+  while (open.length) {
+    let bi = 0;
+    for (let k = 1; k < open.length; k++) if (g[open[k]] + h(open[k]) < g[open[bi]] + h(open[bi])) bi = k;
+    const cur = open.splice(bi, 1)[0];
+    if (cur === goal) break;
+    if (closed[cur]) continue;
+    closed[cur] = 1;
+    const ci = cur % nx;
+    const cj = Math.floor(cur / nx);
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const ni = ci + di;
+        const nj = cj + dj;
+        if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue;
+        const k = nj * nx + ni;
+        if (!free[k] || closed[k]) continue;
+        if (di && dj && (!free[cj * nx + ni] || !free[nj * nx + ci])) continue;
+        const ng = g[cur] + (di && dj ? Math.SQRT2 : 1);
+        if (ng < g[k]) {
+          g[k] = ng;
+          prev[k] = cur;
+          open.push(k);
+        }
+      }
+    }
+  }
+  if (!Number.isFinite(g[goal])) return null;
+  const cells = [];
+  for (let k = goal; k >= 0; k = prev[k]) cells.push(k);
+  cells.reverse();
+  const pts = cells.map((k) => {
+    const l = local(k % nx, Math.floor(k / nx));
+    return localToWorld(b, l.x, l.z);
+  });
+  pts[0] = localToWorld(b, startL.x, startL.z);
+  pts[pts.length - 1] = localToWorld(b, goalL.x, goalL.z);
+  // Straighten: keep a point only when the straight line past it is blocked.
+  const out = [pts[0]];
+  let anchor = 0;
+  for (let k = 2; k < pts.length; k++) {
+    if (!segmentClear(near, pts[anchor].x, pts[anchor].z, pts[k].x, pts[k].z, clear - 0.04)) {
+      out.push(pts[k - 1]);
+      anchor = k - 1;
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  void worldToLocal;
+  return out;
+}
+
+export function staticTownColliders() {
+  return staticColliders();
 }

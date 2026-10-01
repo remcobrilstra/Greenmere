@@ -43,8 +43,8 @@ import { generateFloor, setSealedThrows, tileToWorld } from "../sim/floorgen.js"
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
 import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
-import { KEEPERS, WANDERERS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter } from "../sim/townfolk.js";
-import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt } from "../sim/townplan.js";
+import { KEEPERS, WANDERERS, VENDORS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter, staticTownColliders, shiftPart } from "../sim/townfolk.js";
+import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt, insideRect } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
 import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
 import { upgradeStatus as upgradeStatusRaw } from "../ui/character.js";
@@ -863,6 +863,63 @@ export function installSelfTest(rt) {
       rt.tickHud(0.016);
     }
 
+    // Shifts: keepers and vendors work by day, go out in the evening, and some go home at night.
+    {
+      const folk = rt.townfolk;
+      const staff = folk.filter((f) => f.kind === "keeper");
+      const vendors = folk.filter((f) => f.vendor);
+      const kids = folk.filter((f) => f.role === "child");
+      check(vendors.length === VENDORS.length && vendors.every((f) => f.mode === "post"), "three market vendors stand at their stalls by day");
+      check(kids.length === 3 && kids.every((f) => (f.def.look.height || 1) < 0.75), "three children run about the square");
+      check(shiftPart(0.5) === "day" && shiftPart(0.78) === "evening" && shiftPart(0.9) === "night" && shiftPart(0.1) === "night", "the day splits into day, evening, and night shifts");
+      const cols = staticTownColliders();
+      let routesOk = true;
+      for (const f of staff) {
+        if (!f.route || f.route.length < 2) routesOk = false;
+        for (let k = 0; f.route && k + 1 < f.route.length; k++) if (!segmentClear(cols, f.route[k].x, f.route[k].z, f.route[k + 1].x, f.route[k + 1].z, 0.25)) routesOk = false;
+      }
+      check(routesOk, "every keeper and vendor has a clear way between the door and the post");
+      const orrin = rt.keeperAt("orrin");
+      const pell = rt.keeperAt("pell");
+      const maud = rt.keeperAt("maud");
+      const hesk = rt.keeperAt("hesk");
+      const smith = BUILDINGS.find((b) => b.id === "smith");
+      const run = (phase, steps, until) => {
+        rt.townClock.phase = phase;
+        for (let k = 0; k < steps; k++) {
+          rt.tickTownfolk(0.033, k * 0.033);
+          if (until && until()) return k;
+        }
+        return steps;
+      };
+      rt.resetInterior();
+      player.position.set(0, 0, 0);
+      run(0.78, 2400, () => orrin.mode === "away" && maud.mode === "away");
+      check(orrin.mode === "away" && !insideRect(smith, orrin.x, orrin.z, 0) && maud.mode === "away", "in the evening Orrin and Maud leave their shops");
+      check(pell.mode === "post", "Pell never leaves the bar");
+      // Walk into the Quench: Orrin comes back to the anvil.
+      const sp = stationWorld(smith);
+      player.position.set(sp.x, FLOOR_Y, sp.z);
+      rt.update(0.016);
+      const back = run(0.78, 4000, () => orrin.mode === "post");
+      check(orrin.mode === "post" && Math.hypot(orrin.x - orrin.post.x, orrin.z - orrin.post.z) < 1e-6, "walking into the Quench brings Orrin back to his anvil (" + back + " steps)");
+      // Night: Orrin walks home to his cottage; the vendors pack up.
+      player.position.set(0, 0, 0);
+      rt.update(0.016);
+      rt.resetInterior();
+      const home = COTTAGES.find((c) => c.id === "cottage-1");
+      run(0.9, 9000, () => orrin.mode === "away" && orrin.w && insideRect(home, orrin.x, orrin.z, 0.3));
+      check(orrin.mode === "away" && insideRect(home, orrin.x, orrin.z, 0.3), "at night Orrin sleeps in his cottage");
+      check(hesk.mode !== "post", "at night Hesk has left the apple stall");
+      // Morning: everyone back at work.
+      run(0.5, 12000, () => staff.every((f) => f.mode === "post"));
+      check(staff.every((f) => f.mode === "post"), "by day every keeper and vendor is back at the post");
+      rt.townClock.phase = 0.5;
+      applyTownTime(scene, rt, 0.5, rt.nightMats);
+      resetHero(0, 0, 0);
+      rt.refreshTownPrompt();
+    }
+
     // Day and night: noon is the locked palette; midnight is dark with lit windows.
     {
       const noon = townDayKeys(0.5);
@@ -915,9 +972,9 @@ export function installSelfTest(rt) {
     // Townsfolk: keepers at their counters, wanderers on a connected, clear graph.
     {
       const folk = rt.townfolk || [];
-      const keepers = folk.filter((f) => f.kind === "keeper");
+      const keepers = folk.filter((f) => f.kind === "keeper" && !f.vendor);
       const walkers = folk.filter((f) => f.kind === "walker");
-      check(keepers.length === KEEPERS.length && walkers.length === WANDERERS.length && folk.every((f) => f.v.root.parent === rt.townRoot), "five keepers and ten wanderers live under townRoot (" + keepers.length + " + " + walkers.length + ")");
+      check(keepers.length === KEEPERS.length && walkers.length === WANDERERS.length && folk.every((f) => f.v.root.parent === rt.townRoot), "every keeper and wanderer lives under townRoot (" + keepers.length + " + " + walkers.length + ")");
       let posted = true;
       for (const k of keepers) {
         const at = buildingAt(k.x, k.z);

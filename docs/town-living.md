@@ -371,3 +371,19 @@ Players could not see level, XP, gold, materials, or the pack outside a shop, an
 The loot rules themselves are unchanged (spec DUN-06, DUN-07):
 - **Extract:** keeps pack and purse, and raises `bestDepth`.
 - **Death:** loses pack and purse; worn gear, materials, bank, stash, level, and points are kept.
+
+## 15. Shifts, vendors, and more people
+
+- **Shifts** (`shiftPart(phase)`):
+  - **Day** (0.27–0.72): keepers work at their posts.
+  - **Evening** (to 0.84): keepers go out after their tastes (`SHIFTS`): Orrin and Aldous to the inn, Old Tamsin to the fire, Sister Wen to the well.
+  - **Night**: Maud and Sister Wen sleep at their shops (back at the post); Orrin, Old Tamsin, and Aldous walk home to their cottages.
+  - **Pell** never leaves the bar.
+- **Counters never close**: walking into a keeper's building calls them straight back, and the panel works the whole time.
+- **Behind the counter**: each keeper walks from the door to the post on a route found once at load (`staffRoute`: A* on a 0.2 m grid with 0.32 m clearance, then straightened). Tests check every segment against the colliders.
+- **Market vendors**: Hesk (apples), Marra (cloth), and Tobin (pots) stand behind the square's three stalls by day, call out their wares, go out in the evening, and sleep at home. Each steps in from whichever end of the stall is clear.
+- **Variety**:
+  - three children (Pip, Nell, Wat): small, quick, and partial to the well and the square, with their own lines;
+  - dresses, buns, and long hair among the grown-ups.
+- **Talking (F)** reaches wanderers, vendors, and keepers who are out of their shops.
+- **Measured:** `?test=1` is 727 checks in the shared tree, all passing.

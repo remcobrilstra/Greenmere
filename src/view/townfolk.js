@@ -38,6 +38,7 @@ export function buildVillager(look, seed) {
   part(parts, new THREE.CylinderGeometry(0.34, 0.4, 0.34, 6), tunic, 0, 0.62, 0, 0, 0, 0, rand);
   part(parts, new THREE.BoxGeometry(0.66, 0.08, 0.42), look.trim, 0, 0.76, 0, 0, 0, 0, rand);
   part(parts, new THREE.BoxGeometry(0.42, 0.08, 0.36), dark, 0, 1.39, 0, 0, 0, 0, rand);
+  if (look.dress) part(parts, new THREE.CylinderGeometry(0.36, 0.52, 0.5, 7), tunic, 0, 0.42, 0, 0, 0, 0, rand);
   if (look.apron) part(parts, new THREE.BoxGeometry(0.48, 0.72, 0.04), look.apron, 0, 0.82, -0.2, 0, 0, 0, rand);
   // Head.
   part(parts, new THREE.IcosahedronGeometry(0.24, 0), look.skin, 0, 1.64, 0, 0, 0, 0, rand);
@@ -55,6 +56,10 @@ export function buildVillager(look, seed) {
   } else if (look.hat === "brim") {
     part(parts, new THREE.CylinderGeometry(0.42, 0.42, 0.04, 8), 0x5a3a24, 0, 1.86, 0, 0, 0, 0, rand);
     part(parts, new THREE.CylinderGeometry(0.18, 0.22, 0.22, 7), 0x5a3a24, 0, 1.97, 0, 0, 0, 0, rand);
+  } else if (look.hat === "bun") {
+    part(parts, new THREE.IcosahedronGeometry(0.11, 0), look.hair, 0, 1.86, 0.14, 0, 0, 0, rand);
+  } else if (look.hat === "long") {
+    part(parts, new THREE.BoxGeometry(0.36, 0.42, 0.1), look.hair, 0, 1.52, 0.17, 0.12, 0, 0, rand);
   } else if (look.hat === "kerchief") {
     part(parts, new THREE.IcosahedronGeometry(0.255, 0), look.trim, 0, 1.76, 0.04, 0, 0, 0, rand);
   }
