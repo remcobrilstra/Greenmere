@@ -65,7 +65,7 @@ export function attachSpace(rt) {
       rt.scene.remove(rt.colliderOverlay);
       rt.colliderOverlay = null;
     }
-    if (!rt.dev) return;
+    if (!rt.dev || rt.hideColliders) return;
     const group = buildColliderOverlay(rt.space, rt.colliders, rt.plan);
     rt.scene.add(group);
     rt.colliderOverlay = group;

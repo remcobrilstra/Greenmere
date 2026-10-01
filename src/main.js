@@ -25,6 +25,9 @@ const rt = {
   camPitch: 0.38,
   camDist: 7.6,
   dev: params.has("dev"),
+  // The gold collider wireframes are a debugging aid: in a dev session they are
+  // opt-in (&colliders=1, or the ` key), so town previews stay clean.
+  hideColliders: !params.has("test") && params.get("colliders") !== "1",
   space: "town",
   TREE_COUNT,
   DECOR

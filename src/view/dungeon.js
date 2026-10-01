@@ -660,7 +660,8 @@ export function buildColliderOverlay(space, colliders, plan) {
     if (col.kind === "box") {
       // Oriented town box (building walls, furniture): one wire box per collider.
       const box = new THREE.LineSegments(_townBox, _overlayMat);
-      box.position.set(col.x, 0.55, col.z);
+      // Upstairs colliders draw on the upstairs floor.
+      box.position.set(col.x, col.level === 1 ? 4.3 : 0.55, col.z);
       box.rotation.y = col.yaw || 0;
       box.scale.set(col.hx, 1, col.hz);
       box.castShadow = false;
@@ -668,7 +669,7 @@ export function buildColliderOverlay(space, colliders, plan) {
       continue;
     }
     const line = new THREE.LineSegments(_townRing, _overlayMat);
-    line.position.set(col.x, 0.55, col.z);
+    line.position.set(col.x, col.level === 1 ? 4.3 : 0.55, col.z);
     line.scale.set(col.r, 1, col.r);
     line.castShadow = false;
     group.add(line);

@@ -222,6 +222,10 @@ export function attachMovement(rt) {
 
 export function bindKeys(rt) {
   window.addEventListener("keydown", (e) => {
+    if (e.code === "Backquote" && rt.dev && !e.repeat) {
+      rt.hideColliders = !rt.hideColliders;
+      if (rt.syncColliderOverlay) rt.syncColliderOverlay();
+    }
     const typing = e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA");
     if (typing) return;
     rt.keys[e.code] = true;
