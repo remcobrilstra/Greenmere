@@ -121,6 +121,7 @@ export function attachCombat(rt) {
     const s = session();
     const run = s && s.run;
     if (!run) return;
+    if (rt.questEvent) rt.questEvent({ type: "kill", archetype: enemy.archetype, elite: !!enemy.eliteAffix, boss: !!enemy.boss, floor: run.floorIndex });
     const levels = grantXp(s, xpGrant(run.floorIndex, enemy));
     if (!levels) return;
     const hp = rt.vitals.hp;

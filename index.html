@@ -340,6 +340,37 @@
       line-height: 1.35;
       color: #f4e7c8;
     }
+    #panel .quest-row {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 3px;
+      margin: 0 0 8px;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    #panel .quest-row .name { color: #f4e7c8; }
+    #panel .quest-row .affix { font-size: 12px; color: #d9c69c; }
+    #panel .quest-row > .slot { flex: 0 0 auto; min-height: 30px; }
+    #panel { scrollbar-width: thin; scrollbar-color: #8d5b34 rgba(20, 14, 8, 0.4); }
+    #quest-log {
+      padding: 6px 10px 8px;
+    }
+    #quest-log[hidden] { display: none; }
+    #quest-log .eyebrow { margin: 0 0 2px; }
+    #quest-log ul { margin: 0; padding: 0; list-style: none; }
+    #quest-log li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #f4e7c8;
+    }
+    #quest-log li.done { color: #e2ba60; }
+    #quest-log .q-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #quest-log .q-prog { flex: none; color: #d9c69c; }
+    #quest-log li.done .q-prog { color: #e2ba60; }
     #guide {
       padding: 6px 10px 8px;
     }

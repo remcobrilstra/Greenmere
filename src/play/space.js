@@ -1,6 +1,7 @@
 import { generateFloor, mixSeed } from "../sim/floorgen.js";
 import * as balance from "../sim/balance.js";
-import { freshGame as blankGame, migrate } from "../sim/save.js";
+import { freshGame as blankGame, migrate, SCHEMA } from "../sim/save.js";
+import { emptyQuests, normalizeQuests } from "../sim/quests.js";
 import { applyTownLight, applyDungeonLight, dungeonTheme } from "../view/lights.js";
 import { buildFloorMesh, buildColliderOverlay } from "../view/dungeon.js";
 import { tileToWorld } from "../sim/floorgen.js";
@@ -30,6 +31,7 @@ export function attachSpace(rt) {
     nextUid: 1,
     equipped: null,
     townUnlocks: { store: true, smith: true, trainer: true, stall: false },
+    quests: emptyQuests(),
     blade: null,
     might: 10,
     guard: 10,
@@ -159,6 +161,7 @@ export function attachSpace(rt) {
     if (rt.setStationPrompt) rt.setStationPrompt("");
     syncColliderOverlay();
     if (genMs + meshMs > 20 && rt.say) rt.say("The stair opens…");
+    if (rt.questEvent && reason !== "resume") rt.questEvent({ type: "floor", floor: run.floorIndex });
     if (reason === "dev" && rt.say) rt.say("This delve is not written into the town ledger.");
     return { genMs, meshMs, plan };
   }
@@ -178,6 +181,7 @@ export function attachSpace(rt) {
     session.bestDepth = hero.bestDepth;
     session.townUnlocks = hero.townUnlocks;
     session.stash = doc.stash;
+    session.quests = normalizeQuests(doc.quests);
     session.nextUid = doc.nextUid;
     session.blade = session.equipped && session.equipped.weapon ? session.equipped.weapon : null;
     if (rt.clearBuyback) rt.clearBuyback();
@@ -204,7 +208,7 @@ export function attachSpace(rt) {
 
   function captureSaveDoc() {
     return migrate({
-      schemaVersion: 1,
+      schemaVersion: SCHEMA,
       savedAt: 0,
       nextUid: session.nextUid || 1,
       hero: {
@@ -224,6 +228,7 @@ export function attachSpace(rt) {
         townUnlocks: session.townUnlocks
       },
       stash: session.stash,
+      quests: session.quests,
       run: session.run ? liveRun(session.run) : null
     });
   }
@@ -405,6 +410,7 @@ export function attachSpace(rt) {
     const run = session.run;
     const floorIndex = run ? run.floorIndex : 0;
     if (reason === "extract" && run) {
+      if (rt.questEvent) rt.questEvent({ type: "extract", floor: floorIndex });
       session.bestDepth = Math.max(session.bestDepth || 0, floorIndex);
     } else if (reason === "death") {
       session.pack = [];

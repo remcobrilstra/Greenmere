@@ -175,6 +175,8 @@ The forest stays instanced and untouched in count.
 | Terrain | Meadow blend 12 → 30 | Flat core to 36, blend to 64 |
 | Forest | Clear inside radius 14 | Clear inside radius 44. Count still 3,050 |
 | Smith recipes | All four recipes at the Quench | Draughts at The Still, oil and kit at the Quench |
+| SAV-01 / SAV-02 | Schema 1; the document holds hero, stash, and run | Schema 2 adds `quests` (active quests, today's claims, finished requests). `v1_to_v2` adds an empty log; the storage key keeps its `.v1` name so old ledgers are found and migrated in place |
+| Loot (Difficulty, "Material drop") | Specified but only gear was dropped | Gold and theme materials now drop per kill exactly as specified (separate commit, for the dungeon owner to review) |
 | HUB-04 | The store moves gear to the stash and gold to the bank | Bramble & Board buys, sells, and buys back. The Counting House moves gold between purse and bank and gear between pack and stash, with the same caps and rules |
 | `docs/structure.md` file table | — | Adds `src/sim/townplan.js`, `src/sim/townfolk.js`, `src/view/buildings.js`, `src/view/townfolk.js`, `src/play/interiors.js`, `src/play/townfolk.js`, `src/ui/barks.js` |
 
@@ -285,3 +287,66 @@ All four open questions were answered **yes**. Phase 3 implements each one.
   `src/ui/guide.js` shows it in a small plaque under the minimap, and the minimap draws a gold pin at the target (clamped to the rim when it is off the map). The guide goes quiet within 5 m of the target or inside its building, and in the dungeon.
 - **Dev:** `?dev=1&open=bank` (or any panel kind) opens that counter's panel.
 - **Measured:** `?test=1` is 658 checks, all passing.
+
+## 13. Quests
+
+A small quest system that the daily notice board, keeper requests, and later story quests all share.
+
+### 13.1 Pieces
+
+| Piece | File | Role |
+|---|---|---|
+| Rules | `src/sim/quests.js` | Pure. Daily templates, keeper requests, `applyEvent`, `takeQuest`, `claimQuest`, `rollover`, `normalizeQuests` |
+| Play | `src/play/quests.js` | `rt.questEvent(e)`, take, claim, abandon, today's date, "ready to hand in" for the guide |
+| Board and requests UI | `src/ui/panels.js` | `board` panel; a Request section in every keeper panel |
+| Tracker | `src/ui/questlog.js` | Plaque under the minimap (or under the guide) listing carried quests, in town and below |
+| Save | `src/sim/save.js` | Schema 2, `quests` in the ledger |
+
+### 13.2 Objectives and the events that move them
+
+| Objective | Event | Emitted from (owner) |
+|---|---|---|
+| `kill` (optionally elite or boss only) | `{type: "kill", archetype, elite, boss, floor}` | `play/combat.js` `grantKill` (combat) |
+| `reach` floor N | `{type: "floor", floor}` | `play/space.js` `buildAndShow`, not on resume (space) |
+| `extract` from floor N+ | `{type: "extract", floor}` | `play/space.js` `arriveTown("extract")` (space) |
+| `gather` material | `{type: "material", material, amount}` | `ui/panels.js` `collectDrops` |
+| `gold` picked up | `{type: "gold", amount}` | `ui/panels.js` `collectDrops` |
+| `craft` (recipe prefix) | `{type: "craft", recipe}` | `ui/panels.js` craft |
+| `sell` | `{type: "sell"}`; buyback emits `unsell` | `ui/panels.js` sell / buyback |
+| `deposit` | `{type: "deposit"}`; withdraw counts down | `ui/panels.js` deposit / withdraw |
+| `deliver` material | none: checked at hand-in, materials handed over | — |
+
+Each hook is one guarded line, `if (rt.questEvent) rt.questEvent({...})`. Dev delves never move quests.
+
+### 13.3 The board
+
+- **Notices:** three a day, a pure function of the local date and `bestDepth`. The templates are cull, marked elites (depth 4+), further down, come home safe (depth 2+), haul a reachable material, fill the purse, provisions (craft draughts), and clear the pack (sell gear).
+- **Rewards** scale with depth through `killGold`/`killXp`.
+- **Taking and claiming:** a notice is taken at the board and claimed there once done. A claimed notice cannot be taken again that day.
+- **Midnight:** unfinished notices come down.
+- **Cap:** at most 6 quests at once, across notices and requests.
+
+### 13.4 Keeper requests
+
+One-time and chained, unlocked by depth. Accepted and handed in at the keeper's own counter.
+
+| Keeper | Request | Unlock |
+|---|---|---|
+| Old Tamsin | First Blood (10 kills) → The Keeper of the Stair (a boss) | 0, then 4 |
+| Maud | Stock for the Shelves (sell 4) | 1 |
+| Sister Wen | Roots for the Still (deliver 4 rootfiber) → A Warmer Draught (deliver 2 emberglass) | 2, then 4 |
+| Orrin | Slag for the Quench (deliver 6 slag) → Proof of Temper (3 elites) | 3, then 6 |
+| Pell | A Story Worth Telling (extract from floor 5+) | 3 |
+| Aldous | A Prudent Warden (deposit 150) | 1 |
+
+### 13.5 Guidance
+
+- **Completion:** finishing a quest says so on the cast line and names who to hand it in to.
+- **Guide:** a finished quest outranks every other guide hint, and the minimap pin points at the giver.
+- **Measured:** `?test=1` is 695 checks, all passing.
+
+### 13.6 Open points for other owners
+
+- **Combat / space:** confirm the `kill`, `floor`, and `extract` hook placement.
+- **Save:** schema 2 and the migration (`sim/save.js`).
+- **Balance:** reward sizes are placeholders built from `killGold` / `killXp`.

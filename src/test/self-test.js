@@ -47,6 +47,7 @@ import { KEEPERS, WANDERERS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph,
 import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
 import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
+import { emptyQuests, dailyOffers, takeQuest, applyEvent, claimQuest, rollover, requestFor, normalizeQuests, isComplete, QUEST_CAP } from "../sim/quests.js";
 import { BUILDINGS, COTTAGES, GATE, HEARTH, TOWN_ARRIVAL, FLOOR_Y, WALL_T, stationWorld, localToWorld, worldToLocal, doorPoint, wallBoxes, buildingAt } from "../sim/townplan.js";
 import { affixDef, gearTotals, lootRng, materialDropCount, rollGearDrop, tryCraft, tryUpgrade, killExtras, extrasRng } from "../sim/items.js";
 
@@ -663,6 +664,126 @@ export function installSelfTest(rt) {
       check(offered === "F — Talk to " + walker.name && rt.barks.has(walker.id) && rt.barks.text(walker.id).indexOf(walker.name) === 0, "F beside " + walker.name + " starts a word with them (" + offered + ")");
       rt.townfolkSolid = false;
       rt.barks.clear();
+      resetHero(0, 0, 0);
+      rt.refreshTownPrompt();
+    }
+
+    // Quests: daily notices, keeper requests, events in, rewards out, saved.
+    {
+      const day = "2026-10-02";
+      const o1 = dailyOffers(day, 3);
+      const o2 = dailyOffers(day, 3);
+      check(o1.length === 3 && JSON.stringify(o1) === JSON.stringify(o2), "the board's three notices are a pure function of the date and depth");
+      check(JSON.stringify(dailyOffers("2026-10-03", 3)) !== JSON.stringify(o1), "a new day puts up different notices");
+      let gated = true;
+      for (let k = 0; k < 30; k++) for (const o of dailyOffers("2026-11-" + (k + 1), 0)) if (o.key.indexOf(":elites") >= 0 || o.key.indexOf(":home") >= 0) gated = false;
+      check(gated, "a Warden who has never extracted is not asked for elites or deep extracts");
+
+      const q = emptyQuests();
+      rollover(q, day);
+      const cull = { key: "daily:" + day + ":cull", kind: "daily", giver: "board", day, title: "Thin", text: "", objective: { type: "kill", count: 3 }, reward: { gold: 10, xp: 5, materials: {} } };
+      const marked = { key: "daily:" + day + ":elites", kind: "daily", giver: "board", day, title: "Marked", text: "", objective: { type: "kill", elite: true, count: 1 }, reward: { gold: 10, xp: 5, materials: {} } };
+      check(takeQuest(q, cull).ok && takeQuest(q, marked).ok && !takeQuest(q, cull).ok, "a notice is taken once");
+      applyEvent(q, { type: "kill", archetype: "skirmisher" });
+      applyEvent(q, { type: "kill", archetype: "brute" });
+      check(q.active[0].progress === 2 && q.active[1].progress === 0, "plain kills count for a cull but not for an elite hunt");
+      applyEvent(q, { type: "kill", archetype: "brute", elite: true });
+      check(q.active[0].progress === 3 && q.active[1].progress === 1, "an elite kill counts for both");
+      applyEvent(q, { type: "kill" });
+      check(q.active[0].progress === 3, "progress stops at the goal");
+      const hero = { level: 1, xp: 0, skillPoints: 0, purse: 5, materials: { heartwood: 0, rootfiber: 5, slag: 0, emberglass: 0 } };
+      const res = claimQuest(q, cull.key, hero);
+      check(res.ok && hero.purse === 15 && hero.xp === 5 && q.claimedDaily[cull.key] === day && !takeQuest(q, cull).ok, "claiming pays out and the notice cannot be taken again today");
+      const deliver = { key: "request:wen-roots", kind: "request", giver: "wen", day: "", title: "Roots", text: "", objective: { type: "deliver", material: "rootfiber", count: 4 }, reward: { gold: 40, xp: 0, materials: { heartwood: 2 } } };
+      takeQuest(q, deliver);
+      check(isComplete(q.active.find((a) => a.key === deliver.key), hero), "a delivery is ready when the materials are in hand");
+      claimQuest(q, deliver.key, hero);
+      check(hero.materials.rootfiber === 1 && hero.materials.heartwood === 2 && q.doneRequests.indexOf("wen-roots") >= 0, "handing over takes the materials and pays in kind");
+      const sellQ = { key: "daily:" + day + ":trade", kind: "daily", giver: "board", day, title: "Trade", text: "", objective: { type: "sell", count: 3 }, reward: { gold: 1, xp: 1, materials: {} } };
+      takeQuest(q, sellQ);
+      applyEvent(q, { type: "sell" });
+      applyEvent(q, { type: "sell" });
+      applyEvent(q, { type: "unsell" });
+      check(q.active.find((a) => a.key === sellQ.key).progress === 1, "buying a sale back takes it off the count");
+      const reach = { key: "daily:" + day + ":deeper", kind: "daily", giver: "board", day, title: "Down", text: "", objective: { type: "reach", floor: 4, count: 1 }, reward: { gold: 1, xp: 1, materials: {} } };
+      takeQuest(q, reach);
+      applyEvent(q, { type: "floor", floor: 3 });
+      const reachQ = q.active.find((a) => a.key === reach.key);
+      const shallow = reachQ.progress;
+      applyEvent(q, { type: "floor", floor: 4 });
+      check(shallow === 0 && reachQ.progress === 1, "reaching a floor counts only at that depth or below it");
+      rollover(q, "2026-10-03");
+      check(!q.active.some((a) => a.kind === "daily") && Object.keys(q.claimedDaily).length === 0, "at midnight the unfinished notices come down");
+      for (let k = 0; k < QUEST_CAP; k++) takeQuest(q, Object.assign({}, cull, { key: "daily:x:" + k, day: "2026-10-03" }));
+      check(q.active.length === QUEST_CAP && takeQuest(q, Object.assign({}, cull, { key: "daily:x:99" })).reason === "full", "the Warden carries six quests at most");
+
+      const rq = emptyQuests();
+      check(requestFor(rq, "tamsin", 0).quest.key === "request:tamsin-first" && requestFor(rq, "wen", 1) === null && requestFor(rq, "wen", 2).quest.key === "request:wen-roots", "keeper requests open with depth");
+      rq.doneRequests.push("tamsin-first");
+      check(requestFor(rq, "tamsin", 2) === null && requestFor(rq, "tamsin", 4).quest.key === "request:tamsin-boss", "a keeper's next request follows the last one");
+      const dirty = normalizeQuests({ day: day, active: [{ key: "k", objective: { type: "nonsense" } }, { key: "ok", kind: "daily", objective: { type: "kill", count: 5 }, progress: 99, reward: { gold: 3 } }], claimedDaily: JSON.parse('{"__proto__":{"x":1},"a":"' + day + '"}'), doneRequests: ["tamsin-first", "made-up"] });
+      check(dirty.active.length === 1 && dirty.active[0].progress === 5 && dirty.claimedDaily.a === day && !({}).x && dirty.doneRequests.join() === "tamsin-first", "a stored quest log is clamped and stripped of unknowns");
+      const migratedV1 = migrate({ schemaVersion: 1, hero: { level: 2 }, stash: [] });
+      check(migratedV1.schemaVersion === 2 && migratedV1.quests.active.length === 0, "a schema-1 ledger migrates to 2 with an empty quest log");
+
+      // In play: the board in the square, the tracker, a claim, and a keeper's request.
+      const sessionWas = { quests: rt.session.quests, purse: rt.session.purse, bestDepth: rt.session.bestDepth, devRun: rt.session.devRun };
+      rt.session.quests = emptyQuests();
+      rt.session.bestDepth = 3;
+      rt.session.devRun = false;
+      rt.questDayOverride = day;
+      const board = stationNamed("Notice Board");
+      check(!!board && board.panel === "board", "the notice board in the square is a station");
+      player.position.set(board.x, 0, board.z);
+      rt.refreshTownPrompt();
+      check(castLine.textContent === "F — Notice Board", "cast line is F — Notice Board in front of it");
+      tap("KeyF");
+      const panelNode = document.getElementById("panel");
+      const takes = panelNode.querySelectorAll('[data-act="quest-take"]');
+      check(!panelNode.hidden && panelNode.querySelector(".eyebrow").textContent === "Notice Board" && takes.length === 3, "the board lists today's three notices");
+      takes[0].click();
+      check(rt.session.quests.active.length === 1 && panelNode.querySelectorAll('[data-act="quest-take"]').length === 2, "taking a notice moves it to your quests");
+      rt.tickHud(0.016);
+      const log = document.getElementById("quest-log");
+      const taken = rt.session.quests.active[0];
+      check(!!log && !log.hidden && log.textContent.indexOf(taken.title) >= 0, "the tracker shows the quest under the minimap");
+      // Finish it by pushing the events its objective asks for.
+      const o = taken.objective;
+      const evt = o.type === "kill" ? { type: "kill", elite: true, boss: true } : o.type === "reach" ? { type: "floor", floor: 99 } : o.type === "extract" ? { type: "extract", floor: 99 } : o.type === "gather" ? { type: "material", material: o.material, amount: 999 } : o.type === "gold" ? { type: "gold", amount: 99999 } : o.type === "craft" ? { type: "craft", recipe: "draught-hp" } : { type: o.type };
+      for (let k = 0; k < 40 && !rt.questComplete(taken); k++) rt.questEvent(evt);
+      check(rt.questComplete(taken), "the quest's own events complete it (" + o.type + ")");
+      player.position.set(0, 0, 0);
+      rt.tickGuide(0, true);
+      check(!!rt.guide && rt.guide.target === "board" && rt.guide.text.indexOf("is done") >= 0, "the guide points back to the board for a finished notice");
+      rt.openPanel("board", board);
+      const purseBefore = rt.session.purse;
+      const claimBtn = panelNode.querySelector('[data-act="quest-claim"]');
+      if (claimBtn) claimBtn.click();
+      check(!!claimBtn && rt.session.purse === purseBefore + taken.reward.gold && rt.session.quests.active.length === 0, "claiming at the board pays the purse (+" + taken.reward.gold + ")");
+      check(panelNode.querySelectorAll('[data-act="quest-take"]').length === 2, "a claimed notice does not come back today");
+      // A keeper's request.
+      rt.openPanel("trainer", stationNamed("The Circle"));
+      const accept = panelNode.querySelector('[data-act="quest-take"][data-source="request"]');
+      check(!!accept && panelNode.textContent.indexOf("First Blood") >= 0, "Old Tamsin offers her first request");
+      if (accept) accept.click();
+      for (let k = 0; k < 10; k++) rt.questEvent({ type: "kill", archetype: "skirmisher" });
+      rt.openPanel("trainer", stationNamed("The Circle"));
+      const handIn = panelNode.querySelector('[data-act="quest-claim"]');
+      const xpBefore = rt.session.xp + rt.session.level * 1e6;
+      if (handIn) handIn.click();
+      check(!!handIn && rt.session.quests.doneRequests.indexOf("tamsin-first") >= 0 && rt.session.xp + rt.session.level * 1e6 > xpBefore, "handing in to Old Tamsin pays experience");
+      // Saved, and dev runs do not count.
+      const doc = rt.captureSaveDoc();
+      check(doc.schemaVersion === 2 && doc.quests.doneRequests.indexOf("tamsin-first") >= 0, "the quest log is written into the ledger");
+      rt.session.devRun = true;
+      check(rt.questEvent({ type: "kill" }).length === 0, "a dev delve does not move quests");
+      rt.closePanel();
+      rt.session.quests = sessionWas.quests;
+      rt.session.purse = sessionWas.purse;
+      rt.session.bestDepth = sessionWas.bestDepth;
+      rt.session.devRun = sessionWas.devRun;
+      rt.questDayOverride = null;
+      rt.tickHud(0.016);
       resetHero(0, 0, 0);
       rt.refreshTownPrompt();
     }
@@ -1593,7 +1714,7 @@ export function installSelfTest(rt) {
     check(!meshOver, "mesh build fails only above 60 ms" + (meshOver ? " (" + meshOver + ")" : ""));
 
     const migrated = migrate({ schemaVersion: 0, hero: { level: 3 } });
-    check(migrated.schemaVersion === 1 && migrated.hero.level === 3, "version 0 migrates to schema 1 at level 3");
+    check(migrated.schemaVersion === SCHEMA && migrated.hero.level === 3, "version 0 migrates to the current schema at level 3");
     check(migrated.hero.tracks.edge === 0 && migrated.hero.tracks.bulwark === 0 && migrated.hero.tracks.mend === 0 && migrated.hero.tracks.delver === 0, "a version 0 hero without tracks keeps every track at 0");
     const heirWeapon = migrated.hero.equipped.weapon;
     check(!!heirWeapon && heirWeapon.baseId === "blade" && heirWeapon.weaponBase === 12 && heirWeapon.themeId === 0 && migrated.hero.equipped.trinket === null && migrated.hero.equipped.offhand && migrated.hero.equipped.head && migrated.hero.equipped.body && migrated.hero.equipped.feet, "missing equipped keeps the placeholder heirlooms");
@@ -1624,7 +1745,7 @@ export function installSelfTest(rt) {
     const parsedProto = parseSave('{"schemaVersion":0,"hero":{"level":4,"tracks":{"edge":1,"__proto__":{"polluted":1}}}}');
     const migratedProto = migrate(parsedProto);
     check(migratedProto.hero.level === 4 && migratedProto.hero.tracks.edge === 1 && !Object.prototype.hasOwnProperty.call(migratedProto.hero.tracks, "__proto__") && !Object.prototype.polluted, "__proto__ keys in JSON are dropped");
-    check(SCHEMA === 1 && freshSave().schemaVersion === 1 && freshSave().run === null, "schema version is 1");
+    check(SCHEMA === 2 && freshSave().schemaVersion === 2 && freshSave().run === null && Array.isArray(freshSave().quests.active), "schema version is 2 and a fresh ledger carries an empty quest log");
 
     rt.freshGame();
     const freshStrike = strikeDamage({ level: rt.session.level, might: rt.session.might, tracks: rt.session.tracks }, rt.session.blade);

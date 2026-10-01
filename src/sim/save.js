@@ -2,8 +2,11 @@
 // A ledger is accepted as written; out-of-range numbers clamp, they do not reject play.
 
 import { heirloomEquipped } from "./items.js";
+import { emptyQuests, normalizeQuests } from "./quests.js";
 
-export const SCHEMA = 1;
+// Schema 2 adds `quests` (daily notices and keeper requests). The storage key
+// keeps its v1 name so existing ledgers are found and migrated in place.
+export const SCHEMA = 2;
 export const SAVE_KEY = "greenmere.save.v1";
 export const SAVE_BAK_KEY = "greenmere.save.v1.bak";
 export const SAVE_MAX_CHARS = 256 * 1024;
@@ -45,6 +48,7 @@ export function freshGame() {
       townUnlocks: { store: true, smith: true, trainer: true, stall: false }
     },
     stash: [],
+    quests: emptyQuests(),
     run: null
   };
 }
@@ -201,6 +205,7 @@ function normalizeV1(doc) {
     stall: false
   };
   out.run = normalizeRun(doc && doc.run);
+  out.quests = normalizeQuests(doc && doc.quests);
   return out;
 }
 
@@ -210,6 +215,12 @@ const MIGRATIONS = [
     out.schemaVersion = 1;
     const hero = doc && doc.hero && typeof doc.hero === "object" ? doc.hero : {};
     applySharedHero(out, hero);
+    return out;
+  },
+  function v1_to_v2(doc) {
+    const out = Object.assign({}, doc);
+    out.schemaVersion = 2;
+    out.quests = emptyQuests();
     return out;
   }
 ];

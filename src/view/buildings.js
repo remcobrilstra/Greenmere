@@ -1216,6 +1216,19 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
     });
   }
 
+  // The notice board in the square answers F like a counter.
+  for (const p of PROPS) {
+    if (p.type !== "notice") continue;
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    stations.push({
+      id: "board", panel: "board", name: "Notice Board",
+      x: p.x + fx * 1.2, z: p.z + fz * 1.2,
+      interact: INTERACT_R, keeperLine: "",
+      group: props, footMesh: null, footY: 0, colliders: [], decor: []
+    });
+  }
+
   return {
     buildings, stations, props, ground, glow, glowMats, interiorLight, propColliders: propColliderList,
     tierMeshes, setTier, getTier() { return shownTier; },

@@ -68,7 +68,11 @@ export function attachDialogue(rt) {
       rt.guide = null;
       return null;
     }
-    const hint = guideHint(state());
+    // A finished quest outranks everything: say where to hand it in.
+    const ready = rt.questsReady ? rt.questsReady() : [];
+    const hint = ready.length
+      ? { target: ready[0].station, text: "“" + ready[0].quest.title + "” is done. Hand it in to " + ready[0].who + "." }
+      : guideHint(state());
     if (!hint) {
       rt.guide = null;
       return null;

@@ -9,7 +9,7 @@ export const BUYBACK_CAP = 8;
 export const DRAUGHT_PRICE = 25;
 export const DRAUGHT_STACK = 20;
 export const DRAUGHT_HEAL = 45;
-const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still", bank: "The Counting House", inn: "The Banked Fire" };
+const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still", bank: "The Counting House", inn: "The Banked Fire", board: "Notice Board" };
 const RARITY_EDGE = ["#e7d7b4", "#8ed15a", "#7eb6ef", "#d4a03a"];
 
 export function vendorValue(item) {
@@ -154,6 +154,65 @@ export function attachPanels(rt) {
     const row = el("div", "row");
     row.appendChild(button("talk", talk.index + 1 < talk.count ? "Ask more" : "Start over"));
     panel.appendChild(row);
+    requestBlock();
+  }
+
+  function rewardLine(r) {
+    const parts = [];
+    if (r.gold) parts.push(r.gold + " gold");
+    if (r.xp) parts.push(r.xp + " xp");
+    for (const k of Object.keys(r.materials || {})) parts.push(r.materials[k] + " " + k);
+    return "Reward: " + parts.join(", ");
+  }
+
+  function questRow(qst, actions) {
+    const row = el("div", "slot quest-row");
+    row.appendChild(el("span", "name", qst.title));
+    row.appendChild(el("span", "affix", qst.text));
+    const count = qst.objective.count;
+    if (rt.questProgress && rt.findQuest && rt.findQuest(qst.key)) {
+      row.appendChild(el("span", "affix", "Progress " + rt.questProgress(qst) + " / " + count));
+    }
+    row.appendChild(el("span", "affix", rewardLine(qst.reward)));
+    for (const a of actions) row.appendChild(a);
+    panel.appendChild(row);
+  }
+
+  // A keeper's request: offered, in progress, or ready to hand in.
+  function requestBlock() {
+    const req = rt.keeperRequest ? rt.keeperRequest(panelKind) : null;
+    if (!req) return;
+    panel.appendChild(el("p", "section-label", "Request"));
+    const qst = req.quest;
+    if (req.state === "offer") {
+      questRow(qst, [button("quest-take", "Accept", { "data-key": qst.key, "data-source": "request" })]);
+      return;
+    }
+    const done = rt.questComplete && rt.questComplete(qst);
+    const label = qst.objective.type === "deliver" ? "Hand over" : "Hand in";
+    questRow(qst, done ? [button("quest-claim", label, { "data-key": qst.key })] : []);
+  }
+
+  // The notice board in the square: today's notices and the Warden's quests.
+  function renderBoard() {
+    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    panel.appendChild(el("p", "eyebrow", "Notice Board"));
+    const b = rt.questBoard ? rt.questBoard() : { offers: [], active: [], cap: 0 };
+    panel.appendChild(el("p", "panel-line keeper", "New notices go up at dawn. Unfinished ones come down at midnight."));
+    panel.appendChild(el("p", "section-label", "Today's notices"));
+    if (!b.offers.length) panel.appendChild(el("p", "panel-empty", "Nothing new today. Come back tomorrow."));
+    for (const o of b.offers) questRow(o, [button("quest-take", "Take", { "data-key": o.key, "data-source": "board" })]);
+    panel.appendChild(el("p", "section-label", "Your quests " + b.active.length + " / " + b.cap));
+    if (!b.active.length) panel.appendChild(el("p", "panel-empty", "You carry no quests."));
+    for (const a of b.active) {
+      const actions = [];
+      const done = rt.questComplete && rt.questComplete(a);
+      if (a.giver === "board" && done) actions.push(button("quest-claim", "Claim", { "data-key": a.key }));
+      if (a.giver !== "board" && done) actions.push(el("span", "affix", "Hand in to the keeper who asked."));
+      if (!done) actions.push(button("quest-drop", "Abandon", { "data-key": a.key }));
+      questRow(a, actions);
+    }
+    panel.appendChild(button("close", "Close"));
   }
 
   function renderInn() {
@@ -349,6 +408,10 @@ export function attachPanels(rt) {
       renderInn();
       return;
     }
+    if (panelKind === "board") {
+      renderBoard();
+      return;
+    }
     const session = rt.session;
     const pack = session && Array.isArray(session.pack) ? session.pack : [];
     const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
@@ -477,6 +540,39 @@ export function attachPanels(rt) {
       render();
       return;
     }
+    if (act === "quest-take") {
+      const key = btn.getAttribute("data-key");
+      let offer = null;
+      if (btn.getAttribute("data-source") === "board") {
+        const b = rt.questBoard ? rt.questBoard() : null;
+        offer = b ? b.offers.find((o) => o.key === key) : null;
+      } else {
+        const req = rt.keeperRequest ? rt.keeperRequest(panelKind) : null;
+        offer = req && req.state === "offer" && req.quest.key === key ? req.quest : null;
+      }
+      const res = offer && rt.takeQuest ? rt.takeQuest(offer) : { ok: false };
+      if (!res.ok) {
+        if (res.reason === "full" && rt.say) rt.say("You can carry six quests at most.");
+        refuse(btn);
+        return;
+      }
+      render();
+      return;
+    }
+    if (act === "quest-claim") {
+      const res = rt.claimQuest ? rt.claimQuest(btn.getAttribute("data-key")) : { ok: false };
+      if (!res.ok) {
+        refuse(btn);
+        return;
+      }
+      render();
+      return;
+    }
+    if (act === "quest-drop") {
+      if (rt.abandonQuest) rt.abandonQuest(btn.getAttribute("data-key"));
+      render();
+      return;
+    }
     if (act === "rest") {
       if (rt.restAtInn) rt.restAtInn();
       render();
@@ -501,6 +597,7 @@ export function attachPanels(rt) {
         refuse(btn);
         return;
       }
+      if (rt.questEvent) rt.questEvent({ type: "craft", recipe: btn.getAttribute("data-recipe") });
       noteChange();
       render();
       return;
@@ -540,6 +637,7 @@ export function attachPanels(rt) {
         session.bank = bank - n;
         session.purse = Math.min(1e9, purse + n);
       }
+      if (rt.questEvent) rt.questEvent({ type: act, amount: n });
       noteChange();
       render();
       return;
@@ -563,6 +661,7 @@ export function attachPanels(rt) {
       session.purse = Math.min(1e9, Math.floor(Number(session.purse) || 0) + price);
       buyback.push({ item, price });
       while (buyback.length > BUYBACK_CAP) buyback.shift();
+      if (rt.questEvent) rt.questEvent({ type: "sell" });
       noteChange();
       render();
       return;
@@ -600,6 +699,7 @@ export function attachPanels(rt) {
       session.purse = Math.floor(Number(session.purse) || 0) - entry.price;
       session.pack.push(entry.item);
       buyback.splice(index, 1);
+      if (rt.questEvent) rt.questEvent({ type: "unsell" });
       noteChange();
       render();
     }
