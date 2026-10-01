@@ -67,6 +67,7 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/quests.js` | Quests | Daily notices, keeper requests, objectives, events, claims, rollover, save normalization. Pure. |
 | `src/play/quests.js` | Quests | `rt.questEvent`, take, claim, abandon, today's date. |
 | `src/ui/questlog.js` | Quests | Tracker plaque for carried quests. |
+| `src/ui/character.js` | Town | XP bar in the vitals plaque, the character sheet (I / C / portrait), loot-rule reminders. |
 
 ## Rules
 

@@ -40,6 +40,12 @@ export function attachQuests(rt) {
 
   function questEvent(e) {
     const s = rt.session;
+    // Every pickup passes through here: show what was picked up over the hero.
+    if (e && rt.pushFloater && rt.player && (e.type === "gold" || e.type === "material")) {
+      const p = rt.player.position;
+      const text = e.type === "gold" ? "+" + e.amount + " gold" : "+" + e.amount + " " + e.material;
+      rt.pushFloater(text, p.x, p.y + 2.3, p.z, e.type === "gold" ? "#e2ba60" : "#8ed15a");
+    }
     if (!s || s.devRun) return [];
     const state = fresh();
     const moved = applyEvent(state, e);

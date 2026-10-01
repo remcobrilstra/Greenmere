@@ -26,10 +26,22 @@ export function attachGuide(rt) {
   }
   window.addEventListener("resize", place);
 
+  // Below ground the guide states the loot rules while they still matter.
+  function dungeonHint() {
+    const s = rt.session || {};
+    const v = rt.vitals || {};
+    const carrying = (Array.isArray(s.pack) && s.pack.length) || Math.floor(Number(s.purse) || 0) > 0;
+    if (carrying && v.hpMax && v.hp / v.hpMax < 0.35) return "You are hurt. Hold 4 and stand still to extract: your pack and purse come home.";
+    if (Math.floor(Number(s.bestDepth) || 0) < 3) return "Take the stairs (F) deeper, or hold 4 and stand still to extract with your loot. Falling loses pack and purse.";
+    return "";
+  }
+
   let shown = "";
   function tick() {
     const g = rt.space === "town" ? rt.guide : null;
-    const want = g ? g.text : "";
+    let want = g ? g.text : rt.space === "dungeon" ? dungeonHint() : "";
+    if (rt.sheetOpen) want = "";
+    eyebrow.textContent = rt.space === "dungeon" ? "Below" : "Next";
     if (want === shown) return;
     shown = want;
     if (!want) {

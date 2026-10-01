@@ -36,7 +36,7 @@ export function attachQuestLog(rt) {
       return [a.title, done ? "done" : p + " / " + a.objective.count, done];
     });
     const guide = document.getElementById("guide");
-    const sig = JSON.stringify(rows) + (guide && !guide.hidden ? "g" : "");
+    const sig = JSON.stringify(rows) + (guide && !guide.hidden ? "g" : "") + (rt.sheetOpen ? "s" : "");
     if (sig === shown) return;
     shown = sig;
     while (list.firstChild) list.removeChild(list.firstChild);
@@ -53,7 +53,7 @@ export function attachQuestLog(rt) {
       li.appendChild(p);
       list.appendChild(li);
     }
-    node.hidden = rows.length === 0;
+    node.hidden = rows.length === 0 || !!rt.sheetOpen;
     if (!node.hidden) place();
   }
 

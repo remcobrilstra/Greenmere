@@ -47,6 +47,7 @@ import { KEEPERS, WANDERERS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph,
 import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
 import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
+import { upgradeStatus as upgradeStatusRaw } from "../ui/character.js";
 import { emptyQuests, dailyOffers, takeQuest, applyEvent, claimQuest, rollover, requestFor, normalizeQuests, isComplete, QUEST_CAP } from "../sim/quests.js";
 import { BUILDINGS, COTTAGES, GATE, HEARTH, TOWN_ARRIVAL, FLOOR_Y, WALL_T, stationWorld, localToWorld, worldToLocal, doorPoint, wallBoxes, buildingAt } from "../sim/townplan.js";
 import { affixDef, gearTotals, lootRng, materialDropCount, rollGearDrop, tryCraft, tryUpgrade, killExtras, extrasRng } from "../sim/items.js";
@@ -83,6 +84,10 @@ export function installSelfTest(rt) {
     return new THREE.Vector3(0, 0, -1).applyQuaternion(rt.player.quaternion);
   }
 
+  function upgradeStatusText(session, item) {
+    const st = upgradeStatusRaw(session, item);
+    return st ? st.text : "";
+  }
   function atArrival() {
     const p = rt.player.position;
     const d = rt.player.rotation.y - TOWN_ARRIVAL.yaw;
@@ -786,6 +791,76 @@ export function installSelfTest(rt) {
       rt.tickHud(0.016);
       resetHero(0, 0, 0);
       rt.refreshTownPrompt();
+    }
+
+    // The Warden's own numbers: xp bar, character sheet, upgrade costs, loot rules below.
+    {
+      const xpBar = document.getElementById("xp-bar");
+      rt.tickHud(0.016);
+      check(!!xpBar && xpBar.closest("#vitals") && xpBar.textContent.indexOf("Lv " + rt.session.level) === 0, "the vitals plaque shows level and experience (" + (xpBar && xpBar.textContent) + ")");
+      const levelWas = rt.session.level;
+      const xpWas = rt.session.xp;
+      const ptsWas = rt.session.skillPoints;
+      castLine.textContent = "";
+      grantXp(rt.session, xpToNext(rt.session.level) - rt.session.xp);
+      rt.tickHud(0.016);
+      check(rt.session.level === levelWas + 1 && castLine.textContent.indexOf("Level " + (levelWas + 1) + "!") === 0, "gaining a level says so on the cast line");
+      check(xpBar.textContent.indexOf("Lv " + (levelWas + 1)) === 0 && xpBar.textContent.indexOf("pt") > 0, "the bar shows the new level and the unspent point");
+      rt.session.level = levelWas;
+      rt.session.xp = xpWas;
+      rt.session.skillPoints = ptsWas;
+      rt.tickHud(0.016);
+      const ledgerLevel = rt.session.level;
+      castLine.textContent = "";
+      const highDoc = rt.captureSaveDoc();
+      highDoc.hero.level = ledgerLevel + 3;
+      rt.applySaveDoc(highDoc);
+      rt.tickHud(0.016);
+      check(castLine.textContent.indexOf("Level ") !== 0, "loading a higher-level ledger is not announced as a level-up");
+      rt.session.level = ledgerLevel;
+      rt.tickHud(0.016);
+
+      // Upgrade status in plain words.
+      const blade = { kind: "gear", slot: "weapon", ilvl: 2, themeId: 0, name: "Blade" };
+      const cost = upgradeCost(2, 0);
+      check(upgradeStatusText({ bestDepth: 2, purse: 999, materials: { heartwood: 9 } }, blade).indexOf("floor 3") >= 0, "the sheet says when an upgrade needs a deeper extract");
+      check(upgradeStatusText({ bestDepth: 5, purse: cost.gold, materials: { heartwood: 2 } }, blade).indexOf("now") >= 0, "the sheet says when Orrin can upgrade now");
+      check(upgradeStatusText({ bestDepth: 5, purse: 0, bank: 9999, materials: { heartwood: 2 } }, blade).indexOf("withdraw it at the Counting House") >= 0, "the sheet points at the bank when the gold is banked, not carried");
+
+      // The sheet itself.
+      rt.closePanel();
+      const sheet = document.getElementById("sheet");
+      rt.session.pack = [{ uid: "sheet-1", kind: "gear", slot: "head", rarity: 2, ilvl: 3, name: "Rare Moss Circlet", affixes: [{ id: "stout", t: 0.5 }] }];
+      tap("KeyC");
+      check(!!sheet && !sheet.hidden && rt.sheetOpen, "C opens the character sheet");
+      const text = sheet.textContent;
+      check(text.indexOf("Level ") >= 0 && text.indexOf("Purse") >= 0 && text.indexOf("Bank") >= 0 && text.indexOf("Heartwood") >= 0 && text.indexOf("Rare Moss Circlet") >= 0 && text.indexOf("Pack 1 / 24") >= 0, "the sheet lists level, gold, materials, and the pack");
+      check(text.indexOf("Weapon") >= 0 && text.indexOf("ilvl") >= 0 && text.indexOf("How loot works") >= 0, "the sheet lists worn gear and the loot rules");
+      check(getComputedStyle(sheet).fontFamily.toLowerCase().indexOf("sans-serif") < 0 && sheet.classList.contains("plaque"), "the sheet is a serif plaque");
+      rt.tickHud(0.016);
+      const guideNode = document.getElementById("guide");
+      check(!guideNode || guideNode.hidden, "the guide steps aside while the sheet is open");
+      tap("Escape");
+      check(sheet.hidden && !rt.sheetOpen, "Escape closes the sheet");
+      rt.session.pack = [];
+
+      // Below ground: the guide states the loot rules; pickups float their amount.
+      const depthWas = rt.session.bestDepth;
+      rt.session.bestDepth = 0;
+      rt.suspendCombat = true;
+      rt.startRun(11, 1);
+      rt.tickHud(0.016);
+      check(!guideNode.hidden && guideNode.textContent.indexOf("hold 4") >= 0, "below ground the guide explains extracting");
+      let floated = "";
+      const pushWas = rt.pushFloater;
+      rt.pushFloater = (t) => { floated = t; };
+      rt.questEvent({ type: "gold", amount: 7 });
+      rt.pushFloater = pushWas;
+      check(floated === "+7 gold", "picking up gold floats the amount (" + floated + ")");
+      rt.arriveTown("extract");
+      rt.suspendCombat = false;
+      rt.session.bestDepth = depthWas;
+      rt.tickHud(0.016);
     }
 
     // Day and night: noon is the locked palette; midnight is dark with lit windows.

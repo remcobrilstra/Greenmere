@@ -17,6 +17,7 @@ import { attachPanels } from "./ui/panels.js";
 import { attachBarks } from "./ui/barks.js";
 import { attachGuide } from "./ui/guide.js";
 import { attachQuestLog } from "./ui/questlog.js";
+import { attachCharacter } from "./ui/character.js";
 import { installSelfTest } from "./test/self-test.js";
 import { parseSave, migrate, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY } from "./sim/save.js";
 
@@ -119,6 +120,7 @@ attachTownfolk(rt);
 attachAmbience(rt);
 attachDialogue(rt);
 attachQuests(rt);
+attachCharacter(rt);
 attachPanels(rt);
 bindKeys(rt);
 bindOrbit(renderer.domElement, rt);
@@ -337,6 +339,7 @@ if (params.has("test")) {
   }
   // ?dev=1&open=store|smith|still|trainer|inn|bank opens that counter's panel.
   if (rt.dev && params.has("open")) {
+    if (params.get("open") === "sheet" && rt.openSheet) rt.openSheet();
     const st = (rt.stations || []).find((s) => s.panel === params.get("open"));
     if (st) rt.openPanel(st.panel, st);
   }

@@ -350,3 +350,24 @@ One-time and chained, unlocked by depth. Accepted and handed in at the keeper's 
 - **Combat / space:** confirm the `kill`, `floor`, and `extract` hook placement.
 - **Save:** schema 2 and the migration (`sim/save.js`).
 - **Balance:** reward sizes are placeholders built from `killGold` / `killXp`.
+
+## 14. Knowing what you carry
+
+Players could not see level, XP, gold, materials, or the pack outside a shop, and the loot rules (extract vs. death) were invisible.
+
+- **XP bar** (`src/ui/character.js`): a thin gold bar under health and mana, `Lv N · xp / next · points`.
+- **Level-ups** are announced on the cast line. Loading a ledger at a higher level is not announced.
+- **Character sheet**: press **C** or **I**, or click the portrait. It shows:
+  - level, XP to the next level, unspent points (and where to spend them), and the deepest extract;
+  - **purse**: what pays for things, marked "lost if you fall" below ground;
+  - **bank**: safe;
+  - the four materials: always kept;
+  - worn gear with item level, and for each piece the next upgrade in plain words: "needs an extract from floor N", "Orrin can take it to item level N now: 56 gold, 2 heartwood", or exactly what is missing. Upgrades pay from the **purse**; when the gold is only in the bank, the sheet says to withdraw it;
+  - the pack (lost on death) and stash count;
+  - the loot rules.
+- **Below ground**, the guide plaque (eyebrow "Below") states: take the stairs (F) deeper, or hold 4 standing still to extract with your loot; falling loses pack and purse. It shows while the deepest extract is under 3, and always when hurt below 35% while carrying loot.
+- **Pickup floaters**: "+7 gold", "+1 rootfiber" rise over the hero.
+
+The loot rules themselves are unchanged (spec DUN-06, DUN-07):
+- **Extract:** keeps pack and purse, and raises `bestDepth`.
+- **Death:** loses pack and purse; worn gear, materials, bank, stash, level, and points are kept.
