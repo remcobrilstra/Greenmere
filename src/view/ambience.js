@@ -105,7 +105,7 @@ export function buildHen(seed) {
   part(h, new THREE.BoxGeometry(0.03, 0.07, 0.08), 0xc4473a, 0, 0.12, 0, 0, 0, 0, rand);
   part(h, new THREE.ConeGeometry(0.025, 0.07, 4), 0xd4a03a, 0, 0.03, -0.09, -Math.PI / 2, 0, 0, rand);
   part(h, new THREE.BoxGeometry(0.025, 0.05, 0.03), 0xc4473a, 0, -0.03, -0.06, 0, 0, 0, rand);
-  head.add(meshOf(h));
+  head.add(meshOf(h, false));
   root.add(head);
   return { root, body: bodyMesh, head, kind: "hen" };
 }
@@ -141,7 +141,7 @@ function buildQuadruped(seed, coat, size, kind) {
     g.position.set(lx * hgt * 0.35, legH, lz * (len / 2 - 0.06));
     const l = [];
     part(l, new THREE.BoxGeometry(0.06, legH, 0.06), dark, 0, -legH / 2, 0, 0, 0, 0, rand);
-    g.add(meshOf(l));
+    g.add(meshOf(l, false));
     bodyGroup.add(g);
     legs.push(g);
   }
@@ -149,7 +149,7 @@ function buildQuadruped(seed, coat, size, kind) {
   tail.position.set(0, legH + hgt * 0.8, len / 2);
   const t = [];
   part(t, new THREE.CylinderGeometry(0.025, 0.035, kind === "cat" ? 0.42 : 0.3, 5), coat, 0, kind === "cat" ? 0.21 : 0.15, 0, 0, 0, 0, rand);
-  tail.add(meshOf(t));
+  tail.add(meshOf(t, false));
   tail.rotation.x = kind === "cat" ? 0.5 : 0.9;
   bodyGroup.add(tail);
   root.scale.setScalar(size);

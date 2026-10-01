@@ -351,9 +351,7 @@ export function attachPanels(rt) {
     }
     const session = rt.session;
     const pack = session && Array.isArray(session.pack) ? session.pack : [];
-    const stash = session && Array.isArray(session.stash) ? session.stash : [];
     const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
-    const bank = session ? Math.floor(Number(session.bank) || 0) : 0;
     while (panel.firstChild) panel.removeChild(panel.firstChild);
 
     panel.appendChild(el("p", "eyebrow", "Bramble & Board"));

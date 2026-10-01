@@ -66,7 +66,8 @@ export function buildVillager(look, seed) {
     const g = new THREE.Group();
     g.position.set(x, y, 0);
     const mesh = new THREE.Mesh(mergeParts(geoList), _mat);
-    mesh.castShadow = true;
+    // Limbs sit inside the body's shadow; skipping them halves the shadow draws.
+    mesh.castShadow = false;
     g.add(mesh);
     body.add(g);
     return g;
