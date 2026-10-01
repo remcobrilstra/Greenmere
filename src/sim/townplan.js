@@ -202,7 +202,7 @@ export const BUILDINGS = [
   {
     id: "inn",
     name: "The Banked Fire",
-    panel: null,
+    panel: "inn",
     x: 15, z: -20, yaw: -Math.PI / 4,
     w: 10, d: 8,
     upper: 2.6, jetty: 0.35, roofH: 2.4, roofColor: 0x5a3a24,
@@ -215,6 +215,7 @@ export const BUILDINGS = [
     sign: "tankard",
     stairs: { x: 4.1, z0: 2.9, z1: -2.8 },
     keeper: { id: "pell", name: "Pell", title: "innkeeper", x: 1.6, z: -2.55 },
+    station: { x: 1.6, z: -0.3 },
     furniture: [
       { type: "counter", x: 1.6, z: -1.65, w: 3.0, d: 0.8, h: 1.1 },
       { type: "kegs", x: 1.6, z: -3.45, w: 2.6, d: 0.7, h: 1.4 },
@@ -238,6 +239,35 @@ export const BUILDINGS = [
     ]
   }
 ];
+
+// The Counting House keeps the bank and the stash. Stone walls, its own road.
+BUILDINGS.push({
+  id: "bank",
+  name: "The Counting House",
+  panel: "bank",
+  style: "stone",
+  x: -14, z: 14, yaw: faceCenter(-14, 14),
+  w: 9, d: 7,
+  upper: 0, roofH: 2.4, roofColor: 0x2f363e,
+  chimneys: [{ x: 3.0, z: -2.4 }],
+  doors: [{ side: "front", at: 0 }],
+  windows: [{ side: "front", at: -2.7 }, { side: "front", at: 2.7 }, { side: "left", at: -0.6 }, { side: "right", at: 0.6 }],
+  sign: "key",
+  roadTo: [-6.0, 7.6],
+  keeper: { id: "aldous", name: "Aldous Penn", title: "banker", x: 0, z: -1.6 },
+  station: { x: 0, z: 0.55 },
+  furniture: [
+    { type: "bankCounter", x: 0, z: -0.7, w: 4.0, d: 0.7, h: 1.15 },
+    { type: "vault", x: 0, z: -3.3, w: 1.8, d: 0.12, h: 2.4, walk: true },
+    { type: "chest", x: -2.9, z: -2.6, w: 1.0, d: 0.55, h: 0.6 },
+    { type: "chest", x: 2.9, z: -2.6, w: 1.0, d: 0.55, h: 0.6 },
+    { type: "coffer", x: 1.3, z: -0.7, w: 0.5, d: 0.35, h: 1.15, walk: true },
+    { type: "shelf", x: -4.0, z: 0.6, yaw: Math.PI / 2, w: 2.4, d: 0.4, h: 2.2 },
+    { type: "table", x: 3.0, z: 1.7, w: 1.2, d: 0.8, h: 0.85, goods: true },
+    { type: "rug", x: 0, z: 1.9, w: 2.6, d: 1.6, h: 0.02, walk: true },
+    { type: "trophy", x: -2.0, z: -3.3, w: 1.0, d: 0.2, h: 2.4, walk: true, tier: 3 }
+  ]
+});
 
 const COTTAGE_SPOTS = [
   [-29, 9, 0x6e2e28], [29, 10, 0x2f363e], [-19, 27, 0x5a3a24],
@@ -542,7 +572,7 @@ function buildRoads() {
     const d = b.doors[0];
     const lp = doorPoint(b, d, 0.6);
     const p = localToWorld(b, lp.x, lp.z);
-    const q = toSquare(p);
+    const q = b.roadTo ? { x: b.roadTo[0], z: b.roadTo[1] } : toSquare(p);
     roads.push({ ax: p.x, az: p.z, bx: q.x, bz: q.z, w: 2.6 });
   }
   for (let i = 0; i < COTTAGES.length; i++) {
@@ -561,7 +591,7 @@ export const ROADS = buildRoads();
 export const PROPS = [
   { type: "well", x: -5.2, z: 3.6, r: 1.0 },
   { type: "stall", x: -6.9, z: -4.6, yaw: faceCenter(-6.9, -4.6), w: 2.6, d: 1.4, awning: 0xb64034 },
-  { type: "stall", x: -7.4, z: 4.9 + 1.4, yaw: faceCenter(-7.4, 6.3), w: 2.6, d: 1.4, awning: 0x2d62c8 },
+  { type: "stall", x: -8.2, z: 5.0, yaw: faceCenter(-8.2, 5.0), w: 2.6, d: 1.4, awning: 0x2d62c8 },
   { type: "stall", x: 7.0, z: 5.4, yaw: faceCenter(7.0, 5.4), w: 2.6, d: 1.4, awning: 0xd4a03a },
   { type: "bench", x: -3.4, z: 8.2, yaw: 0, w: 2.0, d: 0.55 },
   { type: "bench", x: 3.4, z: 8.2, yaw: 0, w: 2.0, d: 0.55 },

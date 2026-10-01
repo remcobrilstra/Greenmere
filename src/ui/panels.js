@@ -9,7 +9,7 @@ export const BUYBACK_CAP = 8;
 export const DRAUGHT_PRICE = 25;
 export const DRAUGHT_STACK = 20;
 export const DRAUGHT_HEAL = 45;
-const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still" };
+const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still", bank: "The Counting House", inn: "The Banked Fire" };
 const RARITY_EDGE = ["#e7d7b4", "#8ed15a", "#7eb6ef", "#d4a03a"];
 
 export function vendorValue(item) {
@@ -144,9 +144,79 @@ export function attachPanels(rt) {
     btn.classList.add("deny");
   }
 
+  // Keeper name, then what they are saying, with a control to hear more.
   function keeperLine() {
     const st = rt.panelStation;
     if (st && st.keeperLine) panel.appendChild(el("p", "panel-line keeper", st.keeperLine));
+    const talk = rt.keeperTalk ? rt.keeperTalk(panelKind, false) : null;
+    if (!talk || !talk.line) return;
+    panel.appendChild(el("p", "panel-talk", "\u201c" + talk.line + "\u201d"));
+    const row = el("div", "row");
+    row.appendChild(button("talk", talk.index + 1 < talk.count ? "Ask more" : "Start over"));
+    panel.appendChild(row);
+  }
+
+  function renderInn() {
+    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    panel.appendChild(el("p", "eyebrow", "The Banked Fire"));
+    keeperLine();
+    const night = rt.townClock ? rt.townClock.phase : 0.5;
+    const late = night < 0.24 || night >= 0.7;
+    panel.appendChild(el("p", "section-label", "Rooms"));
+    const row = el("div", "row");
+    row.appendChild(button("rest", late ? "Take a room until morning" : "Rest by the fire until evening"));
+    panel.appendChild(row);
+    panel.appendChild(button("close", "Close"));
+  }
+
+  // The Counting House: gold between purse and bank, gear between pack and stash.
+  function renderBank() {
+    const session = rt.session;
+    const pack = session && Array.isArray(session.pack) ? session.pack : [];
+    const stash = session && Array.isArray(session.stash) ? session.stash : [];
+    const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
+    const bank = session ? Math.floor(Number(session.bank) || 0) : 0;
+    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    panel.appendChild(el("p", "eyebrow", "The Counting House"));
+    keeperLine();
+    panel.appendChild(el("p", "panel-line", "Purse " + purse + "  \u00b7  Bank " + bank));
+    const bankRow = el("div", "row");
+    const input = document.createElement("input");
+    input.id = "panel-amount";
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = amountDraft;
+    input.setAttribute("aria-label", "Gold to move");
+    input.placeholder = "Gold";
+    input.spellcheck = false;
+    bankRow.appendChild(input);
+    bankRow.appendChild(button("deposit", "Deposit"));
+    bankRow.appendChild(button("withdraw", "Withdraw"));
+    panel.appendChild(bankRow);
+    panel.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP));
+    if (!pack.length) panel.appendChild(el("p", "panel-empty", "The pack is empty."));
+    for (let i = 0; i < pack.length; i++) {
+      const item = pack[i];
+      const row = el("div", "slot pack-row");
+      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
+      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
+      row.appendChild(el("span", "name", itemLabel(item)));
+      row.appendChild(button("stash", "Stash", { "data-index": String(i) }));
+      panel.appendChild(row);
+    }
+    panel.appendChild(el("p", "section-label", "Stash " + stash.length + " / " + STASH_CAP));
+    if (!stash.length) panel.appendChild(el("p", "panel-empty", "The stash is empty."));
+    for (let i = 0; i < stash.length; i++) {
+      const item = stash[i];
+      const row = el("div", "slot pack-row");
+      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
+      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
+      row.appendChild(el("span", "name", itemLabel(item)));
+      row.appendChild(button("pack", "To pack", { "data-index": String(i) }));
+      panel.appendChild(row);
+    }
+    panel.appendChild(button("close", "Close"));
   }
 
   function recipeRows(station) {
@@ -271,6 +341,14 @@ export function attachPanels(rt) {
       renderStill();
       return;
     }
+    if (panelKind === "bank") {
+      renderBank();
+      return;
+    }
+    if (panelKind === "inn") {
+      renderInn();
+      return;
+    }
     const session = rt.session;
     const pack = session && Array.isArray(session.pack) ? session.pack : [];
     const stash = session && Array.isArray(session.stash) ? session.stash : [];
@@ -280,27 +358,12 @@ export function attachPanels(rt) {
 
     panel.appendChild(el("p", "eyebrow", "Bramble & Board"));
     keeperLine();
-    panel.appendChild(el("p", "panel-line", "Purse " + purse + "  ·  Bank " + bank));
+    panel.appendChild(el("p", "panel-line", "Purse " + purse));
 
     const buyRow = el("div", "row");
     buyRow.appendChild(button("buy-hp", "Health draught · " + DRAUGHT_PRICE));
     buyRow.appendChild(button("buy-mp", "Mana draught · " + DRAUGHT_PRICE));
     panel.appendChild(buyRow);
-
-    const bankRow = el("div", "row");
-    const input = document.createElement("input");
-    input.id = "panel-amount";
-    input.type = "number";
-    input.min = "1";
-    input.step = "1";
-    input.value = amountDraft;
-    input.setAttribute("aria-label", "Gold to move");
-    input.placeholder = "Gold";
-    input.spellcheck = false;
-    bankRow.appendChild(input);
-    bankRow.appendChild(button("deposit", "Deposit"));
-    bankRow.appendChild(button("withdraw", "Withdraw"));
-    panel.appendChild(bankRow);
 
     panel.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP));
     if (!pack.length) panel.appendChild(el("p", "panel-empty", "The pack is empty."));
@@ -319,7 +382,6 @@ export function attachPanels(rt) {
       }
       if (isGear(item) && item.slot) row.appendChild(button("equip", "Equip", { "data-index": String(i) }));
       if (isGear(item)) row.appendChild(button("sell", "Sell · " + sellValue(item), { "data-index": String(i) }));
-      row.appendChild(button("stash", "Stash", { "data-index": String(i) }));
       panel.appendChild(row);
     }
 
@@ -336,18 +398,6 @@ export function attachPanels(rt) {
       const label = wornLabel[key] + " · " + (item ? itemLabel(item) : "Empty");
       row.appendChild(el("span", "name", label.slice(0, 80)));
       if (item) row.appendChild(button("unequip", "Unequip", { "data-slot": key }));
-      panel.appendChild(row);
-    }
-
-    panel.appendChild(el("p", "section-label", "Stash " + stash.length + " / " + STASH_CAP));
-    if (!stash.length) panel.appendChild(el("p", "panel-empty", "The stash is empty."));
-    for (let i = 0; i < stash.length; i++) {
-      const item = stash[i];
-      const row = el("div", "slot pack-row");
-      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
-      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
-      row.appendChild(el("span", "name", itemLabel(item)));
-      row.appendChild(button("pack", "To pack", { "data-index": String(i) }));
       panel.appendChild(row);
     }
 
@@ -422,6 +472,16 @@ export function attachPanels(rt) {
     const index = btn.hasAttribute("data-index") ? Number(btn.getAttribute("data-index")) : -1;
     if (act === "close") {
       closePanel();
+      return;
+    }
+    if (act === "talk") {
+      if (rt.keeperTalk) rt.keeperTalk(panelKind, true);
+      render();
+      return;
+    }
+    if (act === "rest") {
+      if (rt.restAtInn) rt.restAtInn();
+      render();
       return;
     }
     if (act === "raise") {
@@ -567,6 +627,7 @@ export function attachPanels(rt) {
       rt.panelStation = home || rt.panelStation;
     }
     rt.panelOpen = true;
+    if (rt.resetTalk) rt.resetTalk(kind);
     panel.setAttribute("aria-label", PANEL_TITLES[kind]);
     placePanel();
     panel.hidden = false;

@@ -8,11 +8,13 @@ import { attachTown } from "./play/town.js";
 import { attachInteriors } from "./play/interiors.js";
 import { attachTownfolk } from "./play/townfolk.js";
 import { attachAmbience } from "./play/ambience.js";
+import { attachDialogue } from "./play/dialogue.js";
 import { attachCombat } from "./play/combat.js";
 import { attachSpace } from "./play/space.js";
 import { attachHud } from "./ui/hud.js";
 import { attachPanels } from "./ui/panels.js";
 import { attachBarks } from "./ui/barks.js";
+import { attachGuide } from "./ui/guide.js";
 import { installSelfTest } from "./test/self-test.js";
 import { parseSave, migrate, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY } from "./sim/save.js";
 
@@ -102,12 +104,14 @@ camera.updateProjectionMatrix();
 
 attachHud(rt);
 attachBarks(rt);
+attachGuide(rt);
 attachCombat(rt);
 attachSpace(rt);
 attachTown(rt);
 attachInteriors(rt);
 attachTownfolk(rt);
 attachAmbience(rt);
+attachDialogue(rt);
 attachPanels(rt);
 bindKeys(rt);
 bindOrbit(renderer.domElement, rt);
@@ -323,6 +327,11 @@ if (params.has("test")) {
       rt.camDist = cam[2];
     }
     rt.placeCamera(0, true);
+  }
+  // ?dev=1&open=store|smith|still|trainer|inn|bank opens that counter's panel.
+  if (rt.dev && params.has("open")) {
+    const st = (rt.stations || []).find((s) => s.panel === params.get("open"));
+    if (st) rt.openPanel(st.panel, st);
   }
   requestAnimationFrame(frame);
 }

@@ -4,7 +4,7 @@
 |---|---|
 | Owner | Town / hub |
 | Date | 2026-10-01 |
-| Status | Phases 1–3 implemented; 4 planned |
+| Status | Phases 1–4 implemented |
 | Extends | `docs/greenmere-town-and-underwood.md` (HUB-*, ART-*), `docs/structure.md` |
 
 The current town is five props on a 14 m clearing. The houses are 2.35 m tall, about the Warden's height, and the spec calls them "exterior obstacles, not interiors". This document replaces that with a **life-size town you can walk into**. Every service has its own building and its own keeper behind a counter, and townsfolk walk the streets. Between delves the town is where the player turns dungeon materials into gear, distills draughts, trains, and shops.
@@ -48,6 +48,7 @@ North is −z. The town core (radius 36) is perfectly flat at y = 0. Hills blend
 | Place | Center | Faces | Footprint (w×d) | Role |
 |---|---|---|---|---|
 | Hearth Square | (0, 0) | — | cobble disc r 10 | Bonfire stays at (3.4, −2.6). Well, benches, market stalls, notice board |
+| The Counting House | (−14, 14) | toward the square | 9 × 7, stone | Bank and stash (Phase 4) |
 | Delve Gate | (0, −36) | south | arch 3.2 × 3.6 opening | Only exit. Descent disc at (0, −34.2) |
 | Town arrival | (0, −27) | yaw π (into town) | — | Extract and death land here |
 | Bramble & Board | (−18, −2) | east | 11 × 8 | General store: buy, sell, buyback, stash, bank |
@@ -174,6 +175,7 @@ The forest stays instanced and untouched in count.
 | Terrain | Meadow blend 12 → 30 | Flat core to 36, blend to 64 |
 | Forest | Clear inside radius 14 | Clear inside radius 44. Count still 3,050 |
 | Smith recipes | All four recipes at the Quench | Draughts at The Still, oil and kit at the Quench |
+| HUB-04 | The store moves gear to the stash and gold to the bank | Bramble & Board buys, sells, and buys back. The Counting House moves gold between purse and bank and gear between pack and stash, with the same caps and rules |
 | `docs/structure.md` file table | — | Adds `src/sim/townplan.js`, `src/sim/townfolk.js`, `src/view/buildings.js`, `src/view/townfolk.js`, `src/play/interiors.js`, `src/play/townfolk.js`, `src/ui/barks.js` |
 
 HUB-08 (no town construction) still holds: nothing here lets the player build.
@@ -197,7 +199,7 @@ HUB-08 (no town construction) still holds: nothing here lets the player build.
 | **1. The place** | `townplan.js`, flat core, life-size enterable buildings for all five services plus cottages, OBB colliders, floor grounding, roof and wall cutaway, indoor camera, interior light, The Still panel, roads, square, minimap buildings, test updates | done |
 | **2. The people** | Keepers at counters, 10 wanderers on the waypoint graph, hero/NPC collision, barks, keeper line in panels | done |
 | **3. The life** | Day and night, lit windows and lanterns, chimney smoke, seated patrons and bench sitters, open cottages with fenced yards, hens, two cats and a dog, walkable upper floors in the store and the inn, the town growing with depth | done |
-| 4. The depth | Keeper dialogue plaque (greeting, rumours, tutorial hints by progress), split bank and stash into a Counting House, keeper reactions to milestones (`bestDepth`), new-player guide line | later |
+| **4. The depth** | Keeper talk in every panel (greeting by hour, milestone by depth, service hint, rumours, combat counsel), the inn's counter with rooms, the Counting House (bank and stash), villagers who answer F, the guide plaque with a minimap pin | done |
 
 ## 10a. Implementation notes
 
@@ -259,3 +261,27 @@ All four open questions were answered **yes**. Phase 3 implements each one.
   - `&level=1`: start upstairs with `&at`.
   - `&warp=S`: run S seconds of town life before showing. Headless Chrome's frame clock does not advance, so screenshots use this.
 - **Measured:** `?test=1` is 624 checks, all passing.
+
+## 12. Phase 4: the depth
+
+- **Lore:** `src/sim/townlore.js` is pure. `loreState(session, phase)` takes a snapshot of depth, level, points, purse, bank, stash, materials, spare gear, draughts and the weapon's item level. `talkLines(keeper, state)` returns each keeper's lines in order:
+  1. a greeting by part of day (morning, day, evening, night);
+  2. a milestone line by `bestDepth` bracket;
+  3. a hint for their own trade (sell spare gear; how far Orrin can temper the blade and for how much; Sister Wen's draughts; unspent points; a heavy purse).
+
+  Pell adds rumours: the next floor's theme and the next boss floor. Old Tamsin adds counsel on what the next floors bring (spitters at 2, brutes at 3, shades at 6, boss every 5th). Aldous adds the balance. Nothing is saved: every line is derived from state.
+- **Panels:** every keeper panel shows the current line under the keeper's name, with **Ask more** to cycle. Reopening starts at the greeting again.
+- **The Banked Fire:** now a station (`inn` panel). Pell talks, and offers a room: at evening or night you sleep until morning; by day you doze until evening. Either way your pools refill.
+- **The Counting House:** a stone building (`style: "stone"`: ashlar walls and corner quoins instead of half-timbering) with a brass-grilled counter, a vault door and strongboxes, run by Aldous Penn. Deposit, withdraw, stash and to-pack moved here from Bramble & Board, with the same caps and refusals.
+- **Villagers:** with no counter in reach, F beside a wanderer shows `F — Talk to {name}` and they answer with a bark.
+- **Guide:** `guideHint(state)` picks one next step and the station it concerns, in this priority:
+  1. the gate, for a brand-new Warden;
+  2. The Circle, for unspent points;
+  3. The Still, for materials and few draughts;
+  4. Bramble & Board, for spare gear;
+  5. the Counting House, for a purse of 100 or more;
+  6. The Quench, when an affordable upgrade is unlocked.
+
+  `src/ui/guide.js` shows it in a small plaque under the minimap, and the minimap draws a gold pin at the target (clamped to the rim when it is off the map). The guide goes quiet within 5 m of the target or inside its building, and in the dungeon.
+- **Dev:** `?dev=1&open=bank` (or any panel kind) opens that counter's panel.
+- **Measured:** `?test=1` is 658 checks, all passing.

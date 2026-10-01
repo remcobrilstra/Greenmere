@@ -46,6 +46,7 @@ import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
 import { KEEPERS, WANDERERS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter } from "../sim/townfolk.js";
 import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
+import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
 import { BUILDINGS, COTTAGES, GATE, HEARTH, TOWN_ARRIVAL, FLOOR_Y, WALL_T, stationWorld, localToWorld, worldToLocal, doorPoint, wallBoxes, buildingAt } from "../sim/townplan.js";
 import { affixDef, gearTotals, lootRng, materialDropCount, rollGearDrop, tryCraft, tryUpgrade } from "../sim/items.js";
 
@@ -295,7 +296,7 @@ export function installSelfTest(rt) {
       const sp = stationWorld(bd);
       stationPlace.push([bd.name, sp.x, sp.z]);
     }
-    check(stationPlace.length === 6, "six stations: hearth, gate, store, smith, still, circle (" + stationPlace.length + ")");
+    check(stationPlace.length === 8, "eight stations: hearth, gate, store, smith, still, circle, inn, counting house (" + stationPlace.length + ")");
     check(rt.townRoot && rt.terrain.parent === rt.townRoot, "townRoot contains the terrain");
     for (let i = 0; i < stationPlace.length; i++) {
       const [name] = stationPlace[i];
@@ -529,6 +530,106 @@ export function installSelfTest(rt) {
       rt.syncTownTier();
       maud.toldTier = 0;
       rt.resetInterior();
+    }
+
+    // Phase 4: keepers talk, the inn rents rooms, the Counting House keeps gold and gear, a guide points the way.
+    {
+      const panelNode = document.getElementById("panel");
+      // Pure lore.
+      const fresh = loreState({ level: 1, bestDepth: 0, skillPoints: 0, materials: {}, pack: [], stash: [], purse: 0, bank: 0 }, 0.5);
+      check(guideHint(fresh).target === "gate", "a new Warden is pointed at the Delve Gate");
+      check(guideHint(Object.assign({}, fresh, { points: 2, bestDepth: 2, level: 3 })).target === "trainer", "unspent points point at The Circle");
+      check(guideHint(Object.assign({}, fresh, { heartwood: 2, bestDepth: 1 })).target === "still", "heartwood in hand points at The Still");
+      check(guideHint(Object.assign({}, fresh, { purse: 140, bestDepth: 1 })).target === "bank", "a heavy purse points at the Counting House");
+      check(rumour({ bestDepth: 4 })[0].indexOf("floor 5") >= 0 && themeOf(5).name === "Moss" && themeOf(4).name === "Ember", "rumours name the next floor and its theme");
+      const orrinLines = talkLines("orrin", Object.assign({}, fresh, { part: "night" }));
+      check(orrinLines.length >= 3 && orrinLines[0].indexOf("sleep") >= 0, "Orrin greets by the hour and has more to say");
+      check(talkLines("tamsin", fresh).some((l) => l.indexOf("Spitters") >= 0), "Old Tamsin warns of what the next floors bring");
+
+      // Store no longer banks; the Counting House does, with Aldous at the grille.
+      rt.openPanel("store", stationNamed("Bramble & Board"));
+      check(!panelNode.querySelector('[data-act="deposit"]') && !panelNode.querySelector('[data-act="stash"]') && !!panelNode.querySelector('[data-act="buy-hp"]'), "Bramble & Board sells, but no longer banks or stashes");
+      check(!!panelNode.querySelector(".panel-talk") && panelNode.querySelector(".panel-talk").textContent.length > 4, "Maud says something when the panel opens");
+      const bank = stationNamed("The Counting House");
+      check(!!bank && bank.panel === "bank", "the Counting House is a station");
+      if (bank) {
+        player.position.set(bank.x, 0, bank.z);
+        rt.update(0.016);
+        rt.refreshTownPrompt();
+        check(castLine.textContent === "F — The Counting House", "cast line is F — The Counting House at the grille");
+        tap("KeyF");
+        check(!panelNode.hidden && panelNode.querySelector(".eyebrow").textContent === "The Counting House" && panelNode.textContent.indexOf("Aldous Penn") >= 0 && !!panelNode.querySelector('[data-act="deposit"]') && !panelNode.querySelector('[data-act="sell"]'), "F at the grille opens the Counting House with Aldous");
+      }
+      // Talking cycles through the keeper's lines and wraps.
+      rt.openPanel("smith", stationNamed("The Quench"));
+      const first = panelNode.querySelector(".panel-talk").textContent;
+      const ask = panelNode.querySelector('[data-act="talk"]');
+      if (ask) ask.click();
+      const second = panelNode.querySelector(".panel-talk").textContent;
+      check(!!ask && first !== second, "Ask more moves Orrin to his next line");
+      for (let k = 0; k < 8; k++) {
+        const more = panelNode.querySelector('[data-act="talk"]');
+        if (more) more.click();
+      }
+      check(!!panelNode.querySelector(".panel-talk"), "talk wraps around without emptying the plaque");
+      rt.openPanel("smith", stationNamed("The Quench"));
+      check(panelNode.querySelector(".panel-talk").textContent === first, "reopening a panel starts with the greeting again");
+      // The inn: talk and rest.
+      const inn = stationNamed("The Banked Fire");
+      check(!!inn && inn.panel === "inn", "the Banked Fire has a counter");
+      rt.townClock.phase = 0.9;
+      rt.openPanel("inn", inn);
+      const rest = panelNode.querySelector('[data-act="rest"]');
+      check(!!rest && rest.textContent.indexOf("morning") >= 0 && panelNode.textContent.indexOf("Pell") >= 0, "at night Pell offers a room until morning");
+      if (rest) rest.click();
+      check(Math.abs(rt.townClock.phase - 0.3) < 1e-9 && castLine.textContent.indexOf("morning") >= 0, "a night's rest wakes the hero in the morning");
+      rt.townClock.phase = 0.5;
+      applyTownTime(scene, rt, 0.5, rt.nightMats);
+      rt.closePanel();
+
+      // The guide plaque and its minimap pin.
+      const sessionWas = { bestDepth: rt.session.bestDepth, level: rt.session.level, skillPoints: rt.session.skillPoints, pack: rt.session.pack, materials: Object.assign({}, rt.session.materials), purse: rt.session.purse };
+      rt.session.bestDepth = 0;
+      rt.session.level = 1;
+      rt.session.skillPoints = 0;
+      rt.session.pack = [];
+      rt.session.materials = { heartwood: 0, rootfiber: 0, slag: 0, emberglass: 0 };
+      rt.session.purse = 0;
+      player.position.set(0, 0, 0);
+      rt.tickGuide(0, true);
+      rt.tickHud(0.016);
+      const guideNode = document.getElementById("guide");
+      check(!!rt.guide && rt.guide.target === "gate" && Math.abs(rt.guide.z - GATE.z) < 1e-9 && !!guideNode && !guideNode.hidden && guideNode.textContent.indexOf("Delve Gate") >= 0, "the guide plaque points a new Warden at the gate");
+      const guideFont = getComputedStyle(guideNode).fontFamily.toLowerCase();
+      check(guideNode.classList.contains("plaque") && guideFont.indexOf("sans-serif") < 0, "the guide is a serif plaque");
+      player.position.set(GATE.x, 0, GATE.z + 3);
+      rt.tickGuide(0, true);
+      rt.tickHud(0.016);
+      check(rt.guide === null && guideNode.hidden, "the guide goes quiet at its target");
+      rt.session.bestDepth = sessionWas.bestDepth;
+      rt.session.level = sessionWas.level;
+      rt.session.skillPoints = sessionWas.skillPoints;
+      rt.session.pack = sessionWas.pack;
+      rt.session.materials = sessionWas.materials;
+      rt.session.purse = sessionWas.purse;
+
+      // A villager answers F when no counter is in reach.
+      const walker = rt.townfolk.find((f) => f.kind === "walker");
+      rt.townfolkSolid = true;
+      walker.w.mode = "linger";
+      walker.w.t = 30;
+      player.position.set(walker.x + 1.0, 0, walker.z);
+      rt.update(0.016);
+      player.position.set(walker.x + 1.0, 0, walker.z);
+      rt.refreshTownPrompt();
+      const offered = castLine.textContent;
+      if (rt.barks) rt.barks.clear();
+      tap("KeyF");
+      check(offered === "F — Talk to " + walker.name && rt.barks.has(walker.id) && rt.barks.text(walker.id).indexOf(walker.name) === 0, "F beside " + walker.name + " starts a word with them (" + offered + ")");
+      rt.townfolkSolid = false;
+      rt.barks.clear();
+      resetHero(0, 0, 0);
+      rt.refreshTownPrompt();
     }
 
     // Day and night: noon is the locked palette; midnight is dark with lit windows.
@@ -1843,7 +1944,7 @@ export function installSelfTest(rt) {
 
     rt.session.purse = 10;
     rt.session.bank = 3;
-    rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
+    rt.openPanel("bank", stationNamed("The Counting House"));
     const poorDeposit = panel.querySelector('[data-act="deposit"]');
     const amount = panel.querySelector("#panel-amount");
     if (amount) amount.value = "40";
@@ -1851,7 +1952,7 @@ export function installSelfTest(rt) {
     check(rt.session.purse === 10 && rt.session.bank === 3 && !!poorDeposit && poorDeposit.classList.contains("deny"), "a short purse does not deposit");
     rt.session.purse = 90;
     rt.session.bank = 10;
-    rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
+    rt.openPanel("bank", stationNamed("The Counting House"));
     const deposit = panel.querySelector('[data-act="deposit"]');
     const amount40 = panel.querySelector("#panel-amount");
     if (amount40) amount40.value = "40";
@@ -1865,7 +1966,7 @@ export function installSelfTest(rt) {
 
     rt.session.pack = gearList(1, "mv");
     rt.session.stash = [];
-    rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
+    rt.openPanel("bank", stationNamed("The Counting House"));
     const toStash = panel.querySelector('[data-act="stash"]');
     if (toStash) toStash.click();
     check(rt.session.pack.length === 0 && rt.session.stash.length === 1 && rt.session.stash[0].uid === "mv-0", "gear moves from the pack into the stash");
@@ -1875,7 +1976,7 @@ export function installSelfTest(rt) {
 
     rt.session.stash = gearList(48, "st");
     rt.session.pack = gearList(1, "extra");
-    rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
+    rt.openPanel("bank", stationNamed("The Counting House"));
     const overStash = panel.querySelector('[data-act="stash"]');
     if (overStash) overStash.click();
     check(rt.session.stash.length === 48 && rt.session.pack.length === 1 && rt.session.pack[0].uid === "extra-0", "stash cannot exceed 48");
@@ -1883,7 +1984,7 @@ export function installSelfTest(rt) {
 
     rt.session.pack = gearList(24, "pk");
     rt.session.stash = gearList(1, "back");
-    rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
+    rt.openPanel("bank", stationNamed("The Counting House"));
     const overPack = panel.querySelector('[data-act="pack"]');
     if (overPack) overPack.click();
     check(rt.session.pack.length === 24 && rt.session.stash.length === 1, "pack cannot exceed 24");

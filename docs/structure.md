@@ -61,6 +61,9 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/ui/barks.js` | Town | Speech plaques above townsfolk. |
 | `src/view/ambience.js` | Town | Chimney smoke (instanced), hen, cat, and dog meshes, `poseAnimal`. |
 | `src/play/ambience.js` | Town | Ticks smoke, hens, and pets. |
+| `src/sim/townlore.js` | Town | Keeper lines, rumours, counsel, `guideHint`. Pure. |
+| `src/play/dialogue.js` | Town | Talk cycling per keeper, inn rest, guide target. |
+| `src/ui/guide.js` | Town | The guide plaque under the minimap. |
 
 ## Rules
 

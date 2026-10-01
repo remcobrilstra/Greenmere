@@ -317,6 +317,30 @@ export function attachHud(rt) {
     }
   }
 
+  // Gold pin for the guide's target; clamped to the rim when it is off the map.
+  function drawGuidePin(ctx, c) {
+    const g = rt.guide;
+    if (!g || g.x == null || rt.space !== "town") return;
+    const m = worldToMap(g.x, g.z);
+    let dx = m.x - c;
+    let dy = m.y - c;
+    const rim = c - 18;
+    const d = Math.hypot(dx, dy);
+    if (d > rim) {
+      dx = dx / d * rim;
+      dy = dy / d * rim;
+    }
+    ctx.save();
+    ctx.translate(c + dx, c + dy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = "#e2ba60";
+    ctx.strokeStyle = "#3a2416";
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(-4, -4, 8, 8);
+    ctx.strokeRect(-4, -4, 8, 8);
+    ctx.restore();
+  }
+
   function drawMinimap() {
     const ctx = mapCtx;
     const { S, c, scale } = mapMetrics();
@@ -385,6 +409,7 @@ export function attachHud(rt) {
       }
     }
 
+    if (!inDungeon) drawGuidePin(ctx, c);
     ctx.save();
     ctx.translate(c, c);
     ctx.rotate(cameraMapAngle());

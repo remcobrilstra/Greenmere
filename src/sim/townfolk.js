@@ -17,6 +17,7 @@ export const KEEPERS = [
   { id: "orrin", building: "smith", role: "smith", look: { tunic: 0x5a3a24, trim: 0x2c3036, skin: 0xc68a5c, hair: 0x2a1c14, hat: "none", apron: 0x3a2416, beard: true, height: 1.04 } },
   { id: "wen", building: "still", role: "distiller", look: { tunic: 0x3e6e4a, trim: 0xd4a03a, skin: 0xe8b88a, hair: 0xd8d0c0, hat: "hood", height: 0.92 } },
   { id: "tamsin", building: "trainer", role: "trainer", look: { tunic: 0x2f363e, trim: 0xd4a03a, skin: 0xb07a50, hair: 0xe0e0e0, hat: "none", beard: true, height: 0.98 } },
+  { id: "aldous", building: "bank", role: "banker", look: { tunic: 0x2f363e, trim: 0xd4a03a, skin: 0xe8b88a, hair: 0xb8b2a4, hat: "cap", height: 0.97 } },
   { id: "pell", building: "inn", role: "innkeeper", look: { tunic: 0xb64034, trim: 0xe7d7b4, skin: 0xe0a878, hair: 0x5a3a24, hat: "cap", apron: 0xf4e7c8, height: 1.0 } }
 ];
 
@@ -38,6 +39,7 @@ export const BARKS = {
   smith: ["Mind the sparks.", "Bring me slag and I'll make it sing.", "That blade's seen the Underwood. I can tell."],
   distiller: ["Heartwood for the red, rootfiber for the blue.", "Breathe slow. The still is temperamental.", "A draught in hand beats a prayer underground."],
   trainer: ["Stand in the circle when you're ready.", "Strength is a habit, Warden.", "The stones remember every oath."],
+  banker: ["Every coin is counted. Twice.", "The vault was built by dwarves. Allegedly.", "Leave what you can't afford to lose."],
   innkeeper: ["Fire's banked, ale's cold.", "Sit a while. The wood isn't going anywhere.", "Heard the deep floors are getting louder."],
   folk: ["Morning, Warden.", "Back from the gate already?", "Fine day for it.", "The well water tastes of moss again.", "Is it true there's no bottom down there?", "Mind the cart.", "Smells like the smithy's busy.", "You look like you could use a draught."]
 };
@@ -48,6 +50,7 @@ export const BARKS_TIER = {
   smith: ["", "Bought a second anvil on the strength of your slag.", "Built a stand for the good mail. Nothing in Greenmere fit it before.", "Hung a shard from floor ten on the wall. Still warm."],
   distiller: ["", "Drying racks are full. The deep roots are potent.", "A new alembic. Finer draughts, steadier hands.", "The crystal you brought hums at night. I like it."],
   trainer: ["", "Hung the old banners again. The Circle remembers its wardens.", "Two more dummies. The young ones want to learn your stance.", "There's a trophy on the wall with your name. Earn the next one."],
+  banker: ["", "Deposits are up. I've hired a second clerk.", "The vault is fuller than it has been in a generation.", "There's a relic in my vault now. It hums. I don't like it."],
   innkeeper: ["", "Bunting's up. Folk drink more when there's a hero in town.", "Full house most nights now, thanks to you.", "That's a trophy over my fire, Warden. Don't let it be the last."],
   folk: ["", "The square looks bright, doesn't it?", "Market's busier since you went deep.", "They've raised a statue. Looks a bit like you."]
 };
@@ -172,8 +175,11 @@ function buildNodes() {
       node(n, ap.x, ap.z, "drink", yaw, "inn", { x: sp.x, z: sp.z, yaw, h: 0.45 + FLOOR_Y, sitDrink: true });
     }
   }
-  inBuilding(n, "trainer", -3.0, -1.2, "train", -1, -1);
-  inBuilding(n, "trainer", 3.0, -1.2, "train", 1, -1);
+  inBuilding(n, "trainer", -3.4, -1.0, "train", -1, -1);
+  inBuilding(n, "trainer", 3.4, -1.0, "train", 1, -1);
+  inBuilding(n, "trainer", -3.2, 3.2, "hall");
+  inBuilding(n, "trainer", 3.2, 3.2, "hall");
+  inBuilding(n, "bank", 1.4, 1.1, "shop", 0, -1);
   inBuilding(n, "still", 1.6, 2.4, "shop", 0, -1);
   // Homes: inside by the hearth, the doorstep in the yard, and the yard gate.
   for (const c of COTTAGES) {
@@ -186,12 +192,13 @@ function buildNodes() {
     node(n, g.x, g.z, "path");
   }
   // Connectors between the square, the homes, and the service doors.
-  const links = [[-12, 9], [12, 9], [-14, 13], [14, 13], [-22, 2], [22, 2], [-8, 14], [8, 14], [-21, -11], [21, -10], [-7, -14], [7, -14], [-20, 18], [20, 18]];
+  const links = [[-12, 9], [12, 9], [-14, 13], [14, 13], [-22, 2], [22, 2], [-8, 14], [8, 14], [-21, -11], [21, -10], [-7, -14], [7, -14], [-20, 18], [20, 18],
+    [-19, 7], [-23, 9.5], [-9.5, 9], [-21, 15], [-13, 21.5], [-8, 20], [-17, 6]];
   for (const [x, z] of links) node(n, x, z, "path");
   return n;
 }
 
-export function buildTownGraph() {
+export function buildTownGraph(noPrune) {
   const colliders = staticColliders();
   const nodes = buildNodes().filter((nd) => clearanceAt(colliders, nd.x, nd.z) >= EDGE_CLEAR);
   for (let i = 0; i < nodes.length; i++) nodes[i].i = i;
@@ -209,6 +216,7 @@ export function buildTownGraph() {
       edges[b].push({ to: a, d });
     }
   }
+  if (noPrune) return { nodes, edges, colliders };
   // Keep the largest connected piece so nobody picks a destination they cannot reach.
   const comp = new Int32Array(nodes.length).fill(-1);
   let best = -1;

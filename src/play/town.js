@@ -32,7 +32,9 @@ export function attachTown(rt) {
     }
     const p = rt.player.position;
     const s = stationAt(p.x, p.z);
-    rt.setStationPrompt(s ? s.name : "");
+    // Villagers answer F too, when no counter is in reach (and townsfolk are live).
+    const folk = !s && rt.townfolkSolid && (rt.heroLevel || 0) === 0 && rt.nearestFolk ? rt.nearestFolk(p.x, p.z, 2.2) : null;
+    rt.setStationPrompt(s ? s.name : folk ? "Talk to " + folk.name : "");
     if (rt.panelOpen && rt.panelStation) {
       const d = Math.hypot(p.x - rt.panelStation.x, p.z - rt.panelStation.z);
       if (d > 3.2) rt.closePanel();
@@ -48,7 +50,12 @@ export function attachTown(rt) {
     refreshTownPrompt();
     const p = rt.player.position;
     const s = stationAt(p.x, p.z);
-    if (!s) return;
+    if (!s) {
+      if (rt.townfolkSolid && (rt.heroLevel || 0) === 0 && rt.talkNearestFolk && rt.talkNearestFolk(p.x, p.z)) {
+        if (rt.clearAcknowledgement) rt.clearAcknowledgement();
+      }
+      return;
+    }
     if (s.id === "gate" && rt.enterFromGate) {
       if (rt.closePanel) rt.closePanel();
       rt.enterFromGate();
@@ -92,6 +99,7 @@ export function attachTown(rt) {
     if (rt.tickInteriors) rt.tickInteriors(dt);
     if (rt.tickTownfolk) rt.tickTownfolk(dt, time);
     if (rt.tickAmbience) rt.tickAmbience(dt, time);
+    if (rt.tickGuide) rt.tickGuide(dt);
   }
   rt.syncTownTier = syncTier;
 

@@ -178,6 +178,29 @@ export function attachTownfolk(rt) {
     return moved ? { x, z } : null;
   }
 
+  // F beside a villager (not at a counter): they say something to the hero.
+  function nearestFolk(x, z, range) {
+    let best = null;
+    let bestD = range;
+    for (const f of folk) {
+      if (f.kind !== "walker") continue;
+      const d = Math.hypot(f.x - x, f.z - z);
+      if (d < bestD) { best = f; bestD = d; }
+    }
+    return best;
+  }
+  function talkNearestFolk(x, z) {
+    const f = nearestFolk(x, z, 2.2);
+    if (!f || !rt.barks) return false;
+    const lines = BARKS.folk;
+    rt.barks.say(f.id, f.name, lines[(barkTurn++ + f.id.length) % lines.length], 3.6);
+    f.lastBark = clock;
+    f.near = true;
+    return true;
+  }
+
+  rt.nearestFolk = nearestFolk;
+  rt.talkNearestFolk = talkNearestFolk;
   rt.townfolk = folk;
   rt.townGraph = graph;
   rt.townfolkSolid = true;

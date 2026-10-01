@@ -11,6 +11,7 @@ import {
 } from "../sim/townplan.js";
 
 const PLASTER = [0xe7d7b4, 0xeadcbc, 0xe0cfa9];
+const ASHLAR = [0x9aa0a4, 0x8a8f93, 0xa8adb0, 0x7d868f];
 const TIMBER_D = [0x3a2416, 0x432a1a];
 const TIMBER_M = [0x6b4428, 0x5e3b22];
 const TIMBER_L = [0x8d5b34, 0x7d5030];
@@ -369,6 +370,27 @@ const FURNITURE = {
     const top = f.top || 3.6;
     kit.box("interior", f.w * 0.7, top - f.h, f.d * 0.8, STONE, 0, f.h + (top - f.h) / 2, -0.05);
   },
+  bankCounter(kit, f) {
+    kit.box("interior", f.w, f.h - 0.08, f.d, STONE, 0, (f.h - 0.08) / 2, 0);
+    kit.box("interior", f.w + 0.12, 0.08, f.d + 0.12, TIMBER_D, 0, f.h - 0.04, 0);
+    // Brass grille with a pass-through.
+    kit.box("interior", f.w, 0.06, 0.06, GOLD, 0, f.h + 1.0, 0);
+    for (let x = -f.w / 2 + 0.1; x <= f.w / 2; x += 0.22) {
+      if (Math.abs(x) < 0.35) continue;
+      kit.box("interior", 0.03, 1.0, 0.03, GOLD, x, f.h + 0.5, 0);
+    }
+    kit.box("interior", 0.42, 0.5, 0.36, [0xe7d7b4], -1.2, f.h + 0.03, 0.05);
+    kit.cyl("interior", 0.03, 0.03, 0.22, 5, [0xf4e7c8], 1.6, f.h + 0.11, 0);
+    kit.cone("glowFire", 0.03, 0.06, 4, [0xffc060], 1.6, f.h + 0.25, 0);
+  },
+  vault(kit, f) {
+    kit.box("interior", f.w + 0.4, f.h + 0.3, 0.1, STONE_D, 0, (f.h + 0.3) / 2, 0);
+    kit.cyl("interior", f.w / 2, f.w / 2, 0.14, 12, IRON, 0, f.h / 2 + 0.1, 0.08, 0, Math.PI / 2);
+    kit.cyl("interior", 0.22, 0.22, 0.08, 8, GOLD, 0, f.h / 2 + 0.1, 0.18, 0, Math.PI / 2);
+    for (let k = 0; k < 4; k++) {
+      kit.box("interior", 0.05, 0.5, 0.05, GOLD, 0, f.h / 2 + 0.1, 0.24, 0, 0, k * Math.PI / 4);
+    }
+  },
   bed(kit, f) {
     kit.box("interior", f.w, 0.32, f.d, TIMBER_M, 0, 0.16, 0);
     kit.box("interior", f.w - 0.1, 0.16, f.d - 0.15, [0xe7d7b4], 0, 0.4, 0.05);
@@ -478,6 +500,14 @@ const SIGN_ICON = {
     g.rotateY(Math.PI / 2);
     kit.add("shell", g, GOLD, 0, 0, 0);
   },
+  key(kit) {
+    const g = new THREE.TorusGeometry(0.09, 0.03, 4, 8);
+    g.rotateY(Math.PI / 2);
+    kit.add("shell", g, GOLD, 0, 0.12, 0);
+    kit.box("shell", 0.05, 0.05, 0.32, GOLD, 0, 0.12, -0.24);
+    kit.box("shell", 0.05, 0.12, 0.05, GOLD, 0, 0.06, -0.33);
+    kit.box("shell", 0.05, 0.09, 0.05, GOLD, 0, 0.07, -0.22);
+  },
   tankard(kit) {
     kit.cyl("shell", 0.1, 0.11, 0.24, 7, [0xb8b2a4], 0, 0, 0);
     kit.box("shell", 0.05, 0.14, 0.06, [0xb8b2a4], 0, 0, -0.15);
@@ -520,6 +550,8 @@ function buildOne(kit, b) {
   const U = b.upper || 0;
   const J = U ? (b.jetty || 0) : 0;
   const roofTone = tone(b.roofColor, 0.06);
+  const stone = b.style === "stone";
+  const WALL = stone ? ASHLAR : PLASTER;
 
   // Plinth and floor.
   kit.setFrame(base);
@@ -536,7 +568,7 @@ function buildOne(kit, b) {
   for (let i = 0; i < walls.length; i++) {
     const w = walls[i];
     kit.setFrame(base);
-    kit.box("shell", w.hx * 2, H, w.hz * 2, PLASTER, w.x, F + H / 2, w.z);
+    kit.box("shell", w.hx * 2, H, w.hz * 2, WALL, w.x, F + H / 2, w.z);
     // Dark cap shown on the cut line when the walls are cut away around the hero.
     if (!b.closed) kit.box("cap", w.hx * 2 + 0.3, 0.05, w.hz * 2 + 0.3, [0x3a2416], w.x, F + CUTAWAY_H + 0.02, w.z);
   }
@@ -552,7 +584,7 @@ function buildOne(kit, b) {
     for (const d of doors) {
       const a = d.at * flip;
       if (!b.closed) {
-        kit.box("shell", DOOR_W, H - DOOR_H, T, PLASTER, a, DOOR_H + (H - DOOR_H) / 2, -T / 2);
+        kit.box("shell", DOOR_W, H - DOOR_H, T, WALL, a, DOOR_H + (H - DOOR_H) / 2, -T / 2);
         kit.box("shell", DOOR_W, 0.04, T, PLANK, a, -0.02, -T / 2);
         // Leaf swung open against the inside wall.
         kit.box("shell", 1.42, DOOR_H - 0.12, 0.08, TIMBER_M, a - DOOR_W / 2 - 0.71 * 1, (DOOR_H - 0.12) / 2, -T - 0.06);
@@ -580,6 +612,12 @@ function buildOne(kit, b) {
       if (ok) posts.push(a);
     }
     for (const a of posts) {
+      if (stone) {
+        // Quoins at the corners only.
+        if (Math.abs(Math.abs(a) - (L / 2 - 0.1)) > 1e-6) continue;
+        for (let y = 0.2; y < H; y += 0.5) kit.box("shell", 0.34, 0.24, 0.24, STONE, a, y, 0.06);
+        continue;
+      }
       kit.box("shell", 0.22, H, 0.2, TIMBER_D, a, H / 2, 0.06);
       kit.box("shell", 0.2, H, 0.14, TIMBER_M, a, H / 2, -T - 0.05);
     }
@@ -593,7 +631,7 @@ function buildOne(kit, b) {
     rails.push([start, L / 2]);
     for (const r of rails) {
       if (r[1] - r[0] < 0.1) continue;
-      kit.box("shell", r[1] - r[0], 0.16, 0.2, TIMBER_M, (r[0] + r[1]) / 2, 0.42, 0.06);
+      kit.box("shell", r[1] - r[0], 0.16, 0.2, stone ? STONE_D : TIMBER_M, (r[0] + r[1]) / 2, 0.42, 0.06);
     }
     // Braces in the outermost free panels.
     posts.sort((p, q) => p - q);
@@ -604,7 +642,7 @@ function buildOne(kit, b) {
       if (span < 1.4 || span > 3.4) continue;
       let ok = true;
       for (const r of blocked) if (r[1] > a0 && r[0] < a1) ok = false;
-      if (!ok || (i !== 0 && i + 2 !== posts.length)) continue;
+      if (stone || !ok || (i !== 0 && i + 2 !== posts.length)) continue;
       const len = Math.hypot(span - 0.2, H * 0.62);
       const ang = Math.atan2(H * 0.62, span - 0.2) * (i === 0 ? 1 : -1);
       kit.box("shell", len, 0.16, 0.16, TIMBER_D, (a0 + a1) / 2, 0.5 + H * 0.31, 0.05, 0, 0, ang);
@@ -703,7 +741,7 @@ function buildOne(kit, b) {
     const g = new THREE.ExtrudeGeometry(shape, { depth: T, bevelEnabled: false });
     g.rotateY(Math.PI / 2);
     const x = sgn * (b.w / 2 + J) - (sgn > 0 ? T : 0);
-    kit.add("upper", g, PLASTER, x, Y0, 0);
+    kit.add("upper", g, WALL, x, Y0, 0);
     kit.box("upper", 0.18, rise * 0.9, 0.18, TIMBER_D, sgn * (b.w / 2 + J + 0.02), Y0 + rise * 0.45, 0);
     kit.box("upper", 0.16, 0.16, halfD * 2, TIMBER_D, sgn * (b.w / 2 + J + 0.02), Y0 + 0.08, 0);
     if (!U) kit.box("glowWindow", 0.6, 0.6, 0.04, [0xf6d59a], sgn * (b.w / 2 + J + 0.02), Y0 + rise * 0.35, 0, Math.PI / 2);
