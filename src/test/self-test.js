@@ -48,7 +48,7 @@ import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBui
 import { applyTownTime, townDayKeys } from "../view/lights.js";
 import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
 import { BUILDINGS, COTTAGES, GATE, HEARTH, TOWN_ARRIVAL, FLOOR_Y, WALL_T, stationWorld, localToWorld, worldToLocal, doorPoint, wallBoxes, buildingAt } from "../sim/townplan.js";
-import { affixDef, gearTotals, lootRng, materialDropCount, rollGearDrop, tryCraft, tryUpgrade } from "../sim/items.js";
+import { affixDef, gearTotals, lootRng, materialDropCount, rollGearDrop, tryCraft, tryUpgrade, killExtras, extrasRng } from "../sim/items.js";
 
 function openEdges(geo) {
   const p = geo.attributes.position;
@@ -530,6 +530,41 @@ export function installSelfTest(rt) {
       rt.syncTownTier();
       maud.toldTier = 0;
       rt.resetInterior();
+    }
+
+    // Kill drops (spec: gold killGold(n) x3 elite x8 boss; 40% theme material).
+    {
+      const e10 = killExtras(extrasRng(7, 10, 3), { floorIndex: 10, kind: "boss" });
+      check(e10.gold === killGold(10) * 8, "a floor-10 boss drops killGold(10) x 8 gold (" + e10.gold + ")");
+      check(killExtras(extrasRng(7, 3, 1), { floorIndex: 3, kind: "elite" }).gold === killGold(3) * 3, "an elite drops three times the gold");
+      const a1 = killExtras(extrasRng(42, 6, 5), { floorIndex: 6, kind: "normal" });
+      const a2 = killExtras(extrasRng(42, 6, 5), { floorIndex: 6, kind: "normal" });
+      check(JSON.stringify(a1) === JSON.stringify(a2), "kill drops are a pure function of seed, floor, and spawn");
+      let mats = 0;
+      let wrongTheme = 0;
+      for (let id = 0; id < 400; id++) {
+        const x = killExtras(extrasRng(99, 2, id), { floorIndex: 2, kind: "normal" });
+        if (x.material) {
+          mats++;
+          if (x.material.key !== "rootfiber" || x.material.count !== 1) wrongTheme++;
+        }
+      }
+      check(mats > 120 && mats < 200 && wrongTheme === 0, "about 40% of floor-2 kills drop one rootfiber (" + mats + "/400)");
+      // Pickup: gold to the purse, materials to the counters, both remembered as picked.
+      rt.suspendCombat = true;
+      rt.startRun(5, 1);
+      const purse0 = rt.session.purse;
+      const heart0 = rt.session.materials.heartwood;
+      const px = player.position.x;
+      const pz = player.position.z;
+      rt.groundDrops.push({ kind: "gold", uid: "drop-1-90-1", amount: 6, x: px, z: pz });
+      rt.groundDrops.push({ kind: "material", uid: "drop-1-90-2", material: "heartwood", amount: 2, x: px, z: pz });
+      rt.collectDrops();
+      check(rt.session.purse === purse0 + 6 && rt.session.materials.heartwood === heart0 + 2, "walking over kill drops fills the purse and the material counters");
+      check(rt.session.run.picked.indexOf("drop-1-90-1") >= 0 && rt.session.run.picked.indexOf("drop-1-90-2") >= 0, "picked gold and materials are remembered for the floor");
+      rt.arriveTown("extract");
+      rt.suspendCombat = false;
+      rt.session.materials.heartwood = heart0;
     }
 
     // Phase 4: keepers talk, the inn rents rooms, the Counting House keeps gold and gear, a guide points the way.

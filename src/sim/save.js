@@ -130,7 +130,8 @@ function normalizeRun(run) {
   }
   const picked = [];
   if (Array.isArray(run.picked)) {
-    for (let i = 0; i < run.picked.length && picked.length < 80; i++) {
+    // Up to three drops per kill (gear, gold, material) on a 36-enemy floor.
+    for (let i = 0; i < run.picked.length && picked.length < 200; i++) {
       const entry = run.picked[i];
       if (typeof entry === "string" && entry) picked.push(entry.slice(0, 80));
       else if (typeof entry === "number" && Number.isFinite(entry)) picked.push(String(Math.floor(entry)));

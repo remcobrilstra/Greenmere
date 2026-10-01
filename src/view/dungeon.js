@@ -615,6 +615,24 @@ export function buildFloorMesh(plan) {
   return root;
 }
 
+const LOOT_HEX = { gold: 0xd4a03a, heartwood: 0x8d5b34, rootfiber: 0x8ed15a, slag: 0x6e7882, emberglass: 0xff8a2a };
+
+// Gold: a small coin stack. Materials: a chunk in the material's colour.
+export function buildLootMesh(kind, key) {
+  const hex = LOOT_HEX[kind === "gold" ? "gold" : key] || 0xe7d7b4;
+  const geo = kind === "gold" ? new THREE.CylinderGeometry(0.13, 0.15, 0.12, 7) : new THREE.IcosahedronGeometry(0.15, 0);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    color: hex,
+    emissive: hex,
+    emissiveIntensity: key === "emberglass" ? 0.6 : 0.25,
+    flatShading: true
+  }));
+  mesh.name = kind === "gold" ? "loot:gold" : "loot:" + key;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
 export function buildGlint() {
   const mesh = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.16, 0),

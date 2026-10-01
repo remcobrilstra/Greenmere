@@ -1,7 +1,7 @@
 // Gear rolls and names. Pure data: no three, document, or localStorage.
 // Affix magnitudes go through affixValue in balance.js. Do not add a second formula.
 
-import { affixValue, delverMatBonus, dropIlvl, rarityCuts, upgradeCost } from "./balance.js";
+import { affixValue, delverMatBonus, dropIlvl, killGold, rarityCuts, upgradeCost } from "./balance.js";
 import { mixSeed } from "./floorgen.js";
 import { mulberry32 } from "./rng.js";
 
@@ -377,6 +377,33 @@ export function tryUpgrade(state, item, useKit) {
   item.ilvl = ilvl + 1;
   if (item.slot === "weapon") item.weaponBase = Math.max(0, Math.floor(Number(item.weaponBase) || 0)) + 1;
   return { ok: true, cost };
+}
+
+const KILL_MATERIAL = ["heartwood", "rootfiber", "slag", "emberglass"];
+
+// Gold and theme material for one kill (spec: Difficulty, "Material drop").
+// Gold is killGold(n) × 3 for elites × 8 for bosses. A material drops on a roll
+// below 4000 of 10000: the floor theme's material, materialDropCount of them.
+// Uses its own rng stream so the gear roll is unchanged.
+export function killExtras(rng, spec) {
+  const floorIndex = Math.max(1, Math.floor(Number(spec && spec.floorIndex) || 1));
+  const kind = spec && (spec.kind === "boss" || spec.kind === "elite") ? spec.kind : "normal";
+  const rank = Math.max(0, Math.floor(Number(spec && spec.delver) || 0));
+  const gold = killGold(floorIndex) * (kind === "elite" ? 3 : 1) * (kind === "boss" ? 8 : 1);
+  const roll = Math.floor(rng() * 10000);
+  const bonusRoll = rng();
+  let material = null;
+  if (roll < 4000) {
+    material = {
+      key: KILL_MATERIAL[((floorIndex - 1) % 4 + 4) % 4],
+      count: materialDropCount(kind, rank, bonusRoll)
+    };
+  }
+  return { gold, material };
+}
+
+export function extrasRng(runSeed, floorIndex, spawnId) {
+  return mulberry32(mixSeed(runSeed ^ 0x6a09e667, floorIndex + 104729 + spawnId));
 }
 
 // Drop quantity before the 40% roll. Rank below 3 adds 0, including rank 0.

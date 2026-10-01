@@ -772,8 +772,21 @@ export function attachPanels(rt) {
       if (drop.kind === "gold") {
         const amount = Math.max(0, Math.floor(Number(drop.amount) || 0));
         session.purse = Math.min(1e9, Math.floor(Number(session.purse) || 0) + amount);
+        if (drop.uid) notePicked(drop.uid);
+        if (rt.releaseDropMesh) rt.releaseDropMesh(drop);
         drops.splice(i, 1);
         changed = true;
+        if (rt.questEvent) rt.questEvent({ type: "gold", amount });
+        continue;
+      }
+      if (drop.kind === "material") {
+        if (!session.materials) session.materials = { heartwood: 0, rootfiber: 0, slag: 0, emberglass: 0 };
+        const added = addMaterial(session.materials, drop.material, Math.max(1, Math.floor(Number(drop.amount) || 1)));
+        if (drop.uid) notePicked(drop.uid);
+        if (rt.releaseDropMesh) rt.releaseDropMesh(drop);
+        drops.splice(i, 1);
+        changed = true;
+        if (added > 0 && rt.questEvent) rt.questEvent({ type: "material", material: drop.material, amount: added });
         continue;
       }
       if (drop.kind === "gear") {

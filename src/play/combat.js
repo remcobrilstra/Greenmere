@@ -21,8 +21,8 @@ import {
   PLAYER_HURT
 } from "../sim/balance.js";
 import { tileToWorld } from "../sim/floorgen.js";
-import { gearTotals, lootRng, rollGearDrop } from "../sim/items.js";
-import { buildStrikeCrescent, buildGlint } from "../view/dungeon.js";
+import { gearTotals, lootRng, rollGearDrop, killExtras, extrasRng } from "../sim/items.js";
+import { buildStrikeCrescent, buildGlint, buildLootMesh } from "../view/dungeon.js";
 
 const SKIRM_HURT = 0.45;
 
@@ -886,6 +886,38 @@ export function attachCombat(rt) {
     return drop;
   }
 
+  // Gold and theme materials per kill (uids "-1" and "-2"; gear stays "-0").
+  function placeLootDrop(drop) {
+    const mesh = buildLootMesh(drop.kind, drop.material);
+    mesh.position.set(drop.x, drop.kind === "gold" ? 0.08 : 0.16, drop.z);
+    drop.mesh = mesh;
+    const parent = rt.dungeonRoot || rt.scene;
+    parent.add(mesh);
+    if (!rt.groundDrops) rt.groundDrops = [];
+    rt.groundDrops.push(drop);
+    return drop;
+  }
+  function spawnKillExtras(enemy, run, kind) {
+    const picked = run.picked || [];
+    const drops = rt.groundDrops || [];
+    const base = "drop-" + run.floorIndex + "-" + enemy.id + "-";
+    const s = session();
+    const extra = killExtras(extrasRng(run.runSeed, run.floorIndex, enemy.id), {
+      floorIndex: run.floorIndex,
+      kind,
+      delver: s && s.tracks ? s.tracks.delver : 0
+    });
+    const x = enemy.spawnX != null ? enemy.spawnX : enemy.x;
+    const z = enemy.spawnZ != null ? enemy.spawnZ : enemy.z;
+    const exists = (uid) => picked.indexOf(uid) >= 0 || drops.some((d) => d && d.uid === uid);
+    if (extra.gold > 0 && !exists(base + "1")) {
+      placeLootDrop({ kind: "gold", uid: base + "1", amount: extra.gold, x: x + 0.35, z: z + 0.2 });
+    }
+    if (extra.material && !exists(base + "2")) {
+      placeLootDrop({ kind: "material", uid: base + "2", material: extra.material.key, amount: extra.material.count, x: x - 0.35, z: z + 0.15 });
+    }
+  }
+
   function spawnKillLoot(enemy, run) {
     if (!enemy || enemy.id == null || !run) return null;
     const uid = "drop-" + run.floorIndex + "-" + enemy.id + "-0";
@@ -896,6 +928,7 @@ export function attachCombat(rt) {
       if (drops[i] && drops[i].uid === uid) return drops[i];
     }
     const kind = enemy.boss ? "boss" : enemy.eliteAffix ? "elite" : "normal";
+    spawnKillExtras(enemy, run, kind);
     const item = rollGearDrop(lootRng(run.runSeed, run.floorIndex, enemy.id), {
       floorIndex: run.floorIndex,
       spawnId: enemy.id,
