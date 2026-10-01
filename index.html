@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Greenmere — The Outer Wood</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #c9d7ae;
+      color: #f4e7c8;
+      font-family: Palatino, "Palatino Linotype", "Book Antiqua", serif;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    #vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 52%, rgba(18, 26, 14, 0.34) 100%);
+    }
+    #hud, #hud * { box-sizing: border-box; }
+    #hud { user-select: none; }
+    .plaque, #actionbar {
+      background: linear-gradient(180deg, rgba(42, 30, 18, 0.88), rgba(22, 16, 12, 0.78));
+      border: 1px solid rgba(226, 186, 96, 0.55);
+      box-shadow: 0 10px 30px rgba(20, 14, 8, 0.28), inset 0 0 0 1px rgba(255, 236, 196, 0.08);
+    }
+    .plaque {
+      position: fixed;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #vitals {
+      top: 16px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: calc(100vw - 168px);
+      padding: 10px 14px 10px 10px;
+    }
+    .portrait {
+      width: 72px;
+      height: 72px;
+      flex: none;
+      border: 1px solid rgba(226, 186, 96, 0.7);
+      box-shadow: inset 0 0 0 3px #2a2118;
+      background: #1a120c;
+    }
+    .portrait svg { display: block; width: 100%; height: 100%; }
+    .identity { min-width: 0; }
+    .eyebrow {
+      margin: 0;
+      font-size: 11px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: #e2ba60;
+    }
+    h1 {
+      margin: 1px 0 5px;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+    .bars { display: flex; flex-direction: column; gap: 4px; min-width: 138px; }
+    .bar {
+      position: relative;
+      height: 14px;
+      background: #140e0a;
+      border: 1px solid rgba(226, 186, 96, 0.35);
+      box-shadow: inset 0 1px 0 rgba(255, 236, 196, 0.06);
+    }
+    .bar > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      transition: width 160ms linear;
+    }
+    .bar.health > span {
+      background: repeating-linear-gradient(90deg, #8e2e28 0 8px, #b64034 8px 16px, #9a342c 16px 22px);
+    }
+    .bar.mana > span {
+      background: repeating-linear-gradient(90deg, #1c3f8c 0 8px, #2d62c8 8px 16px, #244f9e 16px 22px);
+    }
+    .bar em {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-style: normal;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: #f4e7c8;
+      text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+    }
+    #minimap {
+      top: 16px;
+      right: 16px;
+      width: 196px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      padding: 8px 8px 7px;
+    }
+    #minimap .eyebrow {
+      padding-left: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .map-frame { position: relative; width: 100%; aspect-ratio: 1; }
+    #map-canvas { display: block; width: 100%; height: 100%; background: #1e4a28; }
+    .north {
+      position: absolute;
+      top: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #e2ba60;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-shadow: 0 1px 0 #1a120c;
+    }
+    .map-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      margin: 0;
+      padding: 0 4px;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: #e7d7b4;
+    }
+    .map-meta span { min-width: 0; }
+    #blurb {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #dock {
+      position: fixed;
+      z-index: 2;
+      left: 0;
+      right: 0;
+      bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 0 8px;
+      pointer-events: none;
+    }
+    #cast-line {
+      width: min(528px, 100%);
+      margin: 0;
+      min-height: 1.15em;
+      font-size: 15px;
+      text-align: center;
+      color: #f4e7c8;
+      text-shadow: 0 1px 2px rgba(20, 14, 8, 0.9);
+    }
+    #cast-line:empty { visibility: hidden; }
+    #actionbar {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 5px;
+      width: min(528px, 100%);
+      padding: 6px;
+      pointer-events: auto;
+    }
+    .slot {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 1px;
+      appearance: none;
+      border-radius: 0;
+      min-width: 0;
+      min-height: 58px;
+      padding: 14px 2px 4px;
+      background: #140e0a;
+      color: #f4e7c8;
+      border: 1px solid rgba(226, 186, 96, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(255, 236, 196, 0.04);
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .slot svg { width: 24px; height: 24px; display: block; }
+    .slot .name {
+      max-width: 100%;
+      overflow: hidden;
+      font-size: 11px;
+      line-height: 1.1;
+      color: #e7d7b4;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .slot .key {
+      position: absolute;
+      z-index: 2;
+      top: 2px;
+      left: 4px;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      color: #e2ba60;
+    }
+    .slot .sweep {
+      position: absolute;
+      z-index: 1;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      background: conic-gradient(from -90deg, rgba(12, 8, 6, 0.78) calc(var(--p) * 1%), transparent 0);
+    }
+    .slot.cooling .sweep { opacity: 1; }
+    .slot:hover { border-color: rgba(226, 186, 96, 0.9); }
+    .slot:focus-visible { outline: 2px solid #e2ba60; outline-offset: 2px; }
+    .slot.lit {
+      border-color: #e2ba60;
+      background: #2a1c10;
+    }
+    .hint {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 3px 12px;
+      width: min(528px, 100%);
+      margin: 0;
+      font-size: 14px;
+      color: #f4e7c8;
+      text-shadow: 0 1px 2px rgba(20, 14, 8, 0.9);
+    }
+    .hint b {
+      color: #e2ba60;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    #test-out {
+      display: none;
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      width: min(420px, calc(100vw - 32px));
+      max-height: 46vh;
+      overflow: auto;
+      margin: 0;
+      padding: 12px;
+      background: rgba(12, 14, 10, 0.88);
+      color: #d7f5c4;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      z-index: 5;
+    }
+    #test-out.show { display: block; }
+    #test-out.fail { color: #ffb4a8; }
+    #panel {
+      top: 118px;
+      left: 16px;
+      width: min(360px, calc(100vw - 32px));
+      max-height: calc(100vh - 210px);
+      overflow: auto;
+      padding: 10px 12px 12px;
+      pointer-events: auto;
+      text-align: left;
+      color: #f4e7c8;
+    }
+    #panel:not([hidden]) { display: block; }
+    #barks {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 2;
+    }
+    #barks .bark {
+      position: absolute;
+      left: 0;
+      top: 0;
+      max-width: 230px;
+      padding: 5px 9px 6px;
+      border: 1px solid #e2ba60;
+      border-radius: 3px;
+      background: linear-gradient(180deg, rgba(58, 36, 22, 0.94), rgba(36, 24, 16, 0.94));
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+      color: #f4e7c8;
+      font-size: 13px;
+      line-height: 1.3;
+      text-align: center;
+      white-space: normal;
+    }
+    #barks .bark[hidden] { display: none; }
+    #barks .bark::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 10px;
+      height: 10px;
+      margin-left: -5px;
+      background: rgba(36, 24, 16, 0.94);
+      border-right: 1px solid #e2ba60;
+      border-bottom: 1px solid #e2ba60;
+      transform: rotate(45deg);
+    }
+    #barks .who {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #e2ba60;
+    }
+    #panel .panel-line,
+    #panel .panel-empty {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #e7d7b4;
+    }
+    #panel .panel-line.keeper {
+      margin-top: -4px;
+      font-style: italic;
+      font-size: 13px;
+      color: #d9c69c;
+    }
+    #panel .section-label {
+      margin: 8px 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #e2ba60;
+    }
+    #panel .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: 5px;
+      margin: 0 0 8px;
+    }
+    #panel .slot {
+      flex: 1 1 90px;
+      min-height: 34px;
+      padding: 6px 8px;
+    }
+    #panel .pack-row {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      width: 100%;
+      margin: 0 0 4px;
+    }
+    #panel .pack-row .name {
+      flex: 1 1 120px;
+      font-size: 13px;
+      text-align: left;
+      color: #f4e7c8;
+    }
+    #panel .pack-row .slot { flex: 0 1 auto; }
+    #panel input {
+      width: 72px;
+      margin: 0;
+      padding: 6px 8px;
+      background: #140e0a;
+      color: #f4e7c8;
+      border: 1px solid rgba(226, 186, 96, 0.4);
+      font: inherit;
+      font-size: 14px;
+    }
+    #panel input:focus-visible { outline: 2px solid #e2ba60; outline-offset: 2px; }
+    #panel input::placeholder { color: #e7d7b4; opacity: 0.72; }
+    @media (prefers-reduced-motion: no-preference) {
+      .bar.health.low { animation: hp-pulse 0.9s steps(2, end) infinite; }
+      .slot.deny { animation: slot-deny 180ms linear; }
+    }
+    @keyframes hp-pulse { 50% { filter: brightness(1.28); } }
+    @keyframes slot-deny {
+      25% { transform: translateX(-2px); }
+      75% { transform: translateX(2px); }
+    }
+    @media (max-width: 720px) {
+      h1 { font-size: 16px; letter-spacing: 0.1em; }
+      #vitals { top: 10px; left: 10px; gap: 8px; padding: 8px; max-width: calc(100vw - 128px); }
+      .portrait { width: 56px; height: 56px; }
+      .bars { min-width: 104px; }
+      #minimap { top: 10px; right: 10px; width: 148px; }
+      #panel { left: 10px; max-height: calc(100vh - 180px); }
+      #minimap .eyebrow { letter-spacing: 0.14em; font-size: 10px; }
+      .slot { min-height: 50px; padding-top: 12px; }
+      .slot svg { width: 20px; height: 20px; }
+      .slot .name, .hint, .map-meta { font-size: 11px; }
+      #cast-line { font-size: 13px; }
+    }
+    @media (max-width: 520px) {
+      .slot .name { display: none; }
+      #panel .slot .name { display: block; }
+      .slot { min-height: 46px; padding-top: 13px; }
+    }
+    @media (max-width: 420px) {
+      #vitals { max-width: calc(100vw - 118px); }
+      .portrait { width: 46px; height: 46px; }
+      .bars { min-width: 88px; }
+      .bar em { font-size: 10px; }
+      #minimap { width: 118px; }
+      #minimap .eyebrow { letter-spacing: 0.08em; font-size: 9px; }
+      .map-meta { flex-direction: column; align-items: center; gap: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="vignette"></div>
+  <div id="hud">
+    <section id="vitals" class="plaque" aria-label="Warden">
+      <div class="portrait">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" fill="#1a120c"/>
+          <polygon points="4,46 16,34 22,50 6,58" fill="#d4a03a"/>
+          <polygon points="60,46 48,34 42,50 58,58" fill="#d4a03a"/>
+          <polygon points="14,38 50,38 54,64 10,64" fill="#2d62c8"/>
+          <polygon points="18,38 46,38 44,46 20,46" fill="#1c3f8c"/>
+          <polygon points="32,4 54,30 48,42 16,42 10,30" fill="#1c3f8c"/>
+          <polygon points="32,8 46,28 18,28" fill="#163472"/>
+          <polygon points="22,26 42,26 44,40 32,48 20,40" fill="#e0a878"/>
+          <rect x="25" y="32" width="5" height="4" fill="#1a1a1a"/>
+          <rect x="34" y="32" width="5" height="4" fill="#1a1a1a"/>
+          <polygon points="18,24 46,24 44,29 20,29" fill="#d4a03a"/>
+          <polygon points="32,14 37,24 27,24" fill="#d4a03a"/>
+        </svg>
+      </div>
+      <div class="identity">
+        <p class="eyebrow">Greenmere</p>
+        <h1>Warden</h1>
+        <div class="bars">
+          <div class="bar health" id="hp-bar" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="160" aria-valuenow="126">
+            <span id="hp-fill"></span>
+            <em id="hp-label">126 / 160</em>
+          </div>
+          <div class="bar mana" id="mp-bar" role="meter" aria-label="Mana" aria-valuemin="0" aria-valuemax="80" aria-valuenow="48">
+            <span id="mp-fill"></span>
+            <em id="mp-label">48 / 80</em>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="minimap" class="plaque" aria-label="Minimap">
+      <p class="eyebrow">The Outer Wood</p>
+      <div class="map-frame">
+        <canvas id="map-canvas" width="360" height="360" aria-label="Wood around the warden. North is up."></canvas>
+        <span class="north">N</span>
+      </div>
+      <p class="map-meta">
+        <span id="blurb">— trees</span>
+        <span id="fps">— fps</span>
+      </p>
+    </section>
+    <div id="dock">
+      <p id="cast-line" role="status"></p>
+      <div id="actionbar" role="toolbar" aria-label="Actions">
+        <button type="button" class="slot" data-index="0" title="Strike" aria-keyshortcuts="1" aria-label="Strike">
+          <span class="key">1</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="15,2 17,2 18,18 14,18" fill="#c5d0dc"/><polygon points="10,18 22,18 20,22 12,22" fill="#d4a03a"/><polygon points="15,22 17,22 17,29 15,29" fill="#3a2a22"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Strike</span>
+        </button>
+        <button type="button" class="slot" data-index="1" title="Ward. 8 mana." aria-keyshortcuts="2" aria-label="Ward, 8 mana">
+          <span class="key">2</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 27,8 24,20 16,29 8,20 5,8" fill="#2d62c8"/><polygon points="16,8 21,11 19,18 16,22 13,18 11,11" fill="#1c3f8c"/><polygon points="16,12 18,16 16,20 14,16" fill="#d4a03a"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Ward</span>
+        </button>
+        <button type="button" class="slot" data-index="2" title="Mend. 14 mana." aria-keyshortcuts="3" aria-label="Mend, 14 mana">
+          <span class="key">3</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,27 6,16 8,10 13,10 16,14 19,10 24,10 26,16" fill="#8e2e28"/><polygon points="16,23 10,16 12,12 15,12 16,16 17,12 20,12 22,16" fill="#d45a4a"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Mend</span>
+        </button>
+        <button type="button" class="slot" data-index="3" title="Hearth" aria-keyshortcuts="4" aria-label="Hearth">
+          <span class="key">4</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 22,14 20,14 24,24 8,24 12,14 10,14" fill="#ff8a2a"/><polygon points="16,11 19,18 16,22 13,18" fill="#ffe08a"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Hearth</span>
+        </button>
+        <button type="button" class="slot" data-index="4" title="Draught" aria-keyshortcuts="5" aria-label="Draught">
+          <span class="key">5</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="13,3 19,3 18,8 14,8" fill="#d4a03a"/><polygon points="11,8 21,8 23,26 9,26" fill="#8e2e28"/><polygon points="13,14 19,14 20,24 12,24" fill="#d45a4a"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Draught</span>
+        </button>
+        <button type="button" class="slot" data-index="5" title="Kindle. 5 mana." aria-keyshortcuts="6" aria-label="Kindle, 5 mana">
+          <span class="key">6</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="14,4 18,4 18,7 14,7" fill="#d4a03a"/><polygon points="10,8 22,8 24,22 8,22" fill="#d4a03a"/><polygon points="13,11 19,11 20,19 12,19" fill="#ff8a2a"/><polygon points="12,22 20,22 18,27 14,27" fill="#3a2a22"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Kindle</span>
+        </button>
+        <button type="button" class="slot" data-index="6" title="Focus" aria-keyshortcuts="7" aria-label="Focus">
+          <span class="key">7</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,8 28,16 16,24 4,16" fill="#f4e7c8"/><polygon points="16,11 23,16 16,21 9,16" fill="#1c3f8c"/><polygon points="16,14 18,16 16,18 14,16" fill="#1a1a1a"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Focus</span>
+        </button>
+        <button type="button" class="slot" data-index="7" title="Sprint. Hold Shift." aria-keyshortcuts="Shift" aria-label="Sprint. Hold Shift.">
+          <span class="key">8</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="8,14 18,14 18,18 26,20 26,24 6,24 6,18" fill="#241c18"/><polygon points="8,14 14,8 18,8 18,14" fill="#3a2a22"/></svg>
+          <span class="sweep"></span>
+          <span class="name">Sprint</span>
+        </button>
+      </div>
+      <p class="hint">
+        <span><b>WASD</b> or arrows move</span>
+        <span><b>Drag</b> to orbit</span>
+        <span><b>Wheel</b> zoom</span>
+        <span><b>Shift</b> run</span>
+        <span><b>1–8</b> act</span>
+      </p>
+    </div>
+  </div>
+  <pre id="test-out"></pre>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.min.js"
+      }
+    }
+  </script>
+  <script>
+    window.addEventListener("error", (e) => {
+      const out = document.getElementById("test-out");
+      if (!out) return;
+      out.classList.add("show", "fail");
+      out.textContent = (e.message || "Script error") + "\n" + (e.filename || "") + ":" + (e.lineno || "") + ":" + (e.colno || "");
+    });
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+# Greenmere module structure
+
+Implementer checklist. Game rules, formulas, and the pull-request sequence live in `docs/greenmere-town-and-underwood.md`. This file is the layout contract. A new system goes in the file named here. It does not go back into `index.html` or into `src/main.js`.
+
+## Shape
+
+One static page. Native ES modules. No bundler, no `package.json`, no TypeScript. Three.js stays the pinned import-map URL `three@0.183.2/build/three.module.min.js`. Serve the folder with a static server. `file://` is unsupported.
+
+`index.html` is the shell: plaque CSS, existing HUD nodes, the import map, the window error handler, and:
+
+```html
+<script type="module" src="./src/main.js"></script>
+```
+
+## Layers
+
+Imports point downward only.
+
+| Layer | May import | Must not |
+|---|---|---|
+| `src/sim/` | other `src/sim/` files | `three`, `document`, `window`, `localStorage`, mesh builders |
+| `src/view/` | `three`, `src/sim/` | roll loot, write a save, read the keyboard, decide a combat outcome, import `src/play/` |
+| `src/play/` | `sim`, `view`, `ui` | build geometry inline |
+| `src/ui/` | existing DOM nodes | import `three`, generate floors, apply damage |
+| `src/main.js` | `play`, `ui`, `view`, `test` | hold formulas or the floor generator |
+
+`src/view/` receives callbacks such as `addCollider` from `main`. It does not import `src/play/` to get them.
+
+## Files
+
+PR-00 creates only the files the walking wood needs. Later files appear in the PR that first needs them.
+
+| File | First PR | Holds |
+|---|---|---|
+| `src/main.js` | PR-00 | Boot, frame loop, `?test=1` / `?dev=1`. From PR-04, the only `localStorage` access for `greenmere.save.v1`. |
+| `src/sim/rng.js` | PR-00 | `mulberry32`, `hash2`. |
+| `src/sim/terrain.js` | PR-00 | `terrainHeight`, `smoothstep`. |
+| `src/view/materials.js` | PR-00 | `paintFaces`, `mergeParts`, `lambert`, `makeMat`. |
+| `src/view/hero.js` | PR-00 | Code-built Warden. Local forward is −z. |
+| `src/view/town.js` | PR-00 | Terrain, 3,050 trees, scatter, camp, `townRoot`. Owns `mulberry32(0x6e11e5)`. |
+| `src/view/lights.js` | PR-00 | Sun, hemisphere, ambient, fog, `applyTownLight`. |
+| `src/play/camera.js` | PR-00 | `placeCamera`, `cameraPlanarBasis`, town `groundY`. |
+| `src/play/move.js` | PR-00 | Movement, `dampAngle`, collider resolve. |
+| `src/ui/hud.js` | PR-00 | Plaques, vitals, action bar, minimap, `say`. |
+| `src/test/self-test.js` | PR-00 | `selfTestControls`. Assigns `window.__selfTestControls`. |
+| `src/sim/balance.js` | PR-01 | Difficulty, XP, damage, upgrade gold. |
+| `src/sim/floorgen.js` | PR-01 | `mixSeed`, `generateFloor`. Plain plan, no meshes. |
+| `src/play/town.js` | PR-02 | Gate and station prompts. |
+| `src/view/dungeon.js` | PR-03 | `buildFloorMesh(plan)`. Does not sample `terrainHeight`. |
+| `src/play/space.js` | PR-03 | Town or dungeon, `descendFloor`, `arriveTown`. |
+| `src/play/combat.js` | PR-03 | Windups and strikes. Numbers come from `src/sim`. |
+| `src/sim/save.js` | PR-04 | Schema and `migrate` only. |
+| `src/ui/panels.js` | PR-05 | Store, stash, trainer, smith. |
+| `src/sim/items.js` | PR-06 | Slots, affixes, `dropIlvl`, recipes. |
+| `src/sim/townplan.js` | Town | Every town coordinate: buildings, doors, counters, furniture, roads, props, arrival, wall boxes, `floorAt`, `buildingAt`. See `docs/town-living.md`. |
+| `src/sim/townfolk.js` | Town | Keeper and wanderer roster, barks, waypoint graph, `shortestPath`, `stepWalker`. |
+| `src/view/buildings.js` | Town | Life-size buildings, interiors, signs, street props, square, roads, shared interior light. |
+| `src/view/townfolk.js` | Town | `buildVillager`, `poseVillager`. |
+| `src/play/interiors.js` | Town | Which building and level hold the hero, roof and wall cutaway, interior light, indoor camera, level-aware grounding. |
+| `src/play/townfolk.js` | Town | Steps keepers and wanderers, hero–villager collision, greetings. |
+| `src/ui/barks.js` | Town | Speech plaques above townsfolk. |
+| `src/view/ambience.js` | Town | Chimney smoke (instanced), hen, cat, and dog meshes, `poseAnimal`. |
+| `src/play/ambience.js` | Town | Ticks smoke, hens, and pets. |
+
+## Rules
+
+- Town scatter uses `mulberry32(0x6e11e5)` inside `src/view/town.js`. Dungeon code uses `mixSeed` and never that generator.
+- `generateFloor` returns data. Only `src/view/dungeon.js` builds the floor meshes.
+- The frame loop calls play once per capped `dt` (`Math.min(0.033, …)`). Floor generation does not run inside the animation callback.
+- A circular import is a failed review. Move the shared piece to `src/sim/` or to a third play file.
+- Collider records are plain data: circles `{x, z, r}` and oriented boxes `{kind: "box", x, z, hx, hz, yaw}` (building walls, furniture). Town colliders may carry `level` (0 ground, 1 upstairs; only the hero's level collides) and `tier` (off until the town reaches that tier). The same records drive resolution. Decorative meshes with no collider stay on an explicit list.
+- Town coordinates come from `src/sim/townplan.js`. Do not repeat a building or station position anywhere else, tests included.
+- Do not add a file that this table does not name.
+- Art direction stays the locked Outer Wood style: flat shading, Lambert world, standard-material hero, no tone mapping, no downloaded models.
+
+## Pull-request order
+
+PR-00 extract the prototype. PR-01 formulas and floor plans. PR-02 town stations. PR-03 one playable floor. PR-04 save. PR-05 store. PR-06 gear. PR-07 trainer. PR-08 smith. PR-09 full enemy set. PR-10 themes and dungeon map. PR-11 frame budget. Each PR is specified in `docs/greenmere-town-and-underwood.md`.
