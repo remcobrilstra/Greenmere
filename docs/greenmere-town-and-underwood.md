@@ -38,7 +38,7 @@ The playable page is `index.html`: an import map to `three@0.183.2/build/three.m
 | Facing | `update` | Local forward is −z. Travel yaw is `Math.atan2(-wish.x, -wish.z)` via `dampAngle`. |
 | Grounding | `groundY` | Ray down at the terrain mesh, fallback `terrainHeight`. Feet sit on the mesh. |
 | Hero | `player` group, `nose`, `toe` | Code-built. `modelFront()` uses the nose, not the parent −z, as the self-test oracle. |
-| HUD | plaques, `abilities`, `tryAbility`, `vitals`, `resetHud` | Eight slots. Mend heals 22 for 14 mana on an 8s cooldown. `resetHud()` (called at startup) sets current pools to **126 HP and 48 mana** and maxima to 160 and 80. It does not fill the bars. The self-test never asserts those current values; it assigns `vitals` itself before Mend. |
+| HUD | plaques, `abilities`, `tryAbility`, `vitals`, `resetHud` | Eight slots. Mend heals 22 for 14 mana after a 1.5 s cast, with no cooldown. `resetHud()` (called at startup) sets current pools to **126 HP and 48 mana** and maxima to 160 and 80. It does not fill the bars. The self-test never asserts those current values; it assigns `vitals` itself before Mend. |
 | Frame cap | `frame` | `dt = Math.min(0.033, …)`. Pixel ratio capped at 1.75. |
 | Test | `?test=1`, `window.__selfTestControls` | Movement, facing, nose, fog, `flatShading`, minimap axes, Mend. |
 
@@ -154,7 +154,7 @@ First delivered: PR-01 (M1).
 
 **DUN-04. There is no last floor.**
 Statement: `floorIndex` is an integer ≥ 1 with no maximum in the rules. Span, enemy count, and rarity use the clamps in the difficulty section, not a campaign end. Stairs always exist.
-Acceptance: `generateFloor(1, 1000)` returns a plan with `cols === 15`, `enemyBudget === 36`, `spawns.length === 36`, a stairs cell inside a room rectangle, and does not throw. No copy says "final floor".
+Acceptance: `generateFloor(1, 1000)` returns a plan with `cols === 27`, `enemyBudget === 36`, `spawns.length === 36`, a stairs cell inside a room rectangle, and does not throw. No copy says "final floor".
 First delivered: PR-01 (M1).
 
 **DUN-05. Stairs descend inside the same run.**
@@ -182,10 +182,10 @@ Statement: Planned spawns are `min(36, enemyBudget)`. Boss adds that would excee
 Acceptance: For seeds `1..50` and floors 1, 5, 10, 25, 50, and 100, `spawns.length === min(36, enemyBudget(floorIndex))`. No plan exceeds 36. A boss at the cap summons nobody. The runtime refuses to push a living enemy past 36. A shortfall is not an allowed result of a failed room placement; step 6 of the generator carves until the count fits.
 First delivered: PR-01 for the plan cap; PR-09 for summon refusal.
 
-**DUN-10. Four dungeon themes rotate; the town does not.**
-Statement: `themeId = (floorIndex - 1) % 4` in the order moss, root, slate, ember. Town fog, sky, and grass are untouched. Themes recolor code-built stone, wood, and emissive braziers only, using the hexes in Proposed Design.
-Acceptance: Floor 1 is moss, floor 2 root, floor 4 ember, floor 5 moss. `arriveTown` calls `applyTownLight()`, which restores every town value the theme pass may have changed: `scene.background` `0xd5e4b8`, `FogExp2` color `0xd5e4b8` and density `0.0105`, hemisphere sky `0xc5e4ff`, ground `0x4d7a38`, intensity `0.72`, ambient `0xfff3df` at `0.28`, shadow map 2048, and ortho frustum ±34 (near 0.5, far 90). Shadow bias `-0.00018` and normal bias `0.035` are never themed. The flat-shade / fog self-test asserts this full set after a floor is built and disposed. No theme loads a texture.
-First delivered: PR-10 (M5). PR-03 may ship every floor in the moss palette.
+**DUN-10. Biomes hold ten floors each; the town does not change.**
+Statement: `biomeIndex(n) = floor((n - 1) / 10) % 5` in the order Mossy Caves, Sunken Temple, Rootdeep, Slate Crypt, Ember Forge, then the cycle repeats, so there is still no last floor. `plan.themeId === plan.biomeId` picks the palette in `src/view/lights.js`; the layout knobs (room shape, corridor style, pillars, prop table) live in `src/sim/biomes.js`. Town fog, sky, and grass are untouched. The first floor of a band, reached by stairs, casts `The stair winds down into the {Biome}.` Material drops and dropped-item names still follow `(floorIndex - 1) % 4` (ITM rules); that is an economy rule, not the biome.
+Acceptance: Floors 1–10 are Mossy Caves, 11–20 Sunken Temple, 41–50 Ember Forge, and floor 51 is caves again. The eyebrow reads `Floor 11 · Sunken Temple`. `arriveTown` calls `applyTownLight()`, which restores every town value the biome pass may have changed: `scene.background` `0xd5e4b8`, `FogExp2` color `0xd5e4b8` and density `0.0105`, hemisphere sky `0xc5e4ff`, ground `0x4d7a38`, intensity `0.72`, ambient `0xfff3df` at `0.28`, sun intensity, sky dome and sun disc visible again, shadow map 2048, and ortho frustum ±34 (near 0.5, far 90). Shadow bias `-0.00018` and normal bias `0.035` are never themed. No biome loads a texture.
+First delivered: PR-10 (M5) as four rotating themes; biome bands in the dungeon rework.
 
 **DUN-11. Every 5th floor is a boss spike, not an ending.**
 Statement: If `floorIndex % 5 === 0`, the plan contains one boss of the floor's theme and zero elites. The boss uses the shared boss shell (cleave, ring, two summon beats). Killing it drops loot at rare-or-better and unlocks the stairs. The next floor generates normally.
@@ -193,8 +193,12 @@ Acceptance: Floors 5, 10, 25, 50, and 100 have exactly one spawn with `boss: tru
 First delivered: PR-09 (M4).
 
 **DUN-12. The tile grammar is fixed.**
-Statement: `TILE = 4`. `cols = rows = floorSpan(floorIndex)`. Rooms, L-corridors, entrance, and stairs follow the generator algorithm. World XZ of a cell is centered on the grid. Y of the dungeon floor is 0. Yaw of a spawned actor uses `atan2(-dx, -dz)` when a facing is needed.
-Acceptance: Floor 1 is 7×7, floor 10 is 9×9, floor 25 is 13×13, floor 50 is 15×15. A cell's world center matches `tileToWorld`. The entrance room contains no planned enemy.
+Statement: `TILE = 4`. `cols = rows = floorSpan(floorIndex)`. Rooms, corridors, entrance, and stairs follow the generator algorithm. World XZ of a cell is centered on the grid. Y of the dungeon floor is 0. Yaw of a spawned actor uses `atan2(-dx, -dz)` when a facing is needed.
+Acceptance: Floor 1 is 17×17, floor 25 is 21×21, floor 50 is 25×25, floor 100 is 27×27. The outer ring of cells is always rock. A cell's world center matches `tileToWorld`. The entrance room contains no planned enemy.
+
+**DUN-15. Arrival is safe.**
+Statement: No planned spawn lies within `SAFE_RADIUS` (14 m, straight line) or `SAFE_STEPS` (4 tiles, walking) of the entrance cell, nor in the entrance room. Aggro is 9 m, so no enemy can notice the hero on the frame a floor is entered. Only the last-resort fill (generator step 5) may break the walking rule, and never the entrance-room rule.
+Acceptance: For seeds `1..50` and the six table floors, every spawn is at least `SAFE_RADIUS` from the entrance.
 First delivered: PR-01 (M1).
 
 **DUN-13. Generation stays inside a frame-sized budget.**
@@ -250,7 +254,7 @@ Acceptance: Placing a hurtbox between the camera and the hero, outside the arc, 
 First delivered: PR-03 (M1).
 
 **CMB-09. Enemies aggro, leash, and separate without a physics world.**
-Statement: Aggro if the player is within 9 m and a tile Bresenham from enemy to player is clear. Leash at 16 m from the spawn point: return, then heal to full. Enemies and the player resolve against dungeon tiles and against each other every frame using the active collider grid, not the town grid.
+Statement: Aggro if the player is within 9 m and a tile Bresenham from enemy to player is clear. Until then an idle non-boss foe strolls: a point within 2.6 m of its spawn, at 0.32 × its speed, then a 1.5–4.5 s rest, driven by a per-foe xorshift state (never `Math.random`). A stroll never reaches the leash. Leash at 16 m from the spawn point: return, then heal to full. Enemies and the player resolve against dungeon tiles and against each other every frame using the active collider grid, not the town grid.
 Acceptance: An enemy walled off 5 m away does not aggro. An aggroed enemy pulled past 16 m returns and ends at full HP. Two skirmishers pushed together are at least 0.7 m apart after three resolve passes.
 First delivered: PR-03 (M1).
 
@@ -358,7 +362,7 @@ First delivered: PR-04 (M2).
 ### Art and UI
 
 **ART-01. The locked Outer Wood style is a requirement, not a mood.**
-Statement: Every material, including dungeon meshes, sky, flame, and UI-adjacent world props, has `flatShading: true`. World and dungeon props use `MeshLambertMaterial`. The hero keeps `MeshStandardMaterial` with metalness only on gold and steel. `toneMapping` stays `NoToneMapping`. Output stays sRGB. While `space === "town"`, fog, background, hemisphere, ambient, and the sun shadow match the prototype exactly: `FogExp2(0xd5e4b8, 0.0105)`, background `0xd5e4b8`, `HemisphereLight(0xc5e4ff, 0x4d7a38, 0.72)`, `AmbientLight(0xfff3df, 0.28)`, sun `0xffd7a4` from `(-0.48, 0.86, 0.28)` normalized, shadow map 2048, ortho ±34. Dungeon themes may change fog, background, hemisphere ground, and the shadow map only through `applyDungeonLight`, and `arriveTown` puts the town values back through `applyTownLight` (DUN-10). No ACES, no `MeshBasicMaterial`, no texture maps, no downloaded models. `TREE_COUNT` stays 3050.
+Statement: Every material, including dungeon meshes, sky, flame, and UI-adjacent world props, has `flatShading: true`. World and dungeon props use `MeshLambertMaterial`. The hero keeps `MeshStandardMaterial` with metalness only on gold and steel. `toneMapping` stays `NoToneMapping`. Output stays sRGB. While `space === "town"`, fog, background, hemisphere, ambient, and the sun shadow match the prototype exactly: `FogExp2(0xd5e4b8, 0.0105)`, background `0xd5e4b8`, `HemisphereLight(0xc5e4ff, 0x4d7a38, 0.72)`, `AmbientLight(0xfff3df, 0.28)`, sun `0xffd7a4` from `(-0.48, 0.86, 0.28)` normalized, shadow map 2048, ortho ±34. Dungeon biomes may change fog, background, hemisphere colours and intensity, sun colour and intensity, sky-dome visibility, and the shadow map only through `applyDungeonLight`, and `arriveTown` puts the town values back through `applyTownLight` (DUN-10). No ACES, no `MeshBasicMaterial`, no texture maps, no downloaded models. `TREE_COUNT` stays 3050.
 Acceptance: The existing flat-shade traversal still passes with a dungeon floor built and then disposed. After dispose, fog, background, hemisphere sky and ground, ambient color and intensity, shadow map size, and frustum ±34 equal the town constants above. A new assertion walks `dungeonRoot` for `flatShading` before dispose.
 First delivered: PR-02 (M1) and re-checked in PR-03.
 
@@ -787,10 +791,11 @@ These are the spec of record. `n` is `floorIndex`.
 
 ```javascript
 function floorSpan(n) {
-  return Math.min(15, 7 + 2 * Math.floor((n - 1) / 8));
+  // Two tiles more per 10-floor biome band: 68 m across at floor 1, 108 m at the cap.
+  return Math.min(27, 17 + 2 * Math.floor((n - 1) / 10));
 }
 function enemyBudget(n) {
-  return Math.min(36, Math.round(4 + n * 0.85));
+  return Math.min(36, 7 + Math.max(1, Math.floor(n)));
 }
 function eliteCount(n) {
   if (n % 5 === 0) return 0;
@@ -820,12 +825,12 @@ Material drop: 40% (`roll < 4000`) of one theme material, quantity 1, plus 1 if 
 
 | Floor | Span | Budget | Skirm HP | Elite HP | Boss HP | Skirm dmg | Gold | XP | Epic / rare / unc cuts (of 10000) |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| 1 | 7 | 5 | 38 | 91 | 304 | 8 | 4 | 12 | 0 / 512 / 2712 |
-| 5 | 7 | 8 | 78 | 187 | 624 | 17 | 9 | 28 | 0 / 560 / 2760 |
-| 10 | 9 | 13 | 128 | 307 | 1024 | 28 | 14 | 48 | 0 / 620 / 2820 |
-| 25 | 13 | 25 | 278 | 667 | 2224 | 61 | 31 | 108 | 207 / 1007 / 3207 |
-| 50 | 15 | 36 | 528 | 1267 | 4224 | 116 | 58 | 208 | 295 / 1395 / 3595 |
-| 100 | 15 | 36 | 1028 | 2467 | 8224 | 226 | 113 | 408 | 470 / 2170 / 4370 |
+| 1 | 17 | 8 | 38 | 91 | 304 | 8 | 4 | 12 | 0 / 512 / 2712 |
+| 5 | 17 | 12 | 78 | 187 | 624 | 17 | 9 | 28 | 0 / 560 / 2760 |
+| 10 | 17 | 17 | 128 | 307 | 1024 | 28 | 14 | 48 | 0 / 620 / 2820 |
+| 25 | 21 | 32 | 278 | 667 | 2224 | 61 | 31 | 108 | 207 / 1007 / 3207 |
+| 50 | 25 | 36 | 528 | 1267 | 4224 | 116 | 58 | 208 | 295 / 1395 / 3595 |
+| 100 | 27 | 36 | 1028 | 2467 | 8224 | 226 | 113 | 408 | 470 / 2170 / 4370 |
 
 Elite HP is `round(skirmisherHp * 2.4)` for a skirmisher elite. Boss HP is `skirmisherHp * 8` (already an integer). A floor-100 boss has 8224 HP. That is a sponge if the Warden is still on a base-12 sword; the intended response is to extract and upgrade, not to add a victory lap. Time-to-kill at equal level is a tuning target, not a guarantee: at level 1, 17 damage versus 38 HP is three Strikes, and an 8-damage hit becomes 7 after mitigation, so a solo skirmisher needs about 23 connections to kill a 160 HP Warden. Packs of three are the actual threat. By floor 25 the skirmisher hits for 61 raw, about 38 after a Guard of 30, which is no longer facetankable. That is the curve working.
 
@@ -834,21 +839,15 @@ Elite HP is `round(skirmisherHp * 2.4)` for a skirmisher elite. Boss HP is `skir
 ```mermaid
 flowchart TD
   seed["mixSeed(runSeed, floorIndex)"] --> rng["mulberry32"]
-  rng --> span["cols = rows = floorSpan"]
-  span --> rooms["place 3 + floor span/4 rooms"]
-  rooms --> link["L-corridors between room i and i-1"]
-  link --> loops["extra corridors: floor rooms * 0.45"]
-  loops --> bfs["BFS from room 0 center"]
-  bfs --> stairs["farthest floor cell, tie: higher row then col"]
-  stairs --> room{"cell inside a room?"}
-  room -->|no| move["move stairs to farthest non-entrance room center"]
-  room -->|yes| check
-  move --> check{"every floor cell visited?"}
-  check -->|no| fail["throw in tests"]
-  check -->|yes| carve["carve until non-entrance cells >= budget"]
-  carve --> spawn["place exactly min 36 enemyBudget"]
+  rng --> biome["biomeFor(floorIndex)"]
+  biome --> span["cols = rows = floorSpan; outer ring stays rock"]
+  span --> rooms["one room per jittered grid slot; some skipped, some merged into halls"]
+  rooms --> link["minimum spanning tree over room centers, then short loops"]
+  link --> ends["entrance and stairs at the two ends of the longest walk"]
+  ends --> clean["fill any unreachable rim cell back in"]
+  clean --> spawn["packs of 2-4 in rooms, outside SAFE_RADIUS / SAFE_STEPS"]
   spawn --> elites["mark eliteCount spawns"]
-  elites --> props["corner props, center stays clear"]
+  elites --> props["pillars on room corners, biome props in tile corners"]
 ```
 
 ```javascript
@@ -869,33 +868,36 @@ function tileToWorld(col, row, cols, rows) {
 
 `TILE` is 4. A 7×7 floor is 28 m across, inside the dungeon camera's 12 m boom plus fog. A 15×15 floor is 60 m. Fog density in the dungeon is high enough that the far wall softens; it is not a view-distance cheat to hide a missing room.
 
-Algorithm, in order, all draws from the floor RNG:
+Algorithm, in order, all draws from the floor RNG (`src/sim/floorgen.js`; biome knobs from `src/sim/biomes.js`):
 
-1. Allocate `cols * rows` cells, value 0 = wall, 1 = floor.
-2. Target room count `3 + Math.floor(span / 4)` (4, 5, 6, 6 for spans 7, 9, 13, 15). Each room is 3×3, or 5×5 when `span >= 9` and `rng() < 0.4`. Place with at least one wall cell of padding between rooms. For each room still missing, try up to 30 random rectangles, then give up on that room and go on. Do not abort the whole floor. If fewer than 2 rooms exist after that pass, stamp a 3×3 at cell (1,1) and a 3×3 at `(cols-4, rows-4)`, overwriting walls, even if they overlap a previous room. Two rooms plus corridors are not required to hold the enemy budget by themselves; step 6 carves the rest.
-3. Connect rooms in placement order. For each pair `(i-1, i)`, carve an L corridor one tile wide between centers: horizontal then vertical when `rng() < 0.5`, otherwise vertical then horizontal. A path graph is connected even when corridors overlap.
-4. Add `Math.floor(rooms.length * 0.45)` extra L corridors between random distinct pairs.
-5. Entrance is room 0's center. BFS 4-connected over floor cells. The stairs candidate is the visited floor cell with greatest distance; ties go to the greater row, then the greater column. Stairs-room is the room rectangle that contains that cell. If no rectangle contains it (the farthest cell is a corridor), set the stairs cell to the center of the non-entrance room whose center has the greatest BFS distance, tie-breaking by higher room id, and record that room as the stairs-room. Room rectangles are solid floor, so the center is already floor. If the candidate is the entrance, carve a neighbor and use the rule above again. On a boss floor the boss spawn is this stairs cell, which is the stairs-room center whenever the candidate had to be moved, and is inside the stairs-room rectangle either way. Store `stairsRoomId` on the plan.
-6. Assert every floor cell was visited. In `?test=1`, throw. In a normal session, if the assert would fail, carve a deterministic fallback: a straight corridor from entrance to the opposite corner. That fallback must still pass the assert. Do not ship a floor with a sealed pocket. Then let `need = min(36, enemyBudget(floorIndex))`. While floor cells outside the entrance room are fewer than `need`, carve the wall cell with the lowest `row * cols + col` that is 4-adjacent to some floor cell. Stop early only if no such wall remains. This keeps connectivity and is what makes `spawns.length === need` true on a bad room seed. A span of 7 has 49 cells; the highest budget that still uses span 7 is 11 (floor 8). Larger floors have more room.
-7. Place exactly `need` spawns, none of them in the entrance room and none on the entrance cell. On boss floors the first is the boss on the stairs cell; the other `need - 1` are normal. Pass 1 fills non-stairs room cells at least 3 m from another spawn, round-robin across non-entrance rooms. Pass 2 uses any remaining non-entrance floor cell, including corridors, still 3 m apart. Pass 3 drops the gap and fills until the length equals `need`. Never place more than 36. Assign archetypes with `archetypeWeights` (the boss is not rolled from that table). Then mark `eliteCount` of the non-boss spawns, preferring spawns whose room is a dead end (one corridor exit). If there is no dead end, mark the spawns with the greatest BFS distance from the entrance that are not on the stairs cell. The required test, for seeds `1..50` and floors 1, 5, 10, 25, 50, 100, is `spawns.length === min(36, enemyBudget(n))` and, on boss floors, the boss cell equals the stairs cell and lies inside the `stairsRoomId` rectangle.
-8. Props. For each floor tile that is not entrance or stairs, with `rng() < 0.25`, place one prop in a corner offset of `(±1.3, ±1.3)` so the center 0.9 m radius stays clear. Kind is theme rock, root, or brazier (ember only, and at most 4 braziers because that is the point-light cap).
+1. Allocate `cols * rows` cells, value 0 = rock, 1 = floor. Nothing is carved in the outer ring.
+2. Rooms. Split the interior into a `g × g` grid, `g = max(2, round((cols - 2) / 5.5))`. Each slot may merge with its right or lower neighbour (20% for built biomes, 14% for organic) into a hall, is skipped 12% of the time if it did not merge, and otherwise holds one room whose size is drawn from the biome's `room` range, clamped to the slot minus one gap column and row. Built biomes stamp solid rectangles; organic biomes (`roomShape: "blob"`) stamp a ragged ellipse whose center cross is always open. If fewer than 2 rooms exist, stamp 3×3 rooms in two opposite corners.
+3. Corridors. Prim's minimum spanning tree over room centers (squared distance), then `round(rooms * loopRate)` extra links picked among the shortest unused pairs. `corridor: "straight"` carves an L; `"wind"` walks toward the target with the odd sidestep and, at `wideChance`, a second lane.
+4. Entrance and stairs. BFS from any room center to the farthest room A, then from A to the farthest room B. A is renumbered to room 0 and its center is the entrance; B's center is the stairs and B is `stairsRoomId`. Every room center must be reachable (a sealed one throws in tests and is joined by an L otherwise); stray rim cells that are not reachable are filled back to rock.
+5. Spawns. `need = min(36, enemyBudget(floorIndex))`. On boss floors the boss stands on the stairs cell and its room takes no pack. Shuffle the other non-entrance rooms; each in turn takes a pack of 2–4 on its open cells nearest the room center, never more than a quarter of its open cells, and only on cells that pass DUN-15. Repeat until `need` is met; then fill any DUN-15 cell, then any non-entrance cell, then carve. Archetypes come from `archetypeWeights`. Elites prefer dead-end rooms, then the spawns farthest from the entrance.
+6. Props. Biomes with `pillars` set a colonnade on the corner shared by four floor cells along the long sides of rooms at least 5×5 (not the stairs room). Then each floor tile other than the entrance and stairs cells has a `propRate` chance of one biome prop in a corner offset `(±1.3, ±1.3)`, skipped if that corner holds a pillar. Each prop carries its collider radius `r`; every tile center keeps 0.9 m clear. At most 8 braziers.
 
 Ids: planned spawns are `0..length-1` in the order pushed, and that sequence restarts on every floor. Drop ids are `drop-{floorIndex}-{spawnId}-{ordinal}` so a floor-1 drop cannot collide with a floor-2 drop even if a caller forgets to clear `picked`. The clear in `descendFloor` is still mandatory. Picking stores the drop id in `run.picked` for the current floor only. Regenerating that same floor does not recreate a picked drop. Unpicked drops are **not** in the plan; they are recreated only for kills that are in the current floor's `killed` and not in `picked`. Resume builds the plan for `run.floorIndex` only, spawns enemies whose ids are not in that list, sets HP from `enemyHp` or max, and spawns ground drops for killed-but-not-picked. Loot recreation uses `mulberry32(mixSeed(runSeed, floorIndex + 7919 + spawnId))` so rolls do not depend on how many combat RNG calls happened before death. Combat RNG during play uses a separate `mulberry32` stored as `run.rngState` (the `a` integer). On resume, restore `a`. If `rngState` is missing, loot recreation still works because loot has its own stream; only the next telegraph's non-determinism resets. Prefer saving `rngState`. Do not interpret `killed` from floor N as dead ids on floor N+1.
 
-Walls: for every edge between a floor cell and a non-floor cell, emit a box `4 × 2.6 × 0.4` sitting on that edge, `DoubleSide`, `flatShading: true`. Do not fill the entire solid cell with a 4 m cube if a thinner wall reads better; the **solid for movement** is still the whole non-floor tile, so the thin visual wall and the fat collider agree on "you cannot enter this cell". That is one record (the tile) consumed by both the mesh builder and `resolveTiles` (Rule 5). Do not store a separate yaw for walls.
+Rock: every solid cell is a column in one heightfield mesh (`dungeonWalls`, `DoubleSide`, `flatShading: true`): a top, plus a side wherever the neighbour is floor or lower rock. Built biomes keep a level 3.6 m top; organic biomes vary each column from 3.3 to 4.6 m and nudge every vertex of a shared 2 m lattice by up to 0.42 m, keyed by world position, so floors and walls meet without cracks. Rock three or more cells from any floor is a single flat slab at rim height. A rim shelf runs 90 m out into the fog. The **solid for movement** is still the whole non-floor tile (Rule 5). The heightfield is also the camera occluder.
 
-Floors: one merged `PlaneGeometry` or a single non-indexed buffer of quads, `rotation.x = -Math.PI / 2`, normal +Y asserted, vertex colors per face from the theme. One draw call for the floor, one for the walls if they share a geometry.
+Dressing lives in a separate mesh with no collider: boulders along organic walls; plinth, cornice, and pilasters along built walls; banners, vines, wall candles, and forge seams by biome; pebbles and bones on the floor. Emissive parts (mushroom caps, crystals, flames, lava) share one `dungeonGlow` mesh in the biome accent; rune rings share one gold `dungeonRunes` mesh.
 
-Open roof: no ceiling mesh. Sky dome stays, fog hides the join. Dungeon hemisphere and fog:
+Set pieces: the arrival landing (rune ring, lantern post, a faint light shaft) and the stair well (stepped rings, gold rim, four obelisks with colliders in the tile corners, and a beacon column visible over the walls; red while a boss lives, gold after).
 
-| themeId | Name | Fog hex | Density | Hemi ground | Floor faces | Wall faces | Emissive accent |
-|---:|---|---|---:|---|---|---|---|
-| 0 | Moss | `#c5d4a4` | 0.040 | `#3d5a30` | `#3c6e2e`, `#4f8c38`, `#2c6b2a` | `#4c545e`, `#5e6771`, `#3e4650` | none |
-| 1 | Root | `#c4b89a` | 0.045 | `#3a2a22` | `#3a2416`, `#5a3a24`, `#6b4428` | `#2f363e`, `#3a2416` | none |
-| 2 | Slate | `#b7c0b0` | 0.042 | `#2f363e` | `#2f363e`, `#4c545e`, `#6e7882` | `#1c2228`, `#3e4650` | none |
-| 3 | Ember | `#d5c4a8` | 0.040 | `#4a3024` | `#3e4650`, `#4a3024`, `#2f363e` | `#3a2416`, `#4c545e` | `#ff8a2a` braziers, same treatment as the camp flame (Lambert emissive, not `MeshBasicMaterial`) |
+Floors: a single non-indexed buffer of quads, `rotation.x = -Math.PI / 2`, normal +Y asserted, vertex colours per face from the biome. Organic floors use the jittered lattice; built floors are flagstones over grout.
 
-Sun color and direction do not change. `applyDungeonLight(themeId)` sets the fog row above, copies that fog hex into `scene.background`, sets hemisphere ground from the row, leaves hemisphere sky at `0xc5e4ff`, and sets the shadow map to 1024 with frustum ±18. One directional light. `applyTownLight()` restores the prototype values listed in ART-01 and DUN-10, including background, and is the last light call inside `arriveTown`. Point lights: the existing camp light is on `townRoot` and leaves with the town. Braziers use at most four point lights, intensity 6, distance 9, decay 2, `castShadow = false`.
+Open roof: no ceiling mesh. In the dungeon the sky dome and sun disc are hidden and the background is the fog colour. Biome palettes, `src/view/lights.js` `DUNGEON_THEMES`:
+
+| id | Biome | Fog hex | Density | Hemi sky / ground | Sun | Accent |
+|---:|---|---|---:|---|---|---|
+| 0 | Mossy Caves | `#9fb393` | 0.034 | `#cfe3c8` / `#2f4a2a` | `#fff0c8` × 1.9 | `#7fe0c8` mushrooms, crystals |
+| 1 | Sunken Temple | `#d9c59a` | 0.032 | `#f2e6c8` / `#6a5434` | `#ffe0a8` × 2.1 | `#ff8a2a` braziers |
+| 2 | Rootdeep | `#a8946c` | 0.036 | `#e0cfa8` / `#3a2a22` | `#ffe2b0` × 1.8 | `#f0b040` fungus |
+| 3 | Slate Crypt | `#9aa6b4` | 0.036 | `#d8e4f4` / `#2f363e` | `#e8eeff` × 1.7 | `#9fd0ff` candles |
+| 4 | Ember Forge | `#b87a58` | 0.036 | `#ffd0a0` / `#4a3024` | `#ffc890` × 1.9 | `#ff8a2a` lava, braziers |
+
+Sun direction does not change. `applyDungeonLight(themeId)` sets the row above, copies the fog hex into `scene.background`, hides the sky dome and sun disc, and sets the shadow map to 1024 with frustum ±18. One directional light. `applyTownLight()` restores the prototype values listed in ART-01 and DUN-10 and shows the sky again, and is the last light call inside `arriveTown`. Point lights on a floor: arrival, stairs, and up to two glowing props at least 14 m from those and each other. Never more than four, `castShadow = false`.
 
 Enemy meshes are code-built and chunky, the same construction as the hero (`mergeParts`, low segment counts): a skirmisher is a low body, four stubby legs, a head; a brute is wider and taller; a spitter has a forward sac on local −z; a shade reuses the Warden silhouette at 0.85 scale with slate and gold and no circlet gem. Measure front as local −z by construction, and put a named `nose` or `muzzle` on each so a test can dot it with the parent's −z. Do not call `lookAt` on them (Rule 2: `lookAt` aims +z).
 
@@ -1043,7 +1045,17 @@ The action bar stays the eight buttons. Dungeon binding:
 | 7 | Digit7 | Focus, existing numbers | Focus |
 | 8 | Shift | Sprint, lit state as today | Sprint |
 
-Minimap in the dungeon: clear to the theme floor color, draw floor tiles as parchment-dark rectangles, the hero with the existing arrow, stairs as a gold square, enemies as `#8e2e28` squares if they are in aggro, otherwise do not reveal them. North −z is up, using `mapAngleFromPlanar` unchanged. Do not rotate the map with the camera; the camera wedge already rotates in the current `drawMinimap`.
+Minimap in the dungeon: clear to the biome floor color, draw only floor tiles the Warden has seen (center within 11 m on a clear tile line, `src/ui/atlas.js`) as parchment-dark rectangles, the hero with the existing arrow, stairs as a gold square, enemies as `#8e2e28` squares if they are in aggro, otherwise do not reveal them. North −z is up, using `mapAngleFromPlanar` unchanged. Do not rotate the map with the camera; the camera wedge already rotates in the current `drawMinimap`.
+
+Foe health bars (`src/ui/foebars.js`): a DOM bar over each living foe below full health, within 22 m and on a clear tile line from the Warden; a pale lag chunk holds 0.35 s after a hit, then drains; ward and shade absorb show as a blue strip; elites have a gold edge; the boss bar is wider and carries the biome's boss name. No bar at full health or after death.
+
+Loot burst: a live kill throws each drop from where the foe fell along a short arc (0.62 s, one bounce) to its own spot 1.0–1.7 m away. Direction and distance come from the drop id; the spot must be clear of rock tiles and prop colliders, else it falls back closer. Airborne drops cannot be collected. Drops re-created on resume are laid out around the spawn point, already settled.
+
+Mend is a held channel (`mendCastSeconds`: 1.5 s at rank 0, 0.1 s quicker per rank to 1.1 s). Hold 3 (or click the slot, which then runs until broken). Moving 0.6 m, letting go of 3, striking, or starting the Hearth breaks it, and a broken Mend spends no mana. A hit does not break it: each hit pushes the cast back `MEND_PUSHBACK` (0.5 s), never below empty. Mend has no cooldown; the cast time is the price. Cost, heal, and regrowth apply when the channel lands. The pose draws both hands to the chest under a green ring; the cast bar turns green.
+
+Treasure chests (generator step 7): 35% of floors have none, 50% one, 15% two. Dead-end rooms first, never the entrance or stairs room, in a room corner at the 1.3 m prop offset, front facing the room, collider 0.55. F within 2.1 m opens one: the lid swings open, and loot bursts from its front: one guaranteed gear roll at elite quality (`rollGearDrop` with `force`), elite gold, and the 40% material, uids `drop-{floor}-{5000+id}-{0,1,2}`. The opened chest is kept in `run.killed` as `CHEST_BASE (5000) + id`, so resume shows it open and lays out whatever was not picked up. The atlas draws seen chests.
+
+Floor atlas (M, Escape closes): a plaque with the whole floor at once: seen tiles and the rock edging them, the arrival ring, the stairs as a gold diamond (red while a boss lives, always shown because the beacon stands over the walls), foes in aggro, and the Warden's arrow. Explored memory lasts for the current plan only; resume starts it fresh. Enemies take the biome's palette and crest (tuft, horns, antlers, spines, embers); boss floors cast `The {Boss} holds the stair. Follow the red light.` with the biome's boss name.
 
 ### Debug and test hooks
 

@@ -47,6 +47,8 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/floorgen.js` | PR-01 | `mixSeed`, `generateFloor`. Plain plan, no meshes. |
 | `src/play/town.js` | PR-02 | Gate and station prompts. |
 | `src/view/dungeon.js` | PR-03 | `buildFloorMesh(plan)`. Does not sample `terrainHeight`. |
+| `src/sim/biomes.js` | Dungeon | `BIOMES` table (layout knobs per 10-floor band), `biomeFor`, `biomeIndex`, `biomeDepth`, `biomeEntry`. Pure data. |
+| `src/view/dungeonkit.js` | Dungeon | `makeBuilder` (baked flat-shaded triangles) and the biome prop writers used by `buildFloorMesh`. |
 | `src/play/space.js` | PR-03 | Town or dungeon, `descendFloor`, `arriveTown`. |
 | `src/play/combat.js` | PR-03 | Windups and strikes. Numbers come from `src/sim`. |
 | `src/sim/save.js` | PR-04 | Schema and `migrate` only. |
@@ -68,6 +70,15 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/play/quests.js` | Quests | `rt.questEvent`, take, claim, abandon, today's date. |
 | `src/ui/questlog.js` | Quests | Tracker plaque for carried quests. |
 | `src/ui/character.js` | Town | XP bar in the vitals plaque, the character sheet (I / C / portrait), loot-rule reminders. |
+| `src/ui/atlas.js` | Dungeon | Explored-tile memory for the current floor (`rt.explored`, `rt.tileSeen`) and the full floor map plaque (M). |
+| `src/ui/foebars.js` | Dungeon | Health bars over wounded foes (below full only): lag chunk, ward strip, elite edge, named boss bar. |
+| `src/ui/hurtfx.js` | Combat | Red screen-edge flash on damage (scaled to the hit), low-health pulse, sets `rt.camShake`. |
+| `src/ui/castbar.js` | Combat | Hearth (Extract) cast bar above the action bar; "Interrupted" when the channel breaks. |
+| `src/play/heroanim.js` | Combat | Hero action poses over the walk cycle (strike: cock, whip, lunge; hearth: arms raised), slash-arc fade, hearth channel effect. Runs last in `update`. |
+| `src/play/questmarks.js` | Town | Which giver shows a quest mark ("!" to take, "?" to hand in), placed over the head or, for a keeper indoors, over the door. |
+| `src/view/questmarks.js` | Town | `buildQuestMark`: the yellow "!" and "?" glyphs. |
+| `src/sim/gearstats.js` | Town | `heroStats` (mirrors `derive()`), `compareEquip`, `compareUpgrade`, readable `affixLines`, trainer `trackEffects` / `trackNext`. Pure; feeds the panel previews. |
+| `src/view/gateportal.js` | Town | `buildGatePortal`: the Delve Gate's swirling veil (shader), inward motes, pulsing light; `tick(time)` from `play/town.js`, which also starts a delve when the hero walks through the opening. |
 
 ## Rules
 
