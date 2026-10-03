@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="veil" cx="50%" cy="55%" r="60%">
+      <stop offset="0" stop-color="#f2c060"/>
+      <stop offset="0.25" stop-color="#b48cff"/>
+      <stop offset="0.65" stop-color="#5c2ab4"/>
+      <stop offset="1" stop-color="#1a9e8c"/>
+    </radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f4a2a"/>
+      <stop offset="1" stop-color="#1a120c"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9aa0a4"/>
+      <stop offset="1" stop-color="#6c7276"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="268" r="150" fill="#e2ba60" opacity="0.18"/>
+  <!-- ground -->
+  <rect x="96" y="372" width="320" height="18" rx="4" fill="#4d7a38"/>
+  <!-- portal veil -->
+  <rect x="190" y="178" width="132" height="194" fill="url(#veil)"/>
+  <path d="M256 270 m-40 0 a40 40 0 1 1 80 0 a28 28 0 1 1 -56 0 a16 16 0 1 1 32 0" fill="none" stroke="#fff0c8" stroke-width="7" stroke-linecap="round" opacity="0.8"/>
+  <!-- pillars -->
+  <rect x="146" y="168" width="46" height="208" fill="url(#stone)"/>
+  <rect x="320" y="168" width="46" height="208" fill="url(#stone)"/>
+  <!-- lintel and cap -->
+  <rect x="128" y="132" width="256" height="42" fill="#8a9094"/>
+  <rect x="140" y="112" width="232" height="24" fill="#b0b6ba"/>
+  <rect x="242" y="150" width="28" height="22" fill="#e2ba60"/>
+  <!-- frame -->
+  <rect x="16" y="16" width="480" height="480" rx="56" fill="none" stroke="#e2ba60" stroke-width="10" opacity="0.85"/>
+</svg>
