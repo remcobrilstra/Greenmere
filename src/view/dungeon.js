@@ -923,8 +923,76 @@ export function buildFloorMesh(plan) {
     mesh.instanceMatrix.needsUpdate = true;
   }
 
+  // Foe deaths: a foe seen alive and then at 0 hp topples backward, bounces,
+  // and sinks into the floor while wisps in the floor's accent rise from it
+  // (bosses fall slower and give off more). Foes already dead when the floor
+  // is built (a resumed run) just stay hidden. Wall-clock timed: it is only a look.
+  const dying = new Map();
+  let primed = false;
+  const WISP_MAX = 48;
+  const wispMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  wispMat.flatShading = true;
+  const wispMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.08, 0), wispMat, WISP_MAX);
+  wispMesh.name = "foeWisps";
+  wispMesh.frustumCulled = false;
+  root.add(wispMesh);
+  const wisps = [];
+  let wispNext = 0;
+  hideMesh(wispMesh);
+  function spawnWisps(e, n, now) {
+    for (let i = 0; i < n; i++) {
+      // A fixed spread (no Math.random: the self-test counts its calls).
+      const j = ((wispNext * 7 + i * 13) % 17) / 17;
+      const a = (i / n) * Math.PI * 2 + j * 0.6;
+      wisps[wispNext] = { x: e.x, z: e.z, a, r: 0.25 + j * 0.3, t0: now + i * 40, life: 0.9 + j * 0.5 };
+      wispNext = (wispNext + 1) % WISP_MAX;
+    }
+  }
+  function writeDying(mesh, slot, e, age, dur) {
+    const fallT = Math.min(1, age / (dur * 0.37));
+    const fall = fallT * fallT;
+    const after = Math.max(0, age - dur * 0.37);
+    const bounce = after > 0 ? Math.sin(Math.min(1, after / 0.25) * Math.PI) * 0.14 * Math.max(0, 1 - after / 0.25) : 0;
+    const sinkU = Math.max(0, Math.min(1, (age - dur * 0.55) / (dur * 0.45)));
+    const sink = sinkU * sinkU * (3 - 2 * sinkU);
+    _dummy.position.set(e.x, -0.9 * sink, e.z);
+    _dummy.rotation.set(1.45 * fall - bounce, e.yaw || 0, 0, "YXZ");
+    _dummy.scale.setScalar(1 - 0.4 * sink);
+    _dummy.updateMatrix();
+    mesh.setMatrixAt(slot, _dummy.matrix);
+    _dummy.rotation.order = "XYZ";
+  }
+  function syncWisps(now) {
+    let any = false;
+    for (let i = 0; i < WISP_MAX; i++) {
+      const w = wisps[i];
+      if (!w) {
+        writeInstance(wispMesh, i, 0, 0, 0, 0, 0);
+        continue;
+      }
+      const u = (now - w.t0) / 1000 / w.life;
+      if (u >= 1) {
+        wisps[i] = null;
+        writeInstance(wispMesh, i, 0, 0, 0, 0, 0);
+        continue;
+      }
+      if (u < 0) {
+        writeInstance(wispMesh, i, 0, 0, 0, 0, 0);
+        any = true;
+        continue;
+      }
+      any = true;
+      const a = w.a + u * 4;
+      const r = w.r * (1 - u * 0.5);
+      writeInstance(wispMesh, i, w.x + Math.cos(a) * r, 0.3 + u * 2.4, w.z + Math.sin(a) * r, a, Math.sin(u * Math.PI) * 1.2);
+    }
+    wispMesh.instanceMatrix.needsUpdate = true;
+    return any;
+  }
+
   let beaconHeld = bossFloor;
   function syncActors(list) {
+    const now = performance.now();
     const names = ["skirmisher", "brute", "spitter", "shade", "boss"];
     for (let n = 0; n < names.length; n++) {
       const pack = packs[names[n]];
@@ -942,6 +1010,18 @@ export function buildFloorMesh(plan) {
       if (!pack || e.slot >= pack.capacity) continue;
       const alive = e.hp > 0 ? 1 : 0;
       writeInstance(pack.body, e.slot, e.x, 0, e.z, e.yaw || 0, alive);
+      if (alive) dying.delete(e);
+      else if (!dying.has(e)) {
+        dying.set(e, primed ? now : -1);
+        if (primed) spawnWisps(e, e.boss ? 14 : 6, now);
+      }
+      const t0 = alive ? -1 : dying.get(e);
+      if (t0 >= 0) {
+        const dur = e.boss ? 1.7 : 0.95;
+        const age = (now - t0) / 1000;
+        if (age < dur) writeDying(pack.body, e.slot, e, age, dur);
+        else dying.set(e, -1);
+      }
       const showTell = alive && e.telegraph > 0;
       if (e.boss && e.attack === "ring" && bossDonut) {
         writeInstance(bossDonut, 0, e.markX || e.x, 0.05, e.markZ || e.z, 0, showTell ? 1 : 0);
@@ -956,6 +1036,7 @@ export function buildFloorMesh(plan) {
       if (pack.ring) pack.ring.instanceMatrix.needsUpdate = true;
     }
     if (bossDonut) bossDonut.instanceMatrix.needsUpdate = true;
+    syncWisps(now);
     if (bossFloor) {
       let held = false;
       for (let i = 0; i < foes.length; i++) if (foes[i] && foes[i].boss && foes[i].hp > 0) held = true;
@@ -976,6 +1057,7 @@ export function buildFloorMesh(plan) {
     }
   }
   syncActors(actors);
+  primed = true;
 
   function claimSlot(name) {
     const pack = packs[name];
