@@ -938,8 +938,11 @@ export function attachCombat(rt) {
     const mesh = drop && drop.mesh;
     if (!mesh) return;
     if (mesh.parent) mesh.parent.remove(mesh);
-    if (mesh.geometry && mesh.geometry.dispose) mesh.geometry.dispose();
-    if (mesh.material && mesh.material.dispose) mesh.material.dispose();
+    // A gear glint carries its beam and ring as children.
+    mesh.traverse((o) => {
+      if (o.geometry && o.geometry.dispose) o.geometry.dispose();
+      if (o.material && o.material.dispose) o.material.dispose();
+    });
     drop.mesh = null;
   }
 
@@ -1020,7 +1023,7 @@ export function attachCombat(rt) {
   function placeGearDrop(item, x, z, fromX, fromZ) {
     if (!item) return null;
     const drop = { kind: "gear", uid: item.uid, item, x, z };
-    drop.mesh = buildGlint();
+    drop.mesh = buildGlint(item.rarity);
     launch(drop, fromX, fromZ, 0.46);
     const parent = rt.dungeonRoot || rt.scene;
     if (parent) parent.add(drop.mesh);

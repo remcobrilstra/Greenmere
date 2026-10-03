@@ -2662,10 +2662,21 @@ export function installSelfTest(rt) {
     update(0.016);
     check(rt.session.pack.length === 24 && rt.groundDrops.indexOf(glint) >= 0 && glintMesh.parent && glintMesh.material.flatShading === true && glintMesh.material.type === "MeshLambertMaterial" && !glintMesh.material.map, "a full pack does not consume the glint");
     check(castLine.textContent === "Your pack is full.", "a full pack of gear says Your pack is full.");
+    check(glintMesh.userData.rarity === held.rarity && held.rarity >= 2 && !!glintMesh.getObjectByName("glintBeam") && !!glintMesh.getObjectByName("glintRing"), "a boss drop stands in a beam and ring of its rarity");
     rt.suspendCombat = true;
     rt.startRun(3, 1);
     check(!glintMesh.parent && rt.groundDrops.indexOf(glint) < 0, "leaving the floor deletes the glint");
     rt.freshGame();
+    // Putting on a rare or better piece flashes; a fresh ledger does not.
+    update(0.016);
+    for (let i = 0; i < 25; i++) update(0.05);
+    rt.session.equipped[held.slot] = Object.assign({}, held, { uid: "flash-test" });
+    update(0.016);
+    check(rt.equipFlashActive && rt.equipFlashActive(), "equipping a rare or better piece flashes on the Warden");
+    for (let i = 0; i < 25; i++) update(0.05);
+    rt.freshGame();
+    update(0.016);
+    check(rt.equipFlashActive && !rt.equipFlashActive(), "a fresh ledger does not flash");
     rt.suspendCombat = false;
     player.position.set(-6.5, groundY(-6.5, 4.5), 4.5);
     rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });

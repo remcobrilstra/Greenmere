@@ -1109,19 +1109,61 @@ export function buildLootMesh(kind, key) {
   return mesh;
 }
 
-export function buildGlint() {
+// Gear on the ground, coloured by rarity (the character sheet's colours).
+// Uncommon and up stand in a light beam, taller with rarity; rare and epic get
+// a ring on the ground. Children sit below the gem by REST_Y (gear rests at
+// 0.46). play/lootfx.js bobs, spins and pulses them.
+export const RARITY_HEX = [0xe7d7b4, 0x8ed15a, 0x7eb6ef, 0xf0b040];
+const GLINT_REST_Y = 0.46;
+export function buildGlint(rarity) {
+  const r = Math.max(0, Math.min(3, Math.floor(Number(rarity) || 0)));
+  const hex = RARITY_HEX[r];
   const mesh = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.16, 0),
+    new THREE.OctahedronGeometry(0.16 + 0.02 * r, 0),
     new THREE.MeshLambertMaterial({
-      color: 0xe2ba60,
-      emissive: 0xd4a03a,
-      emissiveIntensity: 0.4,
+      color: hex,
+      emissive: hex,
+      emissiveIntensity: 0.4 + 0.15 * r,
       flatShading: true
     })
   );
   mesh.name = "glint";
   mesh.castShadow = false;
   mesh.receiveShadow = false;
+  mesh.userData.rarity = r;
+  if (r >= 1) {
+    const h = [0, 1.3, 2.4, 3.8][r];
+    const geo = new THREE.CylinderGeometry(0.12, 0.2, h, 8, 1, true);
+    geo.translate(0, h / 2 - GLINT_REST_Y, 0);
+    const beam = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      color: 0x000000,
+      emissive: hex,
+      flatShading: true,
+      transparent: true,
+      opacity: 0.22 + 0.06 * r,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    }));
+    beam.name = "glintBeam";
+    mesh.add(beam);
+  }
+  if (r >= 2) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.42, 20), new THREE.MeshLambertMaterial({
+      color: 0x000000,
+      emissive: hex,
+      flatShading: true,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04 - GLINT_REST_Y;
+    ring.name = "glintRing";
+    mesh.add(ring);
+  }
   return mesh;
 }
 
