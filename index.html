@@ -379,6 +379,8 @@
       z-index: 30;
       opacity: 0;
     }
+    /* F2: only the 3D view stays. */
+    body.ui-hidden > :not(canvas) { display: none !important; }
     #ability-tip {
       position: fixed;
       z-index: 20;

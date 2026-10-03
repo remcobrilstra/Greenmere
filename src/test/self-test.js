@@ -1453,6 +1453,15 @@ export function installSelfTest(rt) {
     const emptySlot = tryAbility(5);
     check(!emptySlot.ok && emptySlot.reason === "empty" && vitals.mp === 5 && cdLeft[5] === 0, "slot 6 is empty and does nothing");
     check(slots[5].classList.contains("empty") && slots[5].getAttribute("aria-label") === "Empty slot" && !rt.abilityTip(5), "the empty slot is labelled and has no tooltip");
+    // Debug keys: F2 hides the UI, F3 reports where the Warden is.
+    if (rt.setUiHidden && rt.locationReport) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "F2", bubbles: true }));
+      const hudHidden = getComputedStyle(document.getElementById("hud")).display === "none" && getComputedStyle(rt.renderer.domElement).display !== "none";
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "F2", bubbles: true }));
+      check(hudHidden && !rt.uiHidden && getComputedStyle(document.getElementById("hud")).display !== "none", "F2 hides the UI and shows it again, the 3D view stays");
+      const rep = rt.locationReport();
+      check(rep.url.indexOf("?dev=1&at=") > 0 && rep.text.indexOf("character level") >= 0 && rep.text.indexOf("storey") >= 0, "F3's report names the spot, storey and level and carries a dev URL back to it");
+    }
     check(rt.DECOR && rt.DECOR.join(",") === "flowers,grass,mushrooms,flame", "decor list is flowers, grass, mushrooms, flame");
 
     check(!rt.colliderOverlay, "collider overlay stays off without ?dev=1");
