@@ -12,13 +12,14 @@
 //   glowFire, glowPotion, glowLamp   pieces for the town's glow meshes
 //   tier1..3  depth-tier dressing
 //   ground, props, hearth            (town.glb) square and roads, street props, fire pit
+//   gate, gateGlow                   (town.glb, gate-local) Delve Gate stonework and its runes
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 const PARTS = ["shell", "glass", "lamp", "interior", "glowFire", "glowPotion", "glowLamp",
-  "tier1", "tier2", "tier3", "ground", "props", "hearth"];
+  "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate", "gateGlow"];
 
 let loader = null;
 

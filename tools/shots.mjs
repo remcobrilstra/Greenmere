@@ -26,6 +26,8 @@ const OUT = join(ROOT, "shots");
 const VIEWS = {
   overview: "at=0,4,0&cam=3.3,0.95,40",
   square: "at=0,-6,0&cam=0.6,0.5,20",
+  gate: "at=0,-29.5,0&cam=0.45,0.32,11",
+  hearth: "at=3.4,-24.5,0&cam=-0.5,0.62,12",
   "store-upstairs": "at=-17,1,0&level=1&cam=1.57,0.9,12"
 };
 

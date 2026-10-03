@@ -19,7 +19,7 @@ The art direction does not change: code-built, flat-shaded Lambert geometry, no 
 2. **Every service is a place.** A building, a sign you can read from the square, a keeper NPC, a counter, and a room that tells you what happens there (forge glow, copper still, shelves of goods, a stone circle on the floor).
 3. **Someone is always around.** Keepers work at their stations. Townsfolk walk between real destinations (well, stalls, inn, homes), stop, chat, and step around the player.
 4. **Walking in feels seamless.** No loading screen and no separate interior scene. The roof cuts away when you step inside, the camera tightens, and a warm interior light comes up.
-5. **The town reads at a glance.** One central square with the Hearth fire, the gate on the north road, and services around the square, each with a hanging sign whose silhouette names its trade (anvil, flask, coin, ring).
+5. **The town reads at a glance.** One central square around the well, the gate on the north road with the Hearth camp beside it, and services around the square, each with a hanging sign whose silhouette names its trade (anvil, flask, coin, ring).
 
 ---
 
@@ -31,12 +31,13 @@ North is −z. The town core (radius 36) is perfectly flat at y = 0. Hills blend
                          N (−z)
                      [Delve Gate]  (0, −36)
                           ||   arrival (0, −27), faces town
+                          ||==( Hearth camp ) (6.5, −28.5)
           [The Still]     ||      [The Banked Fire]
           (−14,−20)       ||        (15,−20)  inn
    (cottage)          stalls ||                   (cottage)
             \          __||__                 /
  [Bramble & Board]===( Square )===[The Quench]
-     (−18,−2) store   ( Hearth )    (18,−2) smith
+     (−18,−2) store   (  Well  )    (18,−2) smith
                        \__ __/
    (cottage)              ||                     (cottage)
                      [The Circle]
@@ -47,7 +48,7 @@ North is −z. The town core (radius 36) is perfectly flat at y = 0. Hills blend
 
 | Place | Center | Faces | Footprint (w×d) | Role |
 |---|---|---|---|---|
-| Hearth Square | (0, 0) | — | cobble disc r 10 | Bonfire stays at (3.4, −2.6). Well, benches, market stalls, notice board |
+| Square | (0, 0) | — | cobble disc r 10 | Well at the centre (0, 0). Benches, market stalls, notice board. The Hearth bonfire is a camp by the gate road at (6.5, −28.5), where extract and death land |
 | The Counting House | (−14, 14) | toward the square | 9 × 7, stone | Bank and stash (Phase 4) |
 | Delve Gate | (0, −36) | south | arch 3.2 × 3.6 opening | Only exit. Descent disc at (0, −34.2) |
 | Town arrival | (0, −27) | yaw π (into town) | — | Extract and death land here |

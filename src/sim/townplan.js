@@ -26,7 +26,8 @@ export function townTier(bestDepth) {
   return tier;
 }
 
-export const HEARTH = { x: 3.4, z: -2.6 };
+// The hearth is a camp beside the gate road, where extract and death land.
+export const HEARTH = { x: 6.5, z: -28.5 };
 export const GATE = { x: 0, z: -36, descent: { x: 0, z: -34.2, r: 1.8 } };
 // Extract and death land at the town end of the gate road, facing into town.
 export const TOWN_ARRIVAL = { x: 0, z: -27, yaw: Math.PI };
@@ -583,13 +584,15 @@ function buildRoads() {
     const q = localToWorld(b, lq.x, lq.z);
     roads.push({ ax: p.x, az: p.z, bx: q.x, bz: q.z, w: 1.4 });
   }
+  // A short footpath from the gate road to the hearth's clearing.
+  roads.push({ ax: 1.6, az: HEARTH.z, bx: HEARTH.x - 2.9, bz: HEARTH.z, w: 1.6 });
   return roads;
 }
 export const ROADS = buildRoads();
 
 // Square and street props. Colliders come from `r` (circle) or w/d (box).
 export const PROPS = [
-  { type: "well", x: -5.2, z: 3.6, r: 1.0 },
+  { type: "well", x: 0, z: 0, r: 1.0 },
   { type: "stall", x: -6.9, z: -4.6, yaw: faceCenter(-6.9, -4.6), w: 2.6, d: 1.4, awning: 0xb64034 },
   { type: "stall", x: -8.2, z: 5.0, yaw: faceCenter(-8.2, 5.0), w: 2.6, d: 1.4, awning: 0x2d62c8 },
   { type: "stall", x: 7.0, z: 5.4, yaw: faceCenter(7.0, 5.4), w: 2.6, d: 1.4, awning: 0xd4a03a },
@@ -640,5 +643,6 @@ export function townBlocked(x, z, pad) {
     if (Math.hypot(x - (r.ax + dx * t), z - (r.az + dz * t)) < r.w / 2 + 0.3 + m) return true;
   }
   if (Math.abs(x - GATE.x) < 4 && Math.abs(z - GATE.z) < 3 + m) return true;
+  if (Math.hypot(x - HEARTH.x, z - HEARTH.z) < 3.4 + m) return true;
   return false;
 }

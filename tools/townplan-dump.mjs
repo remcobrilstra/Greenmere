@@ -17,7 +17,7 @@ const out = {
     furniture: b.furniture || [], upperFurniture: b.upperFurniture || [], levelTop: tp.levelTop(b),
     yard: b.yard || null, ring: b.ring || null
   })),
-  props: tp.PROPS, roads: tp.ROADS, SQUARE_R: tp.SQUARE_R, SQUARE_TOP: tp.SQUARE_TOP, HEARTH: tp.HEARTH
+  props: tp.PROPS, roads: tp.ROADS, SQUARE_R: tp.SQUARE_R, SQUARE_TOP: tp.SQUARE_TOP, HEARTH: tp.HEARTH, GATE: tp.GATE
 };
 writeFileSync(fileURLToPath(new URL("./blender/townplan.json", import.meta.url)), JSON.stringify(out, null, 1));
 console.log("wrote " + out.buildings.length + " buildings");

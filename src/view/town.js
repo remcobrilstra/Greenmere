@@ -567,6 +567,8 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     townRoot.add(group);
     const decor = [];
     const colliders = [];
+    // Code-built stonework, hidden when the Blender-built gate arrives.
+    const stonework = [];
     const openingW = 3.2;
     const openingH = 3.6;
     const hx = 0.48;
@@ -580,6 +582,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       pillar.castShadow = true;
       pillar.receiveShadow = true;
       group.add(pillar);
+      stonework.push(pillar);
       colliders.push(addCollider(x + pillar.position.x, z, footprintR));
     }
     const lintel = new THREE.Mesh(
@@ -597,6 +600,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     const keystone = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.18), gold);
     keystone.position.set(0, openingH + 0.08, hz + 0.02);
     addDecor(group, keystone, decor);
+    stonework.push(lintel, cap, keystone);
     const stepGeo = new THREE.BoxGeometry(openingW, 0.04, hz * 2);
     stepGeo.translate(0, 0.02, 0);
     const step = new THREE.Mesh(stepGeo, stoneMats[2]);
@@ -604,6 +608,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     step.receiveShadow = true;
     group.add(step);
     decor.push(step);
+    stonework.push(step);
     // The opening is not empty: a swirling veil the hero walks through to delve.
     const portal = buildGatePortal(openingW, openingH);
     group.add(portal.group);
@@ -626,6 +631,25 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     ring.receiveShadow = true;
     disc.add(ring);
     decor.push(ring);
+    stonework.push(discMesh, ring);
+
+    // The Blender-built gate (pillars on the same footprints, arch, runes, apron,
+    // descent circle) replaces the stonework; the veil and its light stay.
+    town.modelsReady.then((parts) => {
+      if (!parts || !parts.gate) return;
+      for (const m of stonework) m.visible = false;
+      const stone = new THREE.Mesh(parts.gate, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+      stone.name = "gate stonework";
+      stone.castShadow = true;
+      stone.receiveShadow = true;
+      group.add(stone);
+      if (parts.gateGlow) {
+        const runes = new THREE.Mesh(parts.gateGlow, new THREE.MeshBasicMaterial({ vertexColors: true }));
+        runes.material.flatShading = true;
+        runes.name = "gate runes";
+        group.add(runes);
+      }
+    });
 
     return {
       id: "gate",

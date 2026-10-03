@@ -1145,8 +1145,8 @@ def build(ids=None, export=True, bake=True):
     return report
 
 ROLE_OBJECTS = ["shell", "glass", "lamp", "interior", "glowFire", "glowPotion", "glowLamp",
-                "tier1", "tier2", "tier3", "ground", "props", "hearth"]
-BAKED = {"shell", "interior", "tier1", "tier2", "tier3", "ground", "props", "hearth"}
+                "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate", "gateGlow"]
+BAKED = {"shell", "interior", "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate"}
 
 def make_model(bid, kit, b, bake, export_glb):
     scn = scene_for(bid)

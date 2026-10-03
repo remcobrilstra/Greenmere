@@ -1035,10 +1035,22 @@ def build_ground(kit):
             kit.box("ground", w, 0.07, 0.36, COBBLE, math.cos(a) * rr, top - 0.035 + kit.r.uniform(-0.006, 0.006), math.sin(a) * rr,
                     ry=-a + math.pi / 2, rx=kit.r.uniform(-0.02, 0.02))
         rr += 0.41
-    # a paved rosette at the centre of the fan
-    for k in range(10):
-        a = k / 10 * math.pi * 2
-        kit.box("ground", 0.5, 0.075, 0.5, QUOIN, math.cos(a) * 0.55, top - 0.03, math.sin(a) * 0.55, ry=-a)
+    # flagstone ring round the well
+    well = next((p for p in PLAN["props"] if p["type"] == "well"), None)
+    if well:
+        for k in range(14):
+            a = k / 14 * math.pi * 2
+            kit.box("ground", 0.62, 0.075, 0.5, QUOIN, well["x"] + math.cos(a) * 1.45, top - 0.03, well["z"] + math.sin(a) * 1.45,
+                    ry=-a + math.pi / 2)
+    # the hearth camp: a packed-earth clearing with a few flagstones
+    hx, hz = PLAN["HEARTH"]["x"], PLAN["HEARTH"]["z"]
+    kit.cylr("ground", 3.1, 3.2, 0.05, 20, [0x7d6040], hx, 0.022, hz)
+    kit.cylr("ground", 2.6, 2.6, 0.052, 20, DIRT, hx, 0.024, hz)
+    for k in range(9):
+        a = k / 9 * math.pi * 2 + 0.3
+        rr = kit.r.uniform(2.7, 3.0)
+        kit.cylr("ground", kit.r.uniform(0.22, 0.32), kit.r.uniform(0.24, 0.34), 0.06, 6, STONE_G, hx + math.cos(a) * rr, 0.03,
+                 hz + math.sin(a) * rr, ry=kit.r.uniform(0, 1))
     # curb ring, broken where roads arrive
     for i in range(64):
         a = i / 64 * math.pi * 2
@@ -1108,6 +1120,102 @@ def build_hearth(kit):
     for k in range(5):
         kit.cylr("hearth", 0.09, 0.09, 0.8, 7, [0x5a3a24, 0x6b4428], 1.05 + (k % 3) * 0.19, 0.09 + (k // 3) * 0.16, -1.3, ry=0.6, rz=math.pi / 2)
 
+ANCIENT = [0x5c6168, 0x51565d, 0x676c71, 0x5a5f5a, 0x60646b]
+ANCIENT_L = [0x7a7f84, 0x72777c, 0x808589]
+RUNE = [0x7fe0cc, 0x9af0dc]
+
+def build_gate(kit):
+    """The Delve Gate in its own frame (opening centred on x = 0, ground y = 0, town at +z).
+    Pillars keep the code gate's footprint (x = +-2.08, half 0.48 x 0.62) so the colliders hold."""
+    W, H = 3.2, 3.6
+    hx, hz = 0.48, 0.62
+    px = W / 2 + hx
+    kit.frame = Matrix.Identity(4)
+    for s in (-1, 1):
+        x = s * px
+        kit.box("gate", hx * 2 + 0.24, 0.42, hz * 2 + 0.22, ANCIENT, x, 0.21, 0)
+        kit.box("gate", hx * 2 + 0.3, 0.08, hz * 2 + 0.28, ANCIENT_L, x, 0.45, 0)
+        y = 0.49
+        k = 0
+        while y < H - 0.05:
+            h = min(kit.r.uniform(0.42, 0.56), H - y)
+            inset = 0.0 if k % 2 else 0.05
+            kit.box("gate", hx * 2 - inset, h - 0.03, hz * 2 - inset, ANCIENT, x + kit.r.uniform(-0.015, 0.015), y + h / 2, 0,
+                    ry=kit.r.uniform(-0.02, 0.02))
+            y += h
+            k += 1
+        # rune channels on the town face, the gate face and the inner face
+        for face in (1, -1):
+            for j in range(4):
+                ry = 1.0 + j * 0.62
+                kit.box("gateGlow", 0.08, 0.32, 0.02, RUNE, x - s * 0.12, ry, face * (hz + 0.006))
+                kit.box("gateGlow", 0.2, 0.05, 0.02, RUNE, x - s * 0.12 + (0.08 if j % 2 else -0.08), ry + 0.12, face * (hz + 0.006))
+        for j in range(5):
+            kit.box("gateGlow", 0.02, 0.22, 0.12, RUNE, x - s * (hx + 0.006), 0.9 + j * 0.55, kit.r.uniform(-0.2, 0.2))
+        kit.box("gate", hx * 2 + 0.26, 0.3, hz * 2 + 0.26, ANCIENT_L, x, H + 0.15, 0)
+        # moss at the foot
+        for j in range(6):
+            kit.ball("gate", kit.r.uniform(0.08, 0.16), LICHEN + LEAF[:2], x + kit.r.uniform(-0.6, 0.6), 0.48,
+                     kit.r.uniform(-0.75, 0.75), 1, 0.5, 1)
+    # Arch over the opening: voussoirs from pillar top to pillar top, a carved tympanum, a gold keystone.
+    R0 = W / 2 + 0.02
+    R1 = R0 + 0.62
+    n = 11
+    for i in range(n):
+        a0 = math.pi * i / n
+        a1 = math.pi * (i + 1) / n
+        am = (a0 + a1) / 2
+        key = i == n // 2
+        ext = 0.12 if key else 0.0
+        r_in, r_out = R0, R1 + ext
+        pts = []
+        for rr, aa in ((r_in, a0 + 0.012), (r_in, a1 - 0.012)):
+            pts.append((math.cos(aa) * rr, H + 0.3 + math.sin(aa) * rr))
+        for rr, aa in ((r_out, a1 - 0.012), (r_out, a0 + 0.012)):
+            pts.append((math.cos(aa) * rr, H + 0.3 + math.sin(aa) * rr))
+        d = hz + (0.08 if key else 0.0)
+        kit.prism("gate", list(reversed(pts)), -d, d, ANCIENT_L if not key else [0xb4ad9e])
+        if key:
+            kit.box("gate", 0.22, 0.22, 0.04, GOLD, math.cos(am) * (R0 + 0.36), H + 0.3 + math.sin(am) * (R0 + 0.36), d + 0.02,
+                    rz=math.pi / 4)
+    # tympanum: a slab under the arch, with a ringed eye rune
+    seg = 14
+    pts = [(-R0, H + 0.3)] + [(math.cos(math.pi * (1 - j / seg)) * R0, H + 0.3 + math.sin(math.pi * (1 - j / seg)) * R0) for j in range(1, seg)] + [(R0, H + 0.3)]
+    kit.prism("gate", list(reversed(pts)), -hz + 0.12, hz - 0.12, ANCIENT)
+    kit.box("gate", W + 0.04, 0.32, hz * 2 - 0.1, ANCIENT_L, 0, H + 0.14, 0)
+    for face in (1, -1):
+        cy = H + 0.3 + R0 * 0.45
+        for j in range(12):
+            a = j / 12 * math.pi * 2
+            kit.box("gateGlow", 0.1, 0.04, 0.02, RUNE, math.cos(a) * 0.42, cy + math.sin(a) * 0.42, face * (hz - 0.1),
+                    rz=a + math.pi / 2)
+        kit.box("gateGlow", 0.32, 0.12, 0.02, RUNE, 0, cy, face * (hz - 0.1))
+        kit.box("gateGlow", 0.1, 0.1, 0.03, [0xf2d58a], 0, cy, face * (hz - 0.09), rz=math.pi / 4)
+        for s in (-1, 1):
+            kit.box("gateGlow", 0.04, 0.3, 0.02, RUNE, s * 0.8, cy - 0.1, face * (hz - 0.1), rz=s * 0.4)
+    # threshold and a worn flagstone apron both sides
+    kit.box("gate", W, 0.06, hz * 2, ANCIENT_L, 0, 0.03, 0)
+    kit.box("gateGlow", W - 0.3, 0.012, 0.05, RUNE, 0, 0.064, 0)
+    for zs in (1, -1):
+        for row in range(3):
+            z = zs * (hz + 0.35 + row * 0.62)
+            x = -W / 2 - 0.9 + (0.3 if row % 2 else 0)
+            while x < W / 2 + 0.9:
+                w = kit.r.uniform(0.5, 0.8)
+                kit.box("gate", w - 0.05, 0.05, 0.56, ANCIENT_L + STONE_G, x + w / 2, 0.025, z, ry=kit.r.uniform(-0.04, 0.04))
+                x += w
+    # rune circle at the descent spot (gate-local)
+    dz = PLAN["GATE"]["descent"]
+    cx, cz = dz["x"] - PLAN["GATE"]["x"], dz["z"] - PLAN["GATE"]["z"]
+    kit.cylr("gate", 0.98, 1.02, 0.05, 16, ANCIENT, cx, 0.03, cz)
+    kit.cylr("gate", 0.72, 0.72, 0.055, 16, ANCIENT_L, cx, 0.035, cz)
+    kit.cylr("gate", 0.88, 0.88, 0.056, 16, GOLD, cx, 0.033, cz)
+    kit.cylr("gate", 0.8, 0.8, 0.057, 16, ANCIENT, cx, 0.034, cz)
+    for j in range(8):
+        a = j / 8 * math.pi * 2
+        kit.box("gateGlow", 0.14, 0.012, 0.05, RUNE, cx + math.cos(a) * 0.45, 0.066, cz + math.sin(a) * 0.45, ry=-a)
+    kit.cylr("gateGlow", 0.14, 0.14, 0.012, 8, RUNE, cx, 0.066, cz)
+
 def furnish_town(kit):
     build_ground(kit)
     for p in PLAN["props"]:
@@ -1121,3 +1229,4 @@ def furnish_town(kit):
         fn(kit, p)
         kit.redirect = None
     build_hearth(kit)
+    build_gate(kit)

@@ -1291,7 +1291,7 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
         tierMeshes[t].visible = t <= shownTier;
       }
     }
-    return { hearth: town.hearth || null };
+    return { hearth: town.hearth || null, gate: town.gate || null, gateGlow: town.gateGlow || null };
   }).catch((err) => {
     console.warn("[town] Blender models did not load; keeping the code-built town", err);
     return null;

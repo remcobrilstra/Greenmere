@@ -136,10 +136,15 @@ function buildNodes() {
     const a = (k / 10) * Math.PI * 2 + 0.2;
     node(n, Math.cos(a) * 7.6, Math.sin(a) * 7.6, "square");
   }
-  node(n, -3.4, 5.6, "well", Math.atan2(-(-5.2 + 3.4), -(3.6 - 5.6)));
-  node(n, -6.6, 2.3, "well", Math.atan2(-(-5.2 + 6.6), -(3.6 - 2.3)));
-  node(n, 0.6, -0.9, "warm", Math.atan2(-(HEARTH.x - 0.6), -(HEARTH.z + 0.9)));
-  node(n, 4.3, 1.0, "warm", Math.atan2(-(HEARTH.x - 4.3), -(HEARTH.z - 1.0)));
+  const well = PROPS.find((p) => p.type === "well");
+  const facing = (x, z, tx, tz) => Math.atan2(-(tx - x), -(tz - z));
+  for (const [dx, dz] of [[1.6, 1.4], [-1.6, -1.4]]) {
+    node(n, well.x + dx, well.z + dz, "well", facing(well.x + dx, well.z + dz, well.x, well.z));
+  }
+  // The hearth camp by the gate road: one spot on the road side, one past the fire.
+  for (const [dx, dz] of [[-3.3, 0.7], [0.5, 3.3]]) {
+    node(n, HEARTH.x + dx, HEARTH.z + dz, "warm", facing(HEARTH.x + dx, HEARTH.z + dz, HEARTH.x, HEARTH.z));
+  }
   // Benches: walk up in front, then sit (the play layer eases onto the seat).
   node(n, -3.4, 9.2, "rest", Math.PI, null, { x: -3.4, z: 8.25, yaw: Math.PI, h: 0.48 });
   node(n, 3.4, 9.2, "rest", Math.PI, null, { x: 3.4, z: 8.25, yaw: Math.PI, h: 0.48 });
