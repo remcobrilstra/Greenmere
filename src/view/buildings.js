@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
+import { BUILDING_MODELS, loadBuildingModel } from "./townmodels.js";
 import {
   BUILDINGS, COTTAGES, ROADS, PROPS, SQUARE_R, SQUARE_TOP, FLOOR_Y, WALL_T, DOOR_W, DOOR_H,
   INTERACT_R, CUTAWAY_H, STAIR_W, jetty, levelTop, wallBoxes, wallHeight, buildingColliders, propColliders, stationWorld, localToWorld
@@ -759,8 +760,12 @@ function buildOne(kit, b) {
     smoke.push({ x: p.x, y: hTop + 0.2, z: p.z, big: !!c.big });
   }
 
-  // Sign over the main door.
-  if (b.sign) buildSign(kit, base, b, b.doors[0]);
+  // Sign over the main door. Its own role, so it survives a Blender-built shell.
+  if (b.sign) {
+    kit.redirect = { shell: "sign" };
+    buildSign(kit, base, b, b.doors[0]);
+    kit.redirect = null;
+  }
 
   // Interior furniture. Depth-tier pieces go to their tier mesh.
   for (const f of b.furniture || []) {
@@ -788,6 +793,8 @@ function buildOne(kit, b) {
 
 // Upper room: floor slab with a stairwell, four walls with windows inside and out,
 // a rail around the stairwell, and the upstairs furniture (all cut away with the walls).
+// The walls are exterior ("upper"); the room inside is "room" and "roomWindow", which
+// a Blender-built exterior keeps.
 function buildUpperRoom(kit, b, base, uw, ud, top, U) {
   const T = WALL_T;
   const s = b.stairs;
@@ -801,7 +808,7 @@ function buildUpperRoom(kit, b, base, uw, ud, top, U) {
   const z1 = ud / 2 - T;
   const slab = (ax, bx, az, bz) => {
     if (bx - ax < 0.01 || bz - az < 0.01) return;
-    kit.box("upper", bx - ax, 0.2, bz - az, [0xa4825a, 0x9a7a52], (ax + bx) / 2, top - 0.1, (az + bz) / 2);
+    kit.box("room", bx - ax, 0.2, bz - az, [0xa4825a, 0x9a7a52], (ax + bx) / 2, top - 0.1, (az + bz) / 2);
   };
   slab(x0, sx0, z0, z1);
   slab(sx1, x1, z0, z1);
@@ -809,7 +816,7 @@ function buildUpperRoom(kit, b, base, uw, ud, top, U) {
   slab(sx0, sx1, sz1, z1);
   for (let x = x0 + 0.17; x < x1; x += 0.34) {
     if (x > sx0 - 0.17 && x < sx1 + 0.17) continue;
-    kit.box("upper", 0.02, 0.012, z1 - z0, [0x5e3b22], x, top + 0.006, (z0 + z1) / 2);
+    kit.box("room", 0.02, 0.012, z1 - z0, [0x5e3b22], x, top + 0.006, (z0 + z1) / 2);
   }
   // Walls.
   kit.box("upper", uw, U, T, PLASTER, 0, top + U / 2, ud / 2 - T / 2);
@@ -818,27 +825,27 @@ function buildUpperRoom(kit, b, base, uw, ud, top, U) {
   kit.box("upper", T, U, ud - 2 * T, PLASTER, uw / 2 - T / 2, top + U / 2, 0);
   for (const sgn of [-1, 1]) {
     for (const a of [-b.w / 4, b.w / 4]) {
-      kit.box("glowWindow", 0.9, 0.9, 0.04, [0xf6d59a], a, top + U / 2 + 0.1, sgn * (ud / 2 - T - 0.01));
-      kit.box("upper", 1.1, 0.08, 0.16, TIMBER_L, a, top + U / 2 - 0.4, sgn * (ud / 2 - T - 0.08));
+      kit.box("roomWindow", 0.9, 0.9, 0.04, [0xf6d59a], a, top + U / 2 + 0.1, sgn * (ud / 2 - T - 0.01));
+      kit.box("room", 1.1, 0.08, 0.16, TIMBER_L, a, top + U / 2 - 0.4, sgn * (ud / 2 - T - 0.08));
     }
-    kit.box("upper", uw - 2 * T, 0.18, 0.14, TIMBER_M, 0, top + U - 0.3, sgn * (ud / 2 - T - 0.07));
+    kit.box("room", uw - 2 * T, 0.18, 0.14, TIMBER_M, 0, top + U - 0.3, sgn * (ud / 2 - T - 0.07));
   }
   // Stairwell rail on the room side and the low end.
   const room = s.x < 0 ? 1 : -1;
   const rx = s.x + room * (STAIR_W / 2 + 0.05);
   const low = s.z0;
   const high = s.z1;
-  kit.box("upper", 0.08, 0.08, Math.abs(high - low), TIMBER_L, rx, top + 0.95, (low + high) / 2);
-  kit.box("upper", STAIR_W + 0.1, 0.08, 0.08, TIMBER_L, s.x, top + 0.95, low - Math.sign(high - low) * 0.05);
+  kit.box("room", 0.08, 0.08, Math.abs(high - low), TIMBER_L, rx, top + 0.95, (low + high) / 2);
+  kit.box("room", STAIR_W + 0.1, 0.08, 0.08, TIMBER_L, s.x, top + 0.95, low - Math.sign(high - low) * 0.05);
   for (let k = 0; k <= 6; k++) {
     const z = low + (high - low) * (k / 6);
-    kit.box("upper", 0.07, 0.95, 0.07, TIMBER_D, rx, top + 0.475, z);
+    kit.box("room", 0.07, 0.95, 0.07, TIMBER_D, rx, top + 0.475, z);
   }
   for (let k = 0; k <= 3; k++) {
-    kit.box("upper", 0.07, 0.95, 0.07, TIMBER_D, s.x - STAIR_W / 2 + k * STAIR_W / 3, top + 0.475, low - Math.sign(high - low) * 0.05);
+    kit.box("room", 0.07, 0.95, 0.07, TIMBER_D, s.x - STAIR_W / 2 + k * STAIR_W / 3, top + 0.475, low - Math.sign(high - low) * 0.05);
   }
-  // Upstairs furniture rides in the cut-away role.
-  kit.redirect = { interior: "upper", glowPotion: "upper", glowFire: "upper" };
+  // Upstairs furniture rides in the cut-away room role.
+  kit.redirect = { interior: "room", glowPotion: "room", glowFire: "room" };
   for (const f of b.upperFurniture || []) {
     const fn = FURNITURE[f.type];
     if (!fn) continue;
@@ -1123,11 +1130,15 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
   const all = BUILDINGS.concat(COTTAGES);
   for (const b of all) {
     const built = buildOne(kit, b);
-    const shellGeo = mergeParts([kit.take("shell"), kit.take("upper")].filter(Boolean));
+    // Kept when a Blender-built exterior replaces the rest: the sign and the upstairs room.
+    const keepShell = [kit.take("sign"), kit.take("room")].filter(Boolean);
+    const keepGlass = [kit.take("roomWindow")].filter(Boolean);
+    const shellGeo = mergeParts([kit.take("shell"), kit.take("upper")].filter(Boolean).concat(keepShell));
     const interiorGeo = kit.take("interior");
     const capGeo = kit.take("cap");
     const cap1Geo = kit.take("cap1");
-    const windowGeo = kit.take("glowWindow");
+    const ownGlass = kit.take("glowWindow");
+    const windowGeo = ownGlass || keepGlass.length ? mergeParts([ownGlass].filter(Boolean).concat(keepGlass)) : null;
     collectGlow();
     // Walls and window glass get this building's own clipping plane. It sits far
     // above the town until the hero walks in, then drops to the cut line, so the
@@ -1145,7 +1156,7 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
     if (caps1) caps1.visible = false;
     const interior = interiorGeo ? mesh(interiorGeo, shared, true, true, b.id + ":interior") : null;
     const colliders = buildingColliders(b).map(addColliderRecord);
-    buildings.push({ def: b, shell, shellMat, windows, caps, caps1, clip, interior, colliders, smoke: built.smoke });
+    buildings.push({ def: b, shell, shellMat, windows, caps, caps1, clip, interior, colliders, smoke: built.smoke, keepShell, keepGlass, model: false });
   }
 
   const propColliderList = [];
@@ -1231,8 +1242,39 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
     });
   }
 
+  // Blender-built exteriors (view/townmodels.js) replace the code-built shell and
+  // window glass once they load. Footprint, doors, colliders and the cutaway are
+  // unchanged; the code-built sign and upstairs room are merged back on.
+  const modelLoads = [];
+  for (const bb of buildings) {
+    if (!BUILDING_MODELS[bb.def.id]) continue;
+    modelLoads.push(loadBuildingModel(bb.def.id).then((model) => {
+      if (!model || !model.shell) return;
+      const m = buildingMatrix(bb.def);
+      const oldShell = bb.shell.geometry;
+      model.shell.applyMatrix4(m);
+      bb.shell.geometry = bb.keepShell.length ? mergeParts([model.shell].concat(bb.keepShell)) : model.shell;
+      oldShell.dispose();
+      if (model.glass && bb.windows) {
+        const oldGlass = bb.windows.geometry;
+        model.glass.applyMatrix4(m);
+        bb.windows.geometry = bb.keepGlass.length ? mergeParts([model.glass].concat(bb.keepGlass)) : model.glass;
+        oldGlass.dispose();
+      }
+      if (model.lamp) {
+        // Clipped with the walls; follows the shared lamp glow that applyTownTime drives.
+        const lampMat = glowMats.glowLamp.clone();
+        lampMat.clippingPlanes = [bb.clip];
+        const lamp = mesh(model.lamp.applyMatrix4(m), lampMat, false, false, bb.def.id + ":lamp");
+        lamp.onBeforeRender = () => { lampMat.emissiveIntensity = glowMats.glowLamp.emissiveIntensity; };
+      }
+      bb.model = true;
+    }).catch((err) => console.warn("[town] " + bb.def.id + " model did not load; keeping the code-built shell", err)));
+  }
+  const modelsReady = Promise.all(modelLoads);
+
   return {
-    buildings, stations, props, ground, glow, glowMats, interiorLight, propColliders: propColliderList,
+    buildings, stations, props, ground, glow, modelsReady, glowMats, interiorLight, propColliders: propColliderList,
     tierMeshes, setTier, getTier() { return shownTier; },
     nightMats: { windows: windowMats, lamp: glowMats.glowLamp }
   };

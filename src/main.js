@@ -86,6 +86,7 @@ rt.camp = town.camp;
 rt.townRoot = town.townRoot;
 rt.stations = town.stations;
 rt.buildings = town.buildings;
+rt.townModelsReady = town.modelsReady;
 rt.setTownTier = town.setTier;
 rt.getTownTier = town.getTier;
 rt.townTierMeshes = town.tierMeshes;

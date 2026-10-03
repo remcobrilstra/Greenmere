@@ -684,6 +684,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     townRoot,
     stations,
     buildings: town.buildings,
+    modelsReady: town.modelsReady,
     setTier: town.setTier,
     getTier: town.getTier,
     tierMeshes: town.tierMeshes,
