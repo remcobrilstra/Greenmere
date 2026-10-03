@@ -107,8 +107,11 @@ class Kit:
         self.roles = {}
         self.frame = Matrix.Identity(4)
         self.post = None
+        self.redirect = None
 
     def role(self, name):
+        if self.redirect and name in self.redirect:
+            name = self.redirect[name]
         if name not in self.roles:
             self.roles[name] = {"v": [], "f": [], "c": []}
         return self.roles[name]
@@ -165,6 +168,46 @@ class Kit:
         pts = [(r * math.cos(2 * math.pi * i / seg), r * math.sin(2 * math.pi * i / seg)) for i in range(seg)]
         m = self.xf(x, y, z, 0, rx, rz) @ Matrix.Rotation(-math.pi / 2, 4, 'X')
         self.prism(role, pts, -h / 2, h / 2, col, m)
+
+    def cylr(self, role, rt, rb, h, seg, col, x=0, y=0, z=0, ry=0, rx=0, rz=0):
+        """Tapered upright prism (three.js CylinderGeometry argument order)."""
+        m = self.xf(x, y, z, ry, rx, rz)
+        top = [m @ Vector((rt * math.cos(2 * math.pi * i / seg), h / 2, -rt * math.sin(2 * math.pi * i / seg))) for i in range(seg)]
+        bot = [m @ Vector((rb * math.cos(2 * math.pi * i / seg), -h / 2, -rb * math.sin(2 * math.pi * i / seg))) for i in range(seg)]
+        faces = [tuple(range(seg - 1, -1, -1)), tuple(range(seg, 2 * seg))]
+        faces = [tuple(range(seg)), tuple(range(2 * seg - 1, seg - 1, -1))]
+        labels = ["+y", "-y"]
+        for i in range(seg):
+            j = (i + 1) % seg
+            faces.append((i, seg + i, seg + j, j))
+            labels.append("side")
+        self._emit(role, top + bot, faces, col, labels, ())
+
+    def cone(self, role, r, h, seg, col, x=0, y=0, z=0, ry=0, rx=0, rz=0):
+        m = self.xf(x, y, z, ry, rx, rz)
+        base = [m @ Vector((r * math.cos(2 * math.pi * i / seg), -h / 2, -r * math.sin(2 * math.pi * i / seg))) for i in range(seg)]
+        apex = m @ Vector((0, h / 2, 0))
+        faces = [tuple(range(seg - 1, -1, -1))]
+        labels = ["-y"]
+        for i in range(seg):
+            faces.append((i, (i + 1) % seg, seg))
+            labels.append("side")
+        self._emit(role, base + [apex], faces, col, labels, ())
+
+    ICO = None
+
+    def ball(self, role, r, col, x=0, y=0, z=0, sx=1, sy=1, sz=1, ry=0):
+        if Kit.ICO is None:
+            t = (1 + 5 ** 0.5) / 2
+            v = [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t),
+                 (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]
+            n = (1 + t * t) ** 0.5
+            f = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6), (7, 1, 8),
+                 (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7), (9, 8, 1)]
+            Kit.ICO = ([(a / n, b / n, c / n) for a, b, c in v], f)
+        v, f = Kit.ICO
+        m = self.xf(x, y, z, ry) @ Matrix.Diagonal((sx * r, sy * r, sz * r, 1))
+        self._emit(role, [m @ Vector(p) for p in v], f, col, ["side"] * len(f), ())
 
     def grid(self, role, w, h, cell, col, x=0, y=0, z=0, ry=0):
         # Subdivided quad facing local +z; shared vertices so baked AO interpolates.
@@ -951,6 +994,24 @@ def generate(d):
     build_roof(kit, b)
     build_chimneys(kit, b)
     build_extras(kit, b)
+    kit.post = None
+    furnish_building(kit, b)
+    if "yard" in kit.roles:
+        merge_role(kit, "yard", "interior")
+    return kit
+
+def merge_role(kit, src, dst):
+    a = kit.roles.pop(src)
+    R = kit.role(dst)
+    base = len(R["v"])
+    R["v"].extend(a["v"])
+    R["f"].extend(tuple(base + i for i in f) for f in a["f"])
+    R["c"].extend(a["c"])
+
+def generate_town():
+    kit = Kit(0)
+    kit.r = random.Random(0x70e1)
+    furnish_town(kit)
     return kit
 
 # ---------------------------------------------------------------- blender
@@ -968,7 +1029,11 @@ def to_object(name, role, coll):
             flat += (c[0], c[1], c[2], 1.0)
     attr.data.foreach_set("color", flat)
     me.color_attributes.active_color = attr
+    stale = bpy.data.objects.get(name)
+    if stale is not None:
+        bpy.data.objects.remove(stale, do_unlink=True)
     ob = bpy.data.objects.new(name, me)
+    assert ob.name == name, "object name taken: " + name
     coll.objects.link(ob)
     return ob
 
@@ -982,12 +1047,16 @@ def scene_for(bid):
             bpy.data.meshes.remove(me)
     return scn
 
+def bake_planes(b):
+    if b is None:
+        return [(160, 0.0, (1, 1))]
+    planes = [(60, 0.0, (1, 1))]
+    return planes
+
 def bake_ao(scn, ob, b, strength=0.55, gamma=0.7, distance=0.9, samples=256):
     bpy.context.window.scene = scn
     occ = []
-    planes = [(60, 0.0, (1, 1)), (1, F - 0.02, (b.W - 0.6, b.D - 0.6))]
-    if b.U:
-        planes.append((1, b.TOP, (b.W + 2 * b.J - 0.6, b.D + 2 * b.J - 0.6)))
+    planes = bake_planes(b)
     for size, z, sc in planes:
         me = bpy.data.meshes.new("gm_tmp")
         hx, hy = size * sc[0] / 2, size * sc[1] / 2
@@ -1064,25 +1133,42 @@ def build(ids=None, export=True, bake=True):
             continue
         t0 = time.time()
         kit = generate(d)
-        scn = scene_for(d["id"])
-        objs = []
-        for role in ("shell", "glass", "lamp"):
-            if role in kit.roles and kit.roles[role]["f"]:
-                objs.append(to_object(d["id"] + "_" + role, kit.roles[role], scn.collection))
-        shell = objs[0]
         b = B(d)
-        if bake:
-            bake_ao(scn, shell, b)
-        for o in objs[1:]:
-            o.data.color_attributes.active_color = o.data.color_attributes["base"]
-        line = {"id": d["id"], "faces": len(shell.data.polygons)}
-        if export_glb:
-            p, size = write_glb(scn, objs, d["id"])
-            line["kb"] = round(size / 1024)
+        line = make_model(d["id"], kit, b, bake, export_glb)
         line["s"] = round(time.time() - t0, 1)
         report.append(line)
-        bpy.context.window.scene = scn
+    if not ids or "town" in ids:
+        t0 = time.time()
+        line = make_model("town", generate_town(), None, bake, export_glb)
+        line["s"] = round(time.time() - t0, 1)
+        report.append(line)
     return report
+
+ROLE_OBJECTS = ["shell", "glass", "lamp", "interior", "glowFire", "glowPotion", "glowLamp",
+                "tier1", "tier2", "tier3", "ground", "props", "hearth"]
+BAKED = {"shell", "interior", "tier1", "tier2", "tier3", "ground", "props", "hearth"}
+
+def make_model(bid, kit, b, bake, export_glb):
+    scn = scene_for(bid)
+    objs = []
+    for role in ROLE_OBJECTS:
+        if role in kit.roles and kit.roles[role]["f"]:
+            objs.append(to_object(bid + "_" + role, kit.roles[role], scn.collection))
+    for role in kit.roles:
+        if role not in ROLE_OBJECTS:
+            print("unexported role", bid, role)
+    for o in objs:
+        role = o.name[len(bid) + 1:]
+        if bake and role in BAKED:
+            bake_ao(scn, o, b)
+        else:
+            o.data.color_attributes.active_color = o.data.color_attributes["base"]
+    line = {"id": bid, "faces": sum(len(o.data.polygons) for o in objs)}
+    if export_glb:
+        p, size = write_glb(scn, objs, bid)
+        line["kb"] = round(size / 1024)
+    bpy.context.window.scene = scn
+    return line
 
 def show(bid, view="front", dist=None):
     """Point the 3D viewport at a building's scene with vertex colours."""
@@ -1104,3 +1190,5 @@ def show(bid, view="front", dist=None):
             r3.view_location = Vector((0, 0, d["wallH"] * 0.8 + d["upper"]))
             r3.view_distance = dist or max(d["w"], d["d"]) * 2.0
             r3.view_rotation = Euler((math.radians(pitch), 0, math.radians(yaw)), 'XYZ').to_quaternion()
+
+exec(compile(open(os.path.join(HERE, "furnish.py")).read(), os.path.join(HERE, "furnish.py"), "exec"), globals())

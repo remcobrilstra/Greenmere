@@ -1,43 +1,51 @@
-// Blender-built building exteriors (tools/blender/greenmere.py). A model
-// replaces the code-built shell of one building after it loads; until then (or
-// if it fails) the code-built shell stands. Models are authored in
-// building-local space (+z is the door side, y = 0 is the ground) with baked
-// vertex colours, so they drop into the same flat-shaded Lambert materials,
-// clipping plane and cutaway as the rest.
+// The Blender-built town (tools/blender/greenmere.py): one .glb per building in
+// building-local space (+z is the door side, y = 0 is the ground) and town.glb
+// in world space. Vertex colours carry baked ambient occlusion, so the parts
+// drop into the same flat-shaded Lambert materials, clipping and cutaway as the
+// code-built town they replace (view/buildings.js swaps them in).
 //
-// Objects in the .glb are matched by name prefix:
-//   <id>_shell  walls, roof, chimney, dressing: the clipped shell material
-//   <id>_glass  window glass: the building's window glow material
-//   <id>_lamp   lantern glass: the town's lamp glow
+// Objects are matched by name, "<file id>_<part>":
+//   shell     walls, roof, chimneys, sign, upstairs room: the clipped shell
+//   glass     window glass: the building's window glow
+//   lamp      door lantern glass
+//   interior  floors, stairs, furniture, yard: the interior mesh
+//   glowFire, glowPotion, glowLamp   pieces for the town's glow meshes
+//   tier1..3  depth-tier dressing
+//   ground, props, hearth            (town.glb) square and roads, street props, fire pit
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
-const MODEL_IDS = [
-  "smith", "store", "still", "trainer", "inn", "bank",
-  "cottage-0", "cottage-1", "cottage-2", "cottage-3", "cottage-4", "cottage-5"
-];
-export const BUILDING_MODELS = Object.fromEntries(MODEL_IDS.map((id) => [id, "./assets/models/" + id + ".glb"]));
+const PARTS = ["shell", "glass", "lamp", "interior", "glowFire", "glowPotion", "glowLamp",
+  "tier1", "tier2", "tier3", "ground", "props", "hearth"];
 
 let loader = null;
 
-// Resolves to { shell, glass, lamp } BufferGeometries (non-indexed float
-// position, normal, rgb colour) in building-local space; missing parts are null.
-export function loadBuildingModel(id) {
-  const url = BUILDING_MODELS[id];
-  if (!url) return Promise.resolve(null);
+// Resolves to { [part]: BufferGeometry | null } for one file.
+export function loadModel(id) {
   if (!loader) loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  return loader.loadAsync(url).then((gltf) => {
+  return loader.loadAsync("./assets/models/" + id + ".glb").then((gltf) => {
     gltf.scene.updateMatrixWorld(true);
-    const parts = { shell: [], glass: [], lamp: [] };
+    const parts = {};
+    for (const k of PARTS) parts[k] = [];
     gltf.scene.traverse((o) => {
       if (!o.isMesh) return;
-      const kind = Object.keys(parts).find((k) => o.name.startsWith(id + "_" + k));
+      const kind = PARTS.find((k) => o.name === id + "_" + k || o.name.startsWith(id + "_" + k + "_"));
       if (kind) parts[kind].push(plainGeometry(o.geometry, o.matrixWorld));
     });
     const out = {};
-    for (const k of Object.keys(parts)) out[k] = parts[k].length ? concat(parts[k]) : null;
+    for (const k of PARTS) out[k] = parts[k].length ? concat(parts[k]) : null;
+    return out;
+  });
+}
+
+// Every building's file plus town.glb; rejects if any one fails.
+export function loadTownModels(ids) {
+  const all = ids.concat(["town"]);
+  return Promise.all(all.map(loadModel)).then((list) => {
+    const out = {};
+    all.forEach((id, i) => { out[id] = list[i]; });
     return out;
   });
 }

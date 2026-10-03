@@ -78,7 +78,7 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/play/questmarks.js` | Town | Which giver shows a quest mark ("!" to take, "?" to hand in), placed over the head or, for a keeper indoors, over the door. |
 | `src/view/questmarks.js` | Town | `buildQuestMark`: the yellow "!" and "?" glyphs. |
 | `src/sim/gearstats.js` | Town | `heroStats` (mirrors `derive()`), `compareEquip`, `compareUpgrade`, readable `affixLines`, trainer `trackEffects` / `trackNext`. Pure; feeds the panel previews. |
-| `src/view/townmodels.js` | Town art | `BUILDING_MODELS`, `loadBuildingModel`: Blender-built exteriors from `assets/models/<id>.glb` swapped over the code-built shell once loaded (code shell is the fallback). The sign and upstairs room stay code-built. |
+| `src/view/townmodels.js` | Town art | `loadModel`, `loadTownModels`: the Blender-built town from `assets/models/` (one `.glb` per building, plus `town.glb` for the square, roads, street props and hearth pit). `buildings.js` swaps every part in at once when all files load, or keeps the code-built town whole if any fails. |
 | `src/view/gateportal.js` | Town | `buildGatePortal`: the Delve Gate's swirling veil (shader), inward motes, pulsing light; `tick(time)` from `play/town.js`, which also starts a delve when the hero walks through the opening. |
 
 ## Rules
@@ -98,8 +98,8 @@ PR-00 extract the prototype. PR-01 formulas and floor plans. PR-02 town stations
 
 ## Town art pipeline
 
-Building exteriors are generated in Blender from the town plan, not hand-placed, so they stay in step with doors, windows, chimneys and colliders.
+The town's art (building exteriors and interiors, furniture, yards, the square, roads, street props, the hearth pit) is generated in Blender from the town plan, not hand-placed, so it stays in step with doors, windows, chimneys, furniture spots and colliders. The code-built town in `view/buildings.js` is the fallback and the reference for footprints.
 
 1. `node tools/townplan-dump.mjs` writes `tools/blender/townplan.json` from `src/sim/townplan.js`.
-2. In Blender (Scripting tab or the Blender MCP): `p = r"<repo>/tools/blender/greenmere.py"; g = {"__file__": p}; exec(open(p).read(), g); g["build"]()` (or `g["build"](["smith"])`). Styles per building live in `STYLES` there. Ambient occlusion is baked into vertex colours; output is `assets/models/<id>.glb`, meshopt compressed.
+2. In Blender (Scripting tab or the Blender MCP): `p = r"<repo>/tools/blender/greenmere.py"; g = {"__file__": p}; exec(open(p).read(), g); g["build"]()` (or `g["build"](["smith"])`). Styles per building live in `STYLES` there; furniture and props live in `tools/blender/furnish.py`, one function per townplan `type`. Ambient occlusion is baked into vertex colours; output is `assets/models/<id>.glb`, meshopt compressed.
 3. `node tools/shots.mjs` renders every building view headless and writes `shots/sheet.png`; `--ab` adds a before column (models blocked), `--test` runs the self-test, `--time=0.9` shoots at night. Needs Playwright (found in the npx cache, or `npx playwright install chromium`).

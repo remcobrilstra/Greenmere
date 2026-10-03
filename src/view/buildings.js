@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
-import { BUILDING_MODELS, loadBuildingModel } from "./townmodels.js";
+import { loadTownModels } from "./townmodels.js";
 import {
   BUILDINGS, COTTAGES, ROADS, PROPS, SQUARE_R, SQUARE_TOP, FLOOR_Y, WALL_T, DOOR_W, DOOR_H,
   INTERACT_R, CUTAWAY_H, STAIR_W, jetty, levelTop, wallBoxes, wallHeight, buildingColliders, propColliders, stationWorld, localToWorld
@@ -1130,15 +1130,12 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
   const all = BUILDINGS.concat(COTTAGES);
   for (const b of all) {
     const built = buildOne(kit, b);
-    // Kept when a Blender-built exterior replaces the rest: the sign and the upstairs room.
-    const keepShell = [kit.take("sign"), kit.take("room")].filter(Boolean);
-    const keepGlass = [kit.take("roomWindow")].filter(Boolean);
-    const shellGeo = mergeParts([kit.take("shell"), kit.take("upper")].filter(Boolean).concat(keepShell));
+    const shellGeo = mergeParts([kit.take("shell"), kit.take("upper"), kit.take("sign"), kit.take("room")].filter(Boolean));
     const interiorGeo = kit.take("interior");
     const capGeo = kit.take("cap");
     const cap1Geo = kit.take("cap1");
-    const ownGlass = kit.take("glowWindow");
-    const windowGeo = ownGlass || keepGlass.length ? mergeParts([ownGlass].filter(Boolean).concat(keepGlass)) : null;
+    const glassParts = [kit.take("glowWindow"), kit.take("roomWindow")].filter(Boolean);
+    const windowGeo = glassParts.length ? mergeParts(glassParts) : null;
     collectGlow();
     // Walls and window glass get this building's own clipping plane. It sits far
     // above the town until the hero walks in, then drops to the cut line, so the
@@ -1156,7 +1153,7 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
     if (caps1) caps1.visible = false;
     const interior = interiorGeo ? mesh(interiorGeo, shared, true, true, b.id + ":interior") : null;
     const colliders = buildingColliders(b).map(addColliderRecord);
-    buildings.push({ def: b, shell, shellMat, windows, caps, caps1, clip, interior, colliders, smoke: built.smoke, keepShell, keepGlass, model: false });
+    buildings.push({ def: b, shell, shellMat, windows, caps, caps1, clip, interior, colliders, smoke: built.smoke, model: false });
   }
 
   const propColliderList = [];
@@ -1242,36 +1239,63 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
     });
   }
 
-  // Blender-built exteriors (view/townmodels.js) replace the code-built shell and
-  // window glass once they load. Footprint, doors, colliders and the cutaway are
-  // unchanged; the code-built sign and upstairs room are merged back on.
-  const modelLoads = [];
-  for (const bb of buildings) {
-    if (!BUILDING_MODELS[bb.def.id]) continue;
-    modelLoads.push(loadBuildingModel(bb.def.id).then((model) => {
-      if (!model || !model.shell) return;
+  // The Blender-built town (view/townmodels.js): every building's shell, glass,
+  // sign, interior and upstairs room, plus the square, roads, street props,
+  // depth-tier dressing and glow pieces. It swaps in at once when every file has
+  // loaded; if any fails the code-built town stays whole, so the two never mix.
+  // Footprints, doors, colliders, tiers and the cutaway are unchanged.
+  const emptyGeo = () => mergeParts([]);
+  function swap(m, geo) {
+    const old = m.geometry;
+    m.geometry = geo || emptyGeo();
+    old.dispose();
+  }
+  const modelsReady = loadTownModels(buildings.map((bb) => bb.def.id)).then((models) => {
+    const glowAdd = { glowFire: [], glowPotion: [], glowLamp: [] };
+    const tierAdd = [null, [], [], []];
+    const collect = (model) => {
+      for (const k of Object.keys(glowAdd)) if (model[k]) glowAdd[k].push(model[k]);
+      for (let t = 1; t <= 3; t++) if (model["tier" + t]) tierAdd[t].push(model["tier" + t]);
+    };
+    for (const bb of buildings) {
+      const model = models[bb.def.id];
       const m = buildingMatrix(bb.def);
-      const oldShell = bb.shell.geometry;
-      model.shell.applyMatrix4(m);
-      bb.shell.geometry = bb.keepShell.length ? mergeParts([model.shell].concat(bb.keepShell)) : model.shell;
-      oldShell.dispose();
-      if (model.glass && bb.windows) {
-        const oldGlass = bb.windows.geometry;
-        model.glass.applyMatrix4(m);
-        bb.windows.geometry = bb.keepGlass.length ? mergeParts([model.glass].concat(bb.keepGlass)) : model.glass;
-        oldGlass.dispose();
-      }
+      for (const k of Object.keys(model)) if (model[k]) model[k].applyMatrix4(m);
+      swap(bb.shell, model.shell);
+      if (bb.windows) swap(bb.windows, model.glass);
+      if (bb.interior) swap(bb.interior, model.interior);
       if (model.lamp) {
         // Clipped with the walls; follows the shared lamp glow that applyTownTime drives.
         const lampMat = glowMats.glowLamp.clone();
         lampMat.clippingPlanes = [bb.clip];
-        const lamp = mesh(model.lamp.applyMatrix4(m), lampMat, false, false, bb.def.id + ":lamp");
+        const lamp = mesh(model.lamp, lampMat, false, false, bb.def.id + ":lamp");
         lamp.onBeforeRender = () => { lampMat.emissiveIntensity = glowMats.glowLamp.emissiveIntensity; };
       }
+      collect(model);
       bb.model = true;
-    }).catch((err) => console.warn("[town] " + bb.def.id + " model did not load; keeping the code-built shell", err)));
-  }
-  const modelsReady = Promise.all(modelLoads);
+    }
+    const town = models.town;
+    swap(props, town.props);
+    swap(ground, town.ground);
+    collect(town);
+    for (const k of Object.keys(glowAdd)) {
+      const geo = glowAdd[k].length ? mergeParts(glowAdd[k]) : null;
+      if (glow[k]) swap(glow[k], geo);
+      else if (geo) glow[k] = mesh(geo, glowMats[k], false, false, "town:" + k);
+    }
+    for (let t = 1; t <= 3; t++) {
+      const geo = tierAdd[t].length ? mergeParts(tierAdd[t]) : null;
+      if (tierMeshes[t]) swap(tierMeshes[t], geo);
+      else if (geo) {
+        tierMeshes[t] = mesh(geo, shared, true, true, "townTier" + t);
+        tierMeshes[t].visible = t <= shownTier;
+      }
+    }
+    return { hearth: town.hearth || null };
+  }).catch((err) => {
+    console.warn("[town] Blender models did not load; keeping the code-built town", err);
+    return null;
+  });
 
   return {
     buildings, stations, props, ground, glow, modelsReady, glowMats, interiorLight, propColliders: propColliderList,

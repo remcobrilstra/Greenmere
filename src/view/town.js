@@ -483,6 +483,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   const campRockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const hearthColliders = [];
   const hearthDecor = [];
+  const hearthRocks = [];
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     const x = camp.x + Math.cos(a) * 2.15;
@@ -495,6 +496,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     hearthGroup.add(mesh);
+    hearthRocks.push(mesh);
     hearthColliders.push(addCollider(x, z, s * 0.62));
   }
   const logMat = new THREE.MeshLambertMaterial({ color: 0x5a3a24, flatShading: true });
@@ -642,6 +644,16 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   }
 
   const town = buildTownBuildings(townRoot, addCollider, addBoxCollider);
+  // The Blender-built fire pit and seats replace the hearth rocks (colliders stay).
+  town.modelsReady.then((parts) => {
+    if (!parts || !parts.hearth) return;
+    for (const r of hearthRocks) r.visible = false;
+    const pit = new THREE.Mesh(parts.hearth, campRockMat);
+    pit.name = "hearthPit";
+    pit.castShadow = true;
+    pit.receiveShadow = true;
+    hearthGroup.add(pit);
+  });
 
   const stations = [
     {

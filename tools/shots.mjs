@@ -26,7 +26,6 @@ const OUT = join(ROOT, "shots");
 const VIEWS = {
   overview: "at=0,4,0&cam=3.3,0.95,40",
   square: "at=0,-6,0&cam=0.6,0.5,20",
-  "smith-inside": "at=16.5,-2,0&cam=4.71,0.9,12",
   "store-upstairs": "at=-17,1,0&level=1&cam=1.57,0.9,12"
 };
 
@@ -44,6 +43,11 @@ function buildingViews() {
     const dist = b.yard ? 9.5 : Math.max(14, Math.max(b.w, b.d) * 1.5);
     const pitch = b.yard ? 0.6 : 0.38;
     out[b.id] = `at=${w.x.toFixed(2)},${w.z.toFixed(2)},0&cam=${camYaw.toFixed(3)},${pitch},${dist.toFixed(1)}`;
+    // "<id>-in": just inside the door, looking across the room from above (cutaway).
+    const ip = sidePoint(b, door.side, door.at, -1.4);
+    const iw = localToWorld(b, ip.x, ip.z);
+    const inYaw = worldYaw(b, -o[0], -o[1]) + 0.35;
+    out[b.id + "-in"] = `at=${iw.x.toFixed(2)},${iw.z.toFixed(2)},0&cam=${inYaw.toFixed(3)},1.0,${Math.max(10, b.w).toFixed(1)}`;
   }
   return out;
 }

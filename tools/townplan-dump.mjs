@@ -13,8 +13,11 @@ const out = {
     wallH: tp.wallHeight(b), upper: b.upper || 0, jetty: tp.jetty(b), roofH: b.roofH, roofColor: b.roofColor,
     style: b.style || null, closed: !!b.closed,
     doors: b.doors, windows: b.windows || [], chimneys: b.chimneys || [], sign: b.sign || null,
-    stairs: b.stairs || null, walls: tp.wallBoxes(b)
-  }))
+    stairs: b.stairs || null, walls: tp.wallBoxes(b),
+    furniture: b.furniture || [], upperFurniture: b.upperFurniture || [], levelTop: tp.levelTop(b),
+    yard: b.yard || null, ring: b.ring || null
+  })),
+  props: tp.PROPS, roads: tp.ROADS, SQUARE_R: tp.SQUARE_R, SQUARE_TOP: tp.SQUARE_TOP, HEARTH: tp.HEARTH
 };
 writeFileSync(fileURLToPath(new URL("./blender/townplan.json", import.meta.url)), JSON.stringify(out, null, 1));
 console.log("wrote " + out.buildings.length + " buildings");
