@@ -18,6 +18,18 @@ import { attachBarks } from "./ui/barks.js";
 import { attachGuide } from "./ui/guide.js";
 import { attachQuestLog } from "./ui/questlog.js";
 import { attachCharacter } from "./ui/character.js";
+import { attachAtlas } from "./ui/atlas.js";
+import { attachFoeBars } from "./ui/foebars.js";
+import { attachHurtFx } from "./ui/hurtfx.js";
+import { attachCastBar } from "./ui/castbar.js";
+import { attachHeroAnim } from "./play/heroanim.js";
+import { attachPortalFx } from "./play/portalfx.js";
+import { attachLevelUpFx } from "./play/levelupfx.js";
+import { attachWardFx } from "./play/wardfx.js";
+import { attachDeathFx } from "./play/deathfx.js";
+import { attachHeroLook } from "./play/herolook.js";
+import { attachAbilityTips } from "./ui/abilitytips.js";
+import { attachQuestMarks } from "./play/questmarks.js";
 import { installSelfTest } from "./test/self-test.js";
 import { parseSave, migrate, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY } from "./sim/save.js";
 
@@ -121,6 +133,18 @@ attachAmbience(rt);
 attachDialogue(rt);
 attachQuests(rt);
 attachCharacter(rt);
+attachAtlas(rt);
+attachFoeBars(rt);
+attachHurtFx(rt);
+attachCastBar(rt);
+attachHeroAnim(rt);
+attachPortalFx(rt);
+attachLevelUpFx(rt);
+attachWardFx(rt);
+attachDeathFx(rt);
+attachHeroLook(rt, hero);
+attachAbilityTips(rt);
+attachQuestMarks(rt);
 attachPanels(rt);
 bindKeys(rt);
 bindOrbit(renderer.domElement, rt);
@@ -257,6 +281,8 @@ rt.persistDocument = persistDocument;
 rt.markSave = markSave;
 rt.loadStoredGame = loadStoredGame;
 if (window.__game) window.__game.save = flushSave;
+// Dev sessions expose the runtime for console poking and scripted checks.
+if (rt.dev && window.__game) window.__game.rt = rt;
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "hidden" || !saveDirty) return;
@@ -309,6 +335,40 @@ if (params.has("test")) {
   const floorIndex = Math.max(1, Math.floor(Number(params.get("floor")) || 1));
   const seed = params.has("seed") ? Math.floor(Number(params.get("seed")) || 1) : 1;
   rt.playDevQuery(seed, floorIndex);
+  // &at=stairs or &at=x,z drops the hero there; &cam=yaw,pitch,dist frames the shot.
+  if (params.has("at") && rt.plan) {
+    const plan = rt.plan;
+    const raw = params.get("at");
+    const sx = (plan.stairs.col - (plan.cols - 1) / 2) * plan.tile;
+    const sz = (plan.stairs.row - (plan.rows - 1) / 2) * plan.tile;
+    const chest = raw === "chest" && plan.chests && plan.chests[0];
+    const cx = chest ? (chest.col - (plan.cols - 1) / 2) * plan.tile + chest.ox : 0;
+    const cz = chest ? (chest.row - (plan.rows - 1) / 2) * plan.tile + chest.oz : 0;
+    const at = raw === "stairs" ? [sx + 4, sz + 4] : chest ? [cx - Math.sign(chest.ox) * 1.4, cz - Math.sign(chest.oz) * 1.4] : raw.split(",").map(Number);
+    rt.player.position.set(at[0] || 0, 0, at[1] || 0);
+  }
+  if (params.has("cam")) {
+    const cam = params.get("cam").split(",").map(Number);
+    rt.camYaw = cam[0] || 0;
+    rt.camPitch = cam[1] || 0.4;
+    rt.camDist = cam[2] || 8;
+  }
+  if (rt.placeCamera) rt.placeCamera(0, true);
+  if (params.get("open") === "map" && rt.toggleAtlas) rt.toggleAtlas();
+  // &pose=hearth starts the Extract channel (it completes after its 2.6 s).
+  if (params.get("pose") === "hearth" && rt.beginExtract) rt.beginExtract();
+  // &pose=mend wounds the Warden a little and starts a Mend channel.
+  if (params.get("pose") === "mend" && rt.tryAbility) {
+    rt.vitals.hp = Math.round(rt.vitals.hpMax * 0.6);
+    rt.tryAbility(2);
+  }
+  // &open=chest throws the first chest open.
+  if (params.get("open") === "chest" && rt.chestNear && rt.tryOpenChest) rt.tryOpenChest();
+  // &hurt=0.6 sets every foe to that share of its health (to look at health bars).
+  if (params.has("hurt")) {
+    const share = Math.max(0.01, Math.min(1, Number(params.get("hurt")) || 0.6));
+    for (const e of rt.enemies || []) if (e && e.hp > 0) e.hp = Math.max(1, Math.round(e.hpMax * share));
+  }
   requestAnimationFrame(frame);
 } else {
   try { loadStoredGame(); } catch (err) { if (rt.freshGame) rt.freshGame(); }

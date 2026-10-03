@@ -1,8 +1,23 @@
 import { mulberry32 } from "./rng.js";
 import { floorSpan, enemyBudget, eliteCount } from "./balance.js";
+import { biomeFor } from "./biomes.js";
 
 export const TILE = 4;
+// Nothing spawns within SAFE_RADIUS metres or SAFE_STEPS walking tiles of the
+// entrance. Aggro is 9 m, so a fresh arrival never wakes a pack.
+export const SAFE_RADIUS = 14;
+export const SAFE_STEPS = 4;
+// Opened chests share run.killed with foes, above any spawn or summon id.
+export const CHEST_BASE = 5000;
 const ELITE_AFFIX = ["hasted", "thick", "warding"];
+// Collider radius per prop kind. Corner props sit 1.84 m from the tile center,
+// so anything up to 0.94 keeps the center 0.9 m clear.
+const PROP_R = {
+  rock: 0.45, stalagmite: 0.45, mushroom: 0.35, crystal: 0.4, root: 0.45,
+  urn: 0.4, rubble: 0.45, brazier: 0.4, statue: 0.55, tomb: 0.55,
+  candle: 0.3, anvil: 0.45, slag: 0.45, pillar: 0.6
+};
+const MAX_BRAZIERS = 8;
 
 let sealedThrows = false;
 
@@ -46,44 +61,91 @@ function pickArchetype(rng, n) {
   return "skirmisher";
 }
 
+function pickWeighted(rng, table) {
+  const keys = Object.keys(table);
+  let sum = 0;
+  for (let i = 0; i < keys.length; i++) sum += table[keys[i]];
+  let roll = rng() * sum;
+  for (let i = 0; i < keys.length; i++) {
+    roll -= table[keys[i]];
+    if (roll < 0) return keys[i];
+  }
+  return keys[keys.length - 1];
+}
+
 export function generateFloor(runSeed, floorIndex) {
   const seed = mixSeed(runSeed, floorIndex);
   const rng = mulberry32(seed);
+  const biome = biomeFor(floorIndex);
   const cols = floorSpan(floorIndex);
   const rows = cols;
   const tiles = new Uint8Array(cols * rows);
-  const rooms = [];
+  // The outer ring always stays rock, so every floor reads as enclosed.
+  const lo = 1;
+  const hiC = cols - 2;
+  const hiR = rows - 2;
+  let rooms = [];
 
-  function stamp(room) {
-    const r1 = Math.min(rows, room.row + room.h);
-    const c1 = Math.min(cols, room.col + room.w);
-    for (let r = Math.max(0, room.row); r < r1; r++) {
-      for (let c = Math.max(0, room.col); c < c1; c++) tiles[r * cols + c] = 1;
-    }
+  function randInt(a, b) {
+    return a + Math.floor(rng() * (b - a + 1));
+  }
+
+  function carve(c, r) {
+    if (c < lo || r < lo || c > hiC || r > hiR) return;
+    tiles[r * cols + c] = 1;
   }
 
   function inRect(room, col, row) {
     return col >= room.col && row >= room.row && col < room.col + room.w && row < room.row + room.h;
   }
 
-  function apart(a, b) {
-    const horiz = a.col + a.w + 1 <= b.col || b.col + b.w + 1 <= a.col;
-    const vert = a.row + a.h + 1 <= b.row || b.row + b.h + 1 <= a.row;
+  function apart(a, b, gap) {
+    const horiz = a.col + a.w + gap <= b.col || b.col + b.w + gap <= a.col;
+    const vert = a.row + a.h + gap <= b.row || b.row + b.h + gap <= a.row;
     return horiz || vert;
   }
 
+  function centerOf(room) {
+    return { col: room.col + (room.w >> 1), row: room.row + (room.h >> 1) };
+  }
+
+  function stampRect(room) {
+    for (let r = room.row; r < room.row + room.h; r++) {
+      for (let c = room.col; c < room.col + room.w; c++) carve(c, r);
+    }
+  }
+
+  // A chamber: an ellipse with a ragged rim. The center cross is always open.
+  function stampBlob(room) {
+    const cx = room.col + (room.w - 1) / 2;
+    const cy = room.row + (room.h - 1) / 2;
+    const rx = room.w / 2;
+    const ry = room.h / 2;
+    for (let r = room.row; r < room.row + room.h; r++) {
+      for (let c = room.col; c < room.col + room.w; c++) {
+        const dx = (c - cx) / rx;
+        const dy = (r - cy) / ry;
+        if (dx * dx + dy * dy <= 0.72 + rng() * 0.5) carve(c, r);
+      }
+    }
+    const m = centerOf(room);
+    carve(m.col, m.row);
+    if (m.col - 1 >= room.col) carve(m.col - 1, m.row);
+    if (m.col + 1 < room.col + room.w) carve(m.col + 1, m.row);
+    if (m.row - 1 >= room.row) carve(m.col, m.row - 1);
+    if (m.row + 1 < room.row + room.h) carve(m.col, m.row + 1);
+  }
+
   function carveH(c0, c1, row) {
-    if (row < 0 || row >= rows) return;
-    const a = Math.max(0, Math.min(c0, c1));
-    const b = Math.min(cols - 1, Math.max(c0, c1));
-    for (let c = a; c <= b; c++) tiles[row * cols + c] = 1;
+    const a = Math.min(c0, c1);
+    const b = Math.max(c0, c1);
+    for (let c = a; c <= b; c++) carve(c, row);
   }
 
   function carveV(r0, r1, col) {
-    if (col < 0 || col >= cols) return;
-    const a = Math.max(0, Math.min(r0, r1));
-    const b = Math.min(rows - 1, Math.max(r0, r1));
-    for (let r = a; r <= b; r++) tiles[r * cols + col] = 1;
+    const a = Math.min(r0, r1);
+    const b = Math.max(r0, r1);
+    for (let r = a; r <= b; r++) carve(col, r);
   }
 
   function carveL(c0, r0, c1, r1, horizFirst) {
@@ -96,72 +158,141 @@ export function generateFloor(runSeed, floorIndex) {
     }
   }
 
-  function centerOf(room) {
-    return { col: room.col + (room.w >> 1), row: room.row + (room.h >> 1) };
+  // A tunnel that drifts toward its target with the odd sidestep. Sometimes two wide.
+  function carveWind(a, b) {
+    let c = a.col;
+    let r = a.row;
+    const wide = rng() < biome.wideChance;
+    const wideDir = rng() < 0.5 ? -1 : 1;
+    let sidesteps = 0;
+    let guard = 0;
+    carve(c, r);
+    while ((c !== b.col || r !== b.row) && guard++ < 600) {
+      const dc = b.col - c;
+      const dr = b.row - r;
+      let sc = 0;
+      let sr = 0;
+      if (rng() < 0.14 && sidesteps < 6) {
+        if (Math.abs(dc) >= Math.abs(dr)) sr = rng() < 0.5 ? -1 : 1;
+        else sc = rng() < 0.5 ? -1 : 1;
+        sidesteps++;
+      } else {
+        const ad = Math.abs(dc);
+        const ar = Math.abs(dr);
+        if (ad > 0 && (ar === 0 || rng() * (ad + ar) < ad)) sc = Math.sign(dc);
+        else sr = Math.sign(dr);
+      }
+      const nc = c + sc;
+      const nr = r + sr;
+      if (nc < lo || nr < lo || nc > hiC || nr > hiR) continue;
+      c = nc;
+      r = nr;
+      carve(c, r);
+      if (wide) {
+        if (sc !== 0) carve(c, r + wideDir);
+        else carve(c + wideDir, r);
+      }
+    }
+    if (c !== b.col || r !== b.row) carveL(c, r, b.col, b.row, true);
   }
 
-  const targetRooms = 3 + Math.floor(cols / 4);
-  for (let n = 0; n < targetRooms; n++) {
-    const w = cols >= 9 && rng() < 0.4 ? 5 : 3;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const col = Math.floor(rng() * (cols - w + 1));
-      const row = Math.floor(rng() * (rows - w + 1));
-      const room = { id: rooms.length, col, row, w, h: w };
-      let ok = true;
-      for (let i = 0; i < rooms.length; i++) {
-        if (!apart(room, rooms[i])) {
-          ok = false;
-          break;
+  function connect(a, b) {
+    const ca = centerOf(a);
+    const cb = centerOf(b);
+    if (biome.corridor === "wind") carveWind(ca, cb);
+    else carveL(ca.col, ca.row, cb.col, cb.row, rng() < 0.5);
+  }
+
+  // 1. Rooms on a jittered grid, so a big floor is used edge to edge. Some slots
+  // stay solid rock; some neighbouring slots merge into one hall.
+  const spanW = cols - 2;
+  const grid = Math.max(2, Math.round(spanW / 5.5));
+  const cut = [];
+  for (let i = 0; i <= grid; i++) cut.push(lo + Math.floor((i * spanW) / grid));
+  const taken = new Uint8Array(grid * grid);
+  const mergeChance = biome.roomShape === "rect" ? 0.2 : 0.14;
+  for (let gy = 0; gy < grid; gy++) {
+    for (let gx = 0; gx < grid; gx++) {
+      if (taken[gy * grid + gx]) continue;
+      taken[gy * grid + gx] = 1;
+      let gx1 = gx;
+      let gy1 = gy;
+      if (rng() < mergeChance && gx + 1 < grid && !taken[gy * grid + gx + 1]) gx1 = gx + 1;
+      else if (rng() < mergeChance && gy + 1 < grid) gy1 = gy + 1;
+      taken[gy1 * grid + gx1] = 1;
+      const merged = gx1 !== gx || gy1 !== gy;
+      if (!merged && rng() < 0.12) continue;
+      // The last column and row of each slot stay rock: that is the gap between rooms.
+      const uw = cut[gx1 + 1] - cut[gx] - 1;
+      const uh = cut[gy1 + 1] - cut[gy] - 1;
+      const minS = Math.min(biome.room[0], uw, uh);
+      const w = merged && gx1 !== gx ? randInt(Math.max(minS, Math.floor(uw * 0.6)), uw) : randInt(minS, Math.min(biome.room[1], uw));
+      const h = merged && gy1 !== gy ? randInt(Math.max(minS, Math.floor(uh * 0.6)), uh) : randInt(minS, Math.min(biome.room[1], uh));
+      const col = cut[gx] + randInt(0, uw - w);
+      const row = cut[gy] + randInt(0, uh - h);
+      rooms.push({ id: rooms.length, col, row, w, h });
+    }
+  }
+  if (rooms.length < 2) {
+    rooms = [
+      { id: 0, col: lo, row: lo, w: 3, h: 3 },
+      { id: 1, col: hiC - 2, row: hiR - 2, w: 3, h: 3 }
+    ];
+  }
+  for (let i = 0; i < rooms.length; i++) {
+    if (biome.roomShape === "blob") stampBlob(rooms[i]);
+    else stampRect(rooms[i]);
+  }
+
+  // 2. Corridors: a minimum spanning tree over room centers, then a few short loops.
+  function gapSq(a, b) {
+    const ca = centerOf(a);
+    const cb = centerOf(b);
+    const dc = ca.col - cb.col;
+    const dr = ca.row - cb.row;
+    return dc * dc + dr * dr;
+  }
+  const linked = new Set();
+  const inTree = [true];
+  for (let i = 1; i < rooms.length; i++) inTree.push(false);
+  for (let added = 1; added < rooms.length; added++) {
+    let bi = -1;
+    let bj = -1;
+    let bd = Infinity;
+    for (let i = 0; i < rooms.length; i++) {
+      if (!inTree[i]) continue;
+      for (let j = 0; j < rooms.length; j++) {
+        if (inTree[j]) continue;
+        const d = gapSq(rooms[i], rooms[j]);
+        if (d < bd) {
+          bd = d;
+          bi = i;
+          bj = j;
         }
       }
-      if (!ok) continue;
-      rooms.push(room);
-      stamp(room);
-      break;
+    }
+    inTree[bj] = true;
+    linked.add(Math.min(bi, bj) * 1000 + Math.max(bi, bj));
+    connect(rooms[bi], rooms[bj]);
+  }
+  const spare = [];
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      if (!linked.has(i * 1000 + j)) spare.push({ i, j, d: gapSq(rooms[i], rooms[j]) });
     }
   }
-
-  if (rooms.length < 2) {
-    const stamps = [
-      { col: 1, row: 1 },
-      { col: cols - 4, row: rows - 4 }
-    ];
-    for (let i = 0; i < stamps.length; i++) {
-      const room = { id: rooms.length, col: stamps[i].col, row: stamps[i].row, w: 3, h: 3 };
-      rooms.push(room);
-      stamp(room);
-    }
+  spare.sort((a, b) => a.d - b.d || a.i - b.i || a.j - b.j);
+  const loops = Math.round(rooms.length * biome.loopRate);
+  for (let k = 0; k < loops && spare.length; k++) {
+    const pick = Math.floor(rng() * Math.min(spare.length, rooms.length));
+    const pair = spare.splice(pick, 1)[0];
+    connect(rooms[pair.i], rooms[pair.j]);
   }
 
-  for (let i = 0; i < rooms.length; i++) rooms[i].id = i;
-
-  for (let i = 1; i < rooms.length; i++) {
-    const a = centerOf(rooms[i - 1]);
-    const b = centerOf(rooms[i]);
-    carveL(a.col, a.row, b.col, b.row, rng() < 0.5);
-  }
-
-  const extras = Math.floor(rooms.length * 0.45);
-  for (let k = 0; k < extras; k++) {
-    const a = Math.floor(rng() * rooms.length);
-    let b = Math.floor(rng() * rooms.length);
-    let guard = 0;
-    while (b === a && guard < 5) {
-      b = Math.floor(rng() * rooms.length);
-      guard++;
-    }
-    if (b === a) b = (a + 1) % rooms.length;
-    const ca = centerOf(rooms[a]);
-    const cb = centerOf(rooms[b]);
-    carveL(ca.col, ca.row, cb.col, cb.row, rng() < 0.5);
-  }
-
-  const entrance = centerOf(rooms[0]);
-
-  function bfsDist() {
+  function bfsFrom(col, row) {
     const dist = new Int16Array(tiles.length);
     dist.fill(-1);
-    const start = entrance.row * cols + entrance.col;
+    const start = row * cols + col;
     if (tiles[start] !== 1) return dist;
     dist[start] = 0;
     const q = [start];
@@ -191,205 +322,64 @@ export function generateFloor(runSeed, floorIndex) {
     return dist;
   }
 
-  function allReached(dist) {
-    for (let i = 0; i < tiles.length; i++) {
-      if (tiles[i] === 1 && dist[i] < 0) return false;
-    }
-    return true;
-  }
-
-  function farthestFloor(dist) {
-    let best = null;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const d = dist[r * cols + c];
-        if (d < 0) continue;
-        if (!best || d > best.d || (d === best.d && (r > best.row || (r === best.row && c > best.col)))) {
-          best = { col: c, row: r, d };
-        }
+  function farthestRoom(dist, skip) {
+    let best = -1;
+    let bestD = -1;
+    for (let i = 0; i < rooms.length; i++) {
+      if (i === skip) continue;
+      const m = centerOf(rooms[i]);
+      const d = dist[m.row * cols + m.col];
+      if (d > bestD || (d === bestD && i > best)) {
+        best = i;
+        bestD = d;
       }
     }
     return best;
   }
 
-  function carveLowestWallNeighbor(col, row) {
-    let best = -1;
-    const dirs = [
-      [0, -1],
-      [1, 0],
-      [0, 1],
-      [-1, 0]
-    ];
-    for (let i = 0; i < dirs.length; i++) {
-      const c = col + dirs[i][0];
-      const r = row + dirs[i][1];
-      if (c < 0 || r < 0 || c >= cols || r >= rows) continue;
-      const idx = r * cols + c;
-      if (tiles[idx] !== 0) continue;
-      if (best < 0 || idx < best) best = idx;
+  // 3. Entrance and stairs sit at the two ends of the longest walk.
+  const probe = centerOf(rooms[0]);
+  const entranceIdx = farthestRoom(bfsFrom(probe.col, probe.row), -1);
+  const em = centerOf(rooms[entranceIdx]);
+  const stairsIdx = farthestRoom(bfsFrom(em.col, em.row), entranceIdx);
+  const entranceRoom = rooms[entranceIdx];
+  const stairsRoom = rooms[stairsIdx];
+  const ordered = [entranceRoom];
+  for (let i = 0; i < rooms.length; i++) if (i !== entranceIdx) ordered.push(rooms[i]);
+  rooms = ordered;
+  for (let i = 0; i < rooms.length; i++) rooms[i].id = i;
+  const entrance = centerOf(entranceRoom);
+  const stairs = centerOf(stairsRoom);
+  const stairsRoomId = stairsRoom.id;
+
+  // 4. Every room center must be reachable; stray rim cells that are not get filled back in.
+  let dist = bfsFrom(entrance.col, entrance.row);
+  for (let i = 0; i < rooms.length; i++) {
+    const m = centerOf(rooms[i]);
+    if (dist[m.row * cols + m.col] < 0) {
+      if (sealedThrows) throw new Error("sealed room seed " + (runSeed >>> 0) + " floor " + floorIndex);
+      carveL(entrance.col, entrance.row, m.col, m.row, true);
+      dist = bfsFrom(entrance.col, entrance.row);
     }
-    if (best < 0) return false;
-    tiles[best] = 1;
-    return true;
+  }
+  for (let i = 0; i < tiles.length; i++) {
+    if (tiles[i] === 1 && dist[i] < 0) tiles[i] = 0;
   }
 
   function inEntrance(col, row) {
-    return inRect(rooms[0], col, row);
+    return inRect(entranceRoom, col, row);
   }
 
-  let dist = bfsDist();
-  let candidate = farthestFloor(dist);
-  let stairGuard = 0;
-  while (
-    candidate &&
-    candidate.col === entrance.col &&
-    candidate.row === entrance.row &&
-    stairGuard++ < 8
-  ) {
-    if (!carveLowestWallNeighbor(entrance.col, entrance.row)) break;
-    dist = bfsDist();
-    candidate = farthestFloor(dist);
+  function nearEntrance(col, row) {
+    const dc = (col - entrance.col) * TILE;
+    const dr = (row - entrance.row) * TILE;
+    return dc * dc + dr * dr < SAFE_RADIUS * SAFE_RADIUS;
   }
 
-  function farthestRoomCenter(distMap) {
-    let best = null;
-    let bestD = -1;
-    for (let i = 1; i < rooms.length; i++) {
-      const room = rooms[i];
-      const ctr = centerOf(room);
-      if (inEntrance(ctr.col, ctr.row)) continue;
-      const d = distMap[ctr.row * cols + ctr.col];
-      if (d < 0) continue;
-      if (!best || d > bestD || (d === bestD && room.id > best.id)) {
-        best = room;
-        bestD = d;
-      }
-    }
-    if (!best) return null;
-    const ctr = centerOf(best);
-    return { col: ctr.col, row: ctr.row, roomId: best.id };
-  }
-
-  let stairs = candidate ? { col: candidate.col, row: candidate.row } : { col: entrance.col, row: entrance.row };
-  let stairsRoomId = 0;
-  const naturalOk = candidate && !inEntrance(candidate.col, candidate.row);
-  let holders = [];
-  if (naturalOk) {
-    for (let i = 0; i < rooms.length; i++) {
-      if (rooms[i].id !== 0 && inRect(rooms[i], candidate.col, candidate.row)) holders.push(rooms[i]);
-    }
-  }
-  if (holders.length) {
-    let room = holders[0];
-    for (let i = 1; i < holders.length; i++) if (holders[i].id > room.id) room = holders[i];
-    stairsRoomId = room.id;
-  } else {
-    const moved = farthestRoomCenter(dist);
-    if (moved) {
-      stairs = { col: moved.col, row: moved.row };
-      stairsRoomId = moved.roomId;
-    }
-  }
-
-  if (!allReached(dist)) {
-    if (sealedThrows) {
-      throw new Error("sealed pocket seed " + (runSeed >>> 0) + " floor " + floorIndex);
-    }
-    const corners = [
-      { col: 0, row: 0 },
-      { col: cols - 1, row: 0 },
-      { col: 0, row: rows - 1 },
-      { col: cols - 1, row: rows - 1 }
-    ];
-    let corner = corners[0];
-    let cornerD = -1;
-    for (let i = 0; i < corners.length; i++) {
-      const c = corners[i];
-      const d = Math.abs(c.col - entrance.col) + Math.abs(c.row - entrance.row);
-      if (d > cornerD || (d === cornerD && (c.row > corner.row || (c.row === corner.row && c.col > corner.col)))) {
-        corner = c;
-        cornerD = d;
-      }
-    }
-    // 4-connected L, horizontal then vertical. A diagonal is not a floor path.
-    carveL(entrance.col, entrance.row, corner.col, corner.row, true);
-    dist = bfsDist();
-    let pocketGuard = 0;
-    while (!allReached(dist) && pocketGuard++ < tiles.length) {
-      let pocket = -1;
-      for (let i = 0; i < tiles.length; i++) {
-        if (tiles[i] === 1 && dist[i] < 0) {
-          pocket = i;
-          break;
-        }
-      }
-      if (pocket < 0) break;
-      const pr = (pocket / cols) | 0;
-      const pc = pocket - pr * cols;
-      carveL(entrance.col, entrance.row, pc, pr, true);
-      dist = bfsDist();
-    }
-    if (!allReached(dist)) throw new Error("fallback left a sealed pocket");
-  }
-
-  function outsideCount() {
-    let n = 0;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (tiles[r * cols + c] === 1 && !inEntrance(c, r)) n++;
-      }
-    }
-    return n;
-  }
-
-  function carveLowestAdjacent() {
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const i = r * cols + c;
-        if (tiles[i] !== 0) continue;
-        const floorN =
-          (c > 0 && tiles[i - 1] === 1) ||
-          (c + 1 < cols && tiles[i + 1] === 1) ||
-          (r > 0 && tiles[i - cols] === 1) ||
-          (r + 1 < rows && tiles[i + cols] === 1);
-        if (floorN) {
-          tiles[i] = 1;
-          return i;
-        }
-      }
-    }
-    return -1;
-  }
-
-  const need = Math.min(36, enemyBudget(floorIndex));
-  while (outsideCount() < need) {
-    if (carveLowestAdjacent() < 0) break;
-  }
-
-  const bossFloor = floorIndex % 5 === 0;
-  const spawns = [];
-  const occupied = new Uint8Array(tiles.length);
-
-  function pushSpawn(col, row, boss) {
+  function safe(col, row) {
     const i = row * cols + col;
-    occupied[i] = 1;
-    spawns.push({
-      id: spawns.length,
-      archetype: boss ? "boss" : "skirmisher",
-      col,
-      row,
-      eliteAffix: null,
-      boss: !!boss
-    });
-  }
-
-  function farEnough(col, row) {
-    const w = tileToWorld(col, row, cols, rows);
-    for (let i = 0; i < spawns.length; i++) {
-      const s = spawns[i];
-      const p = tileToWorld(s.col, s.row, cols, rows);
-      if (Math.hypot(w.x - p.x, w.z - p.z) < 3) return false;
-    }
+    if (tiles[i] !== 1 || inEntrance(col, row)) return false;
+    if (dist[i] < SAFE_STEPS || nearEntrance(col, row)) return false;
     return true;
   }
 
@@ -400,59 +390,89 @@ export function generateFloor(runSeed, floorIndex) {
     return true;
   }
 
-  if (bossFloor) pushSpawn(stairs.col, stairs.row, true);
-
-  const rr = [];
-  for (let i = 1; i < rooms.length; i++) rr.push(rooms[i]);
-  const lists = rr.map((room) => {
-    const cells = [];
-    for (let r = room.row; r < room.row + room.h; r++) {
-      for (let c = room.col; c < room.col + room.w; c++) {
-        if (r < 0 || c < 0 || r >= rows || c >= cols) continue;
-        if (!legal(c, r)) continue;
-        if (c === stairs.col && r === stairs.row) continue;
-        cells.push({ col: c, row: r });
+  function carveLowestAdjacent() {
+    for (let r = lo; r <= hiR; r++) {
+      for (let c = lo; c <= hiC; c++) {
+        const i = r * cols + c;
+        if (tiles[i] !== 0) continue;
+        const floorN = tiles[i - 1] === 1 || tiles[i + 1] === 1 || tiles[i - cols] === 1 || tiles[i + cols] === 1;
+        if (floorN) {
+          tiles[i] = 1;
+          return i;
+        }
       }
     }
-    return cells;
-  });
-  const cursors = lists.map(() => 0);
-  let cursor = 0;
-  let spin = 0;
-  while (spawns.length < need && rr.length && spin++ < cols * rows) {
-    let placed = false;
-    for (let k = 0; k < rr.length; k++) {
-      const i = (cursor + k) % rr.length;
-      const list = lists[i];
-      while (cursors[i] < list.length) {
-        const cell = list[cursors[i]++];
-        const idx = cell.row * cols + cell.col;
-        if (occupied[idx]) continue;
-        if (!farEnough(cell.col, cell.row)) continue;
-        pushSpawn(cell.col, cell.row, false);
-        cursor = (i + 1) % rr.length;
-        placed = true;
-        break;
-      }
-      if (placed) break;
-    }
-    if (!placed) break;
+    return -1;
   }
 
-  function fillScan(ignoreGap) {
+  const need = Math.min(36, enemyBudget(floorIndex));
+  const bossFloor = floorIndex % 5 === 0;
+  const spawns = [];
+  const occupied = new Uint8Array(tiles.length);
+
+  function pushSpawn(col, row, boss) {
+    occupied[row * cols + col] = 1;
+    spawns.push({
+      id: spawns.length,
+      archetype: boss ? "boss" : "skirmisher",
+      col,
+      row,
+      eliteAffix: null,
+      boss: !!boss
+    });
+  }
+
+  if (bossFloor) pushSpawn(stairs.col, stairs.row, true);
+
+  // 5. Packs of 2-4 hold rooms; some rooms stay quiet. A boss keeps its room to itself.
+  const packRooms = [];
+  for (let i = 1; i < rooms.length; i++) {
+    if (bossFloor && rooms[i].id === stairsRoomId) continue;
+    packRooms.push(rooms[i]);
+  }
+  for (let i = packRooms.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = packRooms[i];
+    packRooms[i] = packRooms[j];
+    packRooms[j] = t;
+  }
+  // A room holds at most a quarter of its open cells, so leftovers spread into
+  // more rooms and then the corridors instead of piling into one hall.
+  const held = packRooms.map(() => 0);
+  let progress = true;
+  while (spawns.length < need && progress) {
+    progress = false;
+    for (let k = 0; k < packRooms.length && spawns.length < need; k++) {
+      const room = packRooms[k];
+      const m = centerOf(room);
+      const cells = [];
+      for (let r = room.row; r < room.row + room.h; r++) {
+        for (let c = room.col; c < room.col + room.w; c++) {
+          if (!safe(c, r) || occupied[r * cols + c]) continue;
+          if (c === stairs.col && r === stairs.row) continue;
+          cells.push({ col: c, row: r, d: Math.abs(c - m.col) + Math.abs(r - m.row) });
+        }
+      }
+      cells.sort((a, b) => a.d - b.d || a.row - b.row || a.col - b.col);
+      const cap = Math.max(2, Math.floor((cells.length + held[k]) / 4)) - held[k];
+      const size = Math.max(0, Math.min(need - spawns.length, 2 + Math.floor(rng() * 3), cells.length, cap));
+      for (let i = 0; i < size; i++) pushSpawn(cells[i].col, cells[i].row, false);
+      held[k] += size;
+      if (size > 0) progress = true;
+    }
+  }
+
+  function fillScan(test) {
     for (let r = 0; r < rows && spawns.length < need; r++) {
       for (let c = 0; c < cols && spawns.length < need; c++) {
-        if (!legal(c, r)) continue;
-        if (occupied[r * cols + c]) continue;
-        if (!ignoreGap && !farEnough(c, r)) continue;
+        if (!test(c, r) || occupied[r * cols + c]) continue;
+        if (c === stairs.col && r === stairs.row) continue;
         pushSpawn(c, r, false);
       }
     }
   }
-
-  fillScan(false);
-  fillScan(true);
-
+  fillScan(safe);
+  fillScan(legal);
   let safety = 0;
   while (spawns.length < need && safety++ < cols * rows) {
     const i = carveLowestAdjacent();
@@ -467,7 +487,7 @@ export function generateFloor(runSeed, floorIndex) {
     if (!spawns[i].boss) spawns[i].archetype = pickArchetype(rng, floorIndex);
   }
 
-  dist = bfsDist();
+  dist = bfsFrom(entrance.col, entrance.row);
 
   function roomIdAt(col, row) {
     let id = -1;
@@ -481,14 +501,8 @@ export function generateFloor(runSeed, floorIndex) {
     let exits = 0;
     for (let r = room.row; r < room.row + room.h; r++) {
       for (let c = room.col; c < room.col + room.w; c++) {
-        const edge = r === room.row || c === room.col || r === room.row + room.h - 1 || c === room.col + room.w - 1;
-        if (!edge) continue;
-        const neigh = [
-          [c - 1, r],
-          [c + 1, r],
-          [c, r - 1],
-          [c, r + 1]
-        ];
+        if (tiles[r * cols + c] !== 1) continue;
+        const neigh = [[c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1]];
         let door = false;
         for (let k = 0; k < neigh.length; k++) {
           const nc = neigh[k][0];
@@ -531,41 +545,124 @@ export function generateFloor(runSeed, floorIndex) {
   rest.sort(byFar);
   const wantElites = eliteCount(floorIndex);
   let marked = 0;
-  const ordered = pool.concat(rest);
-  for (let i = 0; i < ordered.length && marked < wantElites; i++) {
-    ordered[i].eliteAffix = ELITE_AFFIX[Math.floor(rng() * ELITE_AFFIX.length)];
+  const eliteOrder = pool.concat(rest);
+  for (let i = 0; i < eliteOrder.length && marked < wantElites; i++) {
+    eliteOrder[i].eliteAffix = ELITE_AFFIX[Math.floor(rng() * ELITE_AFFIX.length)];
     marked++;
   }
 
+  // 6. Props. Pillars stand on the shared corner of four room cells; the rest sit
+  // in a tile corner. Either way every tile center keeps 0.9 m clear.
   const props = [];
-  const themeId = ((floorIndex - 1) % 4 + 4) % 4;
+  const pillarAt = new Set();
+  if (biome.pillars) {
+    for (let i = 0; i < rooms.length; i++) {
+      const room = rooms[i];
+      if (room.w < 5 || room.h < 5 || room.id === stairsRoomId) continue;
+      const alongX = room.w >= room.h;
+      const span = alongX ? room.w : room.h;
+      for (let t = 1; t < span - 2; t += 2) {
+        for (let side = 0; side < 2; side++) {
+          const c = alongX ? room.col + t : (side ? room.col + room.w - 2 : room.col);
+          const r = alongX ? (side ? room.row + room.h - 2 : room.row) : room.row + t;
+          if (tiles[r * cols + c] !== 1 || tiles[r * cols + c + 1] !== 1) continue;
+          if (tiles[(r + 1) * cols + c] !== 1 || tiles[(r + 1) * cols + c + 1] !== 1) continue;
+          pillarAt.add(r * cols + c);
+          props.push({ kind: "pillar", col: c, row: r, ox: 2, oz: 2, r: PROP_R.pillar });
+        }
+      }
+    }
+  }
+  // 7. Treasure: 0-2 chests, dead-end rooms first, never the entrance or stairs room.
+  // A chest leans into a room corner (same 1.3 m corner offset as props) and faces
+  // the room. Ids are per floor; opened chests are kept in run.killed as CHEST_BASE + id.
+  const chests = [];
+  const chestCell = new Set();
+  const chestRoll = rng();
+  const wantChests = chestRoll < 0.35 ? 0 : chestRoll < 0.85 ? 1 : 2;
+  const chestRooms = [];
+  for (let i = 1; i < rooms.length; i++) if (rooms[i].id !== stairsRoomId) chestRooms.push(rooms[i]);
+  for (let i = chestRooms.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = chestRooms[i];
+    chestRooms[i] = chestRooms[j];
+    chestRooms[j] = t;
+  }
+  chestRooms.sort((a, b) => (deadRooms.has(b.id) ? 1 : 0) - (deadRooms.has(a.id) ? 1 : 0));
+  for (let k = 0; k < chestRooms.length && chests.length < wantChests; k++) {
+    const room = chestRooms[k];
+    const corners = [
+      { c: room.col, r: room.row, sx: -1, sz: -1 },
+      { c: room.col + room.w - 1, r: room.row, sx: 1, sz: -1 },
+      { c: room.col, r: room.row + room.h - 1, sx: -1, sz: 1 },
+      { c: room.col + room.w - 1, r: room.row + room.h - 1, sx: 1, sz: 1 }
+    ];
+    const start = Math.floor(rng() * 4);
+    for (let n = 0; n < 4; n++) {
+      const corner = corners[(start + n) % 4];
+      // The cell in the room nearest that corner that is open and free.
+      let best = null;
+      let bestD = Infinity;
+      for (let r = room.row; r < room.row + room.h; r++) {
+        for (let c = room.col; c < room.col + room.w; c++) {
+          const i = r * cols + c;
+          if (tiles[i] !== 1 || occupied[i]) continue;
+          if ((c === entrance.col && r === entrance.row) || (c === stairs.col && r === stairs.row)) continue;
+          const d = Math.abs(c - corner.c) + Math.abs(r - corner.r);
+          if (d < bestD) {
+            bestD = d;
+            best = { c, r };
+          }
+        }
+      }
+      if (!best) continue;
+      const vc = corner.sx < 0 ? best.c - 1 : best.c;
+      const vr = corner.sz < 0 ? best.r - 1 : best.r;
+      if (pillarAt.has(vr * cols + vc)) continue;
+      chestCell.add(best.r * cols + best.c);
+      chests.push({
+        id: chests.length,
+        col: best.c,
+        row: best.r,
+        ox: 1.3 * corner.sx,
+        oz: 1.3 * corner.sz,
+        // Local −z (the chest's front) points back toward the room.
+        yaw: Math.atan2(corner.sx, corner.sz),
+        r: 0.55
+      });
+      break;
+    }
+  }
+
   let braziers = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (tiles[r * cols + c] !== 1) continue;
       if ((c === entrance.col && r === entrance.row) || (c === stairs.col && r === stairs.row)) continue;
-      if (rng() >= 0.25) continue;
-      const ox = rng() < 0.5 ? -1.3 : 1.3;
-      const oz = rng() < 0.5 ? -1.3 : 1.3;
-      let kind;
-      if (themeId === 3) {
-        const roll = rng();
-        if (roll < 1 / 3 && braziers < 4) {
-          kind = "brazier";
-          braziers++;
-        } else if (roll < 2 / 3) kind = "rock";
-        else kind = "root";
-      } else {
-        kind = rng() < 0.5 ? "rock" : "root";
+      if (chestCell.has(r * cols + c)) continue;
+      if (rng() >= biome.propRate) continue;
+      const sx = rng() < 0.5 ? -1 : 1;
+      const sz = rng() < 0.5 ? -1 : 1;
+      let kind = pickWeighted(rng, biome.props);
+      // The corner vertex this prop leans into must not already hold a pillar.
+      const vc = sx < 0 ? c - 1 : c;
+      const vr = sz < 0 ? r - 1 : r;
+      if (pillarAt.has(vr * cols + vc)) continue;
+      if (kind === "brazier") {
+        if (braziers >= MAX_BRAZIERS) kind = "rubble";
+        else braziers++;
       }
-      props.push({ kind, col: c, row: r, ox, oz });
+      props.push({ kind, col: c, row: r, ox: 1.3 * sx, oz: 1.3 * sz, r: PROP_R[kind] || 0.45 });
     }
   }
 
   return {
     runSeed: runSeed >>> 0,
     floorIndex,
-    themeId,
+    themeId: biome.id,
+    biomeId: biome.id,
+    biomeKey: biome.key,
+    biomeName: biome.name,
     cols,
     rows,
     tile: TILE,
@@ -576,6 +673,7 @@ export function generateFloor(runSeed, floorIndex) {
     rooms,
     spawns,
     props,
+    chests,
     enemyBudget: enemyBudget(floorIndex)
   };
 }

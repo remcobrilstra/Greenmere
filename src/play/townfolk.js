@@ -16,12 +16,20 @@ const ACTIVITY_POSE = { warm: "warm", rest: "rest", drink: "drink", browse: "cha
 const GREET_R = 3.5;
 const FORGET_R = 5.5;
 const BARK_COOLDOWN = 25;
+// Out in the streets folk only sometimes speak first: the town keeps at least
+// AMBIENT_GAP seconds between unprompted greetings, each villager waits
+// AMBIENT_COOLDOWN before greeting the hero again, and only GREET_CHANCE of
+// approaches get a word at all. A keeper at their counter and F always answer.
+const AMBIENT_GAP = 12;
+const AMBIENT_COOLDOWN = 90;
+const GREET_CHANCE = { walker: 0.3, vendor: 0.5, keeper: 0.4 };
 const HEAD_Y = 2.25;
 
 export function attachTownfolk(rt) {
   const graph = buildTownGraph();
   const folk = [];
   let barkTurn = 0;
+  let lastAmbient = -AMBIENT_GAP;
   const cols = staticTownColliders();
   function nodeNear(p, tag) {
     let best = null;
@@ -296,7 +304,18 @@ export function attachTownfolk(rt) {
       const canGreet = !upstairs && (atCounter ? inside === f.building : !inside || inside === f.building);
       if (dh < GREET_R && !f.near && canGreet) {
         f.near = true;
-        if (clock - f.lastBark > BARK_COOLDOWN) bark(f, clock);
+        if (atCounter) {
+          if (clock - f.lastBark > BARK_COOLDOWN) bark(f, clock);
+        } else if (!rt.panelOpen && clock - lastAmbient > AMBIENT_GAP && clock - f.lastBark > AMBIENT_COOLDOWN) {
+          const chance = GREET_CHANCE[f.vendor ? "vendor" : f.kind] || GREET_CHANCE.walker;
+          if (Math.random() < chance) {
+            bark(f, clock);
+            lastAmbient = clock;
+          } else {
+            // Passed by without a word; do not roll again for a while.
+            f.lastBark = clock - AMBIENT_COOLDOWN / 2;
+          }
+        }
       } else if (dh > FORGET_R) {
         f.near = false;
       }
@@ -352,6 +371,9 @@ export function attachTownfolk(rt) {
 
   rt.nearestFolk = nearestFolk;
   rt.talkNearestFolk = talkNearestFolk;
+  rt.resetGreetings = function () {
+    lastAmbient = -1e9;
+  };
   rt.townfolk = folk;
   rt.townGraph = graph;
   rt.townfolkSolid = true;

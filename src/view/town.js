@@ -3,6 +3,7 @@ import { mulberry32, hash2 } from "../sim/rng.js";
 import { terrainHeight, WORLD, HALF } from "../sim/terrain.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
 import { buildTownBuildings } from "./buildings.js";
+import { buildGatePortal } from "./gateportal.js";
 import { FOREST_CLEAR_R, GATE, HEARTH, INTERACT_R, townBlocked } from "../sim/townplan.js";
 
 export const TREE_COUNT = 3050;
@@ -601,6 +602,9 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     step.receiveShadow = true;
     group.add(step);
     decor.push(step);
+    // The opening is not empty: a swirling veil the hero walks through to delve.
+    const portal = buildGatePortal(openingW, openingH);
+    group.add(portal.group);
 
     const dz = GATE.descent;
     const discY = groundAt(dz.x, dz.z);
@@ -631,7 +635,9 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       footMesh: step,
       footY,
       colliders,
-      decor
+      decor,
+      portal,
+      opening: { x, z, halfW: openingW / 2 - 0.3 }
     };
   }
 

@@ -6,12 +6,13 @@ const EDGE_MUL = [1, 1.12, 1.12, 1.28, 1.28, 1.45];
 const KEEN_DEF = { min: 8, max: 18 };
 const THEME_MAT = ["heartwood", "rootfiber", "slag", "emberglass"];
 
+// Floors grow by two tiles per biome band (10 floors): 68 m across at floor 1, 108 m at the cap.
 export function floorSpan(n) {
-  return Math.min(15, 7 + 2 * Math.floor((n - 1) / 8));
+  return Math.min(27, 17 + 2 * Math.floor((n - 1) / 10));
 }
 
 export function enemyBudget(n) {
-  return Math.min(36, Math.round(4 + n * 0.85));
+  return Math.min(36, 7 + Math.max(1, Math.floor(n)));
 }
 
 export function eliteCount(n) {
@@ -103,8 +104,18 @@ export function mendCost(rank) {
   return clampRank(rank) >= 5 ? 10 : 14;
 }
 
+// Mend has no cooldown: the cast time is its price.
 export function mendCooldown(rank) {
-  return clampRank(rank) >= 2 ? 6.5 : 8;
+  return 0;
+}
+
+// A hit while mending pushes the cast back this far (it never goes below empty).
+export const MEND_PUSHBACK = 0.5;
+
+// Mend is a held channel: 1.5 s at rank 0, 0.1 s quicker per rank to 1.1 s.
+// Moving 0.6 m or letting go breaks it and spends nothing; a hit pushes it back.
+export function mendCastSeconds(rank) {
+  return Math.round((1.5 - 0.1 * Math.min(4, clampRank(rank))) * 100) / 100;
 }
 
 export function mendHot(rank) {
@@ -238,9 +249,13 @@ export function incomingDamage(raw, guard, ward) {
   return { hpLoss: post, wardLeft: 0 };
 }
 
+// How long the Warden lies fallen before waking in town (play/deathfx.js plays
+// the fall over it).
+export const DEATH_LOCK_S = 3.2;
+
 function beginDeathLock(unit) {
   unit.deathLock = true;
-  unit.deathLockT = 1.2;
+  unit.deathLockT = DEATH_LOCK_S;
   unit.deathTransitions = (unit.deathTransitions || 0) + 1;
 }
 
@@ -378,6 +393,52 @@ function resolveAttack(e, px, pz) {
   return null;
 }
 
+// Idle foes stroll around their spawn: pick a point within WANDER_R, walk there at a
+// fraction of their speed, rest, repeat. Each foe carries its own xorshift state, so
+// wandering never touches Math.random or the run's combat RNG. Bosses hold still.
+const WANDER_R = 2.6;
+const WANDER_PACE = 0.32;
+
+function wanderRoll(e) {
+  let x = e.wanderSeed >>> 0;
+  if (!x) x = (Math.imul((e.id | 0) + 1, 2654435761) ^ 0x5bd1e995) >>> 0 || 1;
+  x ^= x << 13;
+  x >>>= 0;
+  x ^= x >>> 17;
+  x ^= x << 5;
+  x >>>= 0;
+  e.wanderSeed = x;
+  return x / 4294967296;
+}
+
+function wander(e, dt, world) {
+  if (e.boss || e.spawnX == null || !(e.speed > 0)) return;
+  if (e.wanderT == null) e.wanderT = 0.5 + wanderRoll(e) * 2.5;
+  e.wanderT -= dt;
+  if (!e.wanderTo) {
+    if (e.wanderT > 0) return;
+    const a = wanderRoll(e) * Math.PI * 2;
+    const r = 0.6 + wanderRoll(e) * (WANDER_R - 0.6);
+    e.wanderTo = { x: e.spawnX + Math.cos(a) * r, z: e.spawnZ + Math.sin(a) * r };
+    e.wanderT = 4;
+  }
+  const dx = e.wanderTo.x - e.x;
+  const dz = e.wanderTo.z - e.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.15 || e.wanderT <= 0) {
+    e.wanderTo = null;
+    e.wanderT = 1.5 + wanderRoll(e) * 3;
+    return;
+  }
+  const step = Math.min(d, e.speed * WANDER_PACE * dt);
+  const nx = e.x + (dx / d) * step;
+  const nz = e.z + (dz / d) * step;
+  const resolved = world.resolve ? world.resolve(nx, nz, e.hurt || 0.45, e) : { x: nx, z: nz };
+  e.x = resolved.x;
+  e.z = resolved.z;
+  e.yaw = Math.atan2(-dx, -dz);
+}
+
 export function stepFoe(e, dt, world) {
   if (!e || !(e.hp > 0)) return null;
   if (e.stagger > 0) {
@@ -400,6 +461,7 @@ export function stepFoe(e, dt, world) {
       e.z = e.spawnZ;
       e.hp = e.hpMax;
       e.state = "idle";
+      e.wanderTo = null;
       e.telegraph = 0;
       e.sunder = 0;
       e.shadeAbsorb = 0;
@@ -421,7 +483,11 @@ export function stepFoe(e, dt, world) {
   const dist = Math.hypot(dx, dz) || 0.0001;
   if (e.state === "idle") {
     const seen = dist <= AGGRO && world.los && world.los(e.x, e.z, px, pz);
-    if (!seen) return null;
+    if (!seen) {
+      wander(e, dt, world);
+      return null;
+    }
+    e.wanderTo = null;
     e.state = "approach";
   }
   if (e.state === "approach") {

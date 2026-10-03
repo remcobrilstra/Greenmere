@@ -126,7 +126,8 @@ export function rollGearDrop(rng, spec) {
   const spawnId = Math.floor(Number(spec && spec.spawnId) || 0);
   const ordinal = spec && spec.ordinal != null ? Math.floor(Number(spec.ordinal) || 0) : 0;
   const kind = spec && (spec.kind === "boss" || spec.kind === "elite") ? spec.kind : "normal";
-  if (kind !== "boss") {
+  // `force` (treasure chests) always yields an item; rarity still rolls by kind.
+  if (kind !== "boss" && !(spec && spec.force)) {
     const chance = 1800 + Math.min(2200, floorIndex * 40);
     if (Math.floor(rng() * 10000) >= chance) return null;
   }

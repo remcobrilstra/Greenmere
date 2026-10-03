@@ -34,8 +34,25 @@ export function attachHud(rt) {
   rt.hearthT = 0;
   let castUntil = 0;
   let stationPrompt = "";
+  let stationSub = "";
+  let stationBarred = false;
   let stationAck = "";
   let stationOwnsLine = false;
+  // The F prompt: a key cap and what F does here, above the action bar. Every
+  // "press F" moment (counters, villagers, chests, the gate, the stairs) uses it;
+  // the cast line only carries the reply.
+  const keyPrompt = document.createElement("div");
+  keyPrompt.id = "key-prompt";
+  keyPrompt.hidden = true;
+  const keyCap = document.createElement("span");
+  keyCap.className = "key";
+  keyCap.textContent = "F";
+  const keyLabel = document.createElement("span");
+  keyLabel.className = "label";
+  const keySub = document.createElement("span");
+  keySub.className = "sub";
+  keyPrompt.append(keyCap, keyLabel, keySub);
+  document.body.appendChild(keyPrompt);
   const mapCanvas = document.getElementById("map-canvas");
   const mapCtx = mapCanvas.getContext("2d");
   const MAP_R = 46;
@@ -140,33 +157,34 @@ export function attachHud(rt) {
     return "Nothing answers.";
   }
   function applyStationLine() {
+    keyPrompt.hidden = !stationPrompt;
+    keyPrompt.classList.toggle("barred", stationBarred);
+    keyLabel.textContent = stationPrompt;
+    keySub.textContent = stationSub;
+    keySub.hidden = !stationSub;
+    keyPrompt.classList.toggle("single", !stationSub);
     if (stationAck) {
       castLine.textContent = stationAck;
       stationOwnsLine = true;
       castUntil = 0;
-      castLine.style.pointerEvents = "none";
-      castLine.style.cursor = "";
       return;
     }
-    if (stationPrompt) {
-      castLine.textContent = "F \u2014 " + stationPrompt;
-      stationOwnsLine = true;
-      castUntil = 0;
-      castLine.style.pointerEvents = "auto";
-      castLine.style.cursor = "pointer";
-      return;
-    }
-    castLine.style.pointerEvents = "none";
-    castLine.style.cursor = "";
     if (stationOwnsLine) {
       castLine.textContent = "";
       stationOwnsLine = false;
     }
   }
-  function setStationPrompt(name) {
+  // name: what F does here ("" hides the prompt). opts.sub: a smaller second line;
+  // opts.barred: shown in red, F does nothing yet (e.g. a boss holds the stairs).
+  function setStationPrompt(name, opts) {
     const next = name || "";
+    const sub = (opts && opts.sub) || "";
+    const barred = !!(opts && opts.barred);
+    if (next === stationPrompt && sub === stationSub && barred === stationBarred) return;
     if (next !== stationPrompt) stationAck = "";
     stationPrompt = next;
+    stationSub = sub;
+    stationBarred = barred;
     applyStationLine();
   }
   function acknowledgeStation() {
@@ -256,6 +274,22 @@ export function attachHud(rt) {
       say("Not enough mana.");
       return { ok: false, reason: "mana" };
     }
+    // Mend is held: nothing is spent until the channel completes (see combat.js).
+    if (a.id === "mend" && rt.beginMend) {
+      const started = rt.beginMend(() => applyAbility(index));
+      if (!started.ok && started.reason === "channel") say("Already mending.");
+      return started;
+    }
+    return applyAbility(index);
+  }
+  function applyAbility(index) {
+    applyRankStats();
+    const a = abilities[index];
+    if (vitals.mp < a.cost) {
+      denySlot(slots[index]);
+      say("Not enough mana.");
+      return { ok: false, reason: "mana" };
+    }
     vitals.mp -= a.cost;
     if (a.heal) vitals.hp = Math.min(vitals.hpMax, vitals.hp + a.heal);
     if (a.id === "mend" && rt.session && mendHot(trackRank("mend")) > 0) {
@@ -272,10 +306,12 @@ export function attachHud(rt) {
     syncCooldowns();
     return { ok: true };
   }
-  const THEME_FLOOR = ["#3c6e2e", "#3a2416", "#2f363e", "#3e4650"];
+  // Minimap ground per biome (src/sim/biomes.js order): caves, temple, rootdeep, crypt, forge.
+  const THEME_FLOOR = ["#2f4a2a", "#6a5434", "#3a2416", "#2f363e", "#4a3024"];
   function themeFloorCss(themeId) {
     const n = Number(themeId);
-    const id = Number.isFinite(n) ? ((Math.floor(n) % 4) + 4) % 4 : 0;
+    const len = THEME_FLOOR.length;
+    const id = Number.isFinite(n) ? ((Math.floor(n) % len) + len) % len : 0;
     return THEME_FLOOR[id];
   }
   function foeInAggro(e) {
@@ -366,6 +402,7 @@ export function attachHud(rt) {
       for (let r = 0; r < rows; r++) {
         for (let col = 0; col < cols; col++) {
           if (plan.tiles[r * cols + col] !== 1) continue;
+          if (rt.tileSeen && !rt.tileSeen(col, r)) continue;
           const x = (col - (cols - 1) / 2) * tile;
           const z = (r - (rows - 1) / 2) * tile;
           const dx = x - px;
@@ -527,10 +564,11 @@ export function attachHud(rt) {
     castUntil = 0;
     stationAck = "";
     stationPrompt = "";
+    stationSub = "";
+    stationBarred = false;
     stationOwnsLine = false;
+    keyPrompt.hidden = true;
     castLine.textContent = "";
-    castLine.style.pointerEvents = "none";
-    castLine.style.cursor = "";
     for (let i = 0; i < slots.length; i++) slots[i].classList.remove("deny", "cooling", "lit");
     syncVitals();
     syncCooldowns();
@@ -540,8 +578,8 @@ export function attachHud(rt) {
     if (!btn) return;
     tryAbility(Number(btn.dataset.index));
   });
-  castLine.addEventListener("click", () => {
-    if (!stationPrompt) return;
+  keyPrompt.addEventListener("click", () => {
+    if (!stationPrompt || stationBarred) return;
     if (rt.interactStation) rt.interactStation();
     else acknowledgeStation();
   });
@@ -553,6 +591,12 @@ export function attachHud(rt) {
   rt.mapCanvas = mapCanvas;
   rt.mapCtx = mapCtx;
   rt.castLine = castLine;
+  rt.keyPrompt = {
+    node: keyPrompt,
+    label: () => (keyPrompt.hidden ? "" : stationPrompt),
+    sub: () => (keyPrompt.hidden ? "" : stationSub),
+    barred: () => !keyPrompt.hidden && stationBarred
+  };
   rt.tryAbility = tryAbility;
   rt.applyRankStats = applyRankStats;
   rt.say = say;

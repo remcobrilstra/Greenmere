@@ -7,6 +7,7 @@
 // DOM only, built with textContent. Reads the session; changes nothing.
 
 import { xpToNext, upgradeCost } from "../sim/balance.js";
+import { affixLines } from "../sim/gearstats.js";
 
 const SLOT_ORDER = ["weapon", "offhand", "head", "body", "feet", "trinket"];
 const SLOT_NAME = { weapon: "Weapon", offhand: "Offhand", head: "Head", body: "Body", feet: "Feet", trinket: "Trinket" };
@@ -127,7 +128,7 @@ export function attachCharacter(rt) {
       const rarity = it ? Math.max(0, Math.min(3, int(it.rarity))) : 0;
       row.style.borderLeftColor = it ? RARITY_EDGE[rarity] : "transparent";
       row.appendChild(el("span", "name", SLOT_NAME[key] + "  ·  " + itemName(it) + (it ? "  ·  ilvl " + int(it.ilvl) : "")));
-      if (it && it.affixes && it.affixes.length) row.appendChild(el("span", "affix", RARITY_NAME[rarity] + "  ·  " + it.affixes.map((a) => a && a.id).filter(Boolean).join(", ")));
+      if (it && it.affixes && it.affixes.length) row.appendChild(el("span", "affix", RARITY_NAME[rarity] + "  ·  " + affixLines(it).join(", ")));
       const up = upgradeStatus(s, it);
       if (up) row.appendChild(el("span", "affix" + (up.ok ? " gold" : ""), up.text));
       sheet.appendChild(row);
@@ -199,8 +200,9 @@ export function attachCharacter(rt) {
       xpBar.setAttribute("aria-valuemax", String(need));
     }
     // Announce a level gained in play (not a save loading in at a higher level).
-    if (lastLevel != null && level > lastLevel && rt.say) {
-      rt.say("Level " + level + "! A skill point waits at The Circle.");
+    if (lastLevel != null && level > lastLevel) {
+      if (rt.say) rt.say("Level " + level + "! A skill point waits at The Circle.");
+      if (rt.levelUpFx) rt.levelUpFx(level);
     }
     lastLevel = level;
     if (rt.sheetOpen) {

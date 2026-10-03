@@ -40,6 +40,7 @@ export function attachCamera(rt) {
     );
     return out;
   }
+  let shakeClock = 0;
   function placeCamera(dt, snap) {
     computeDesiredCamera(_desired);
     _rayDir.copy(_desired).sub(_focus);
@@ -72,6 +73,15 @@ export function attachCamera(rt) {
     if (snap) rt.camera.position.copy(_desired);
     else rt.camera.position.lerp(_desired, 1 - Math.exp(-7 * dt));
     rt.camera.lookAt(_focus);
+    // Hit shake: a small, fast wobble of the view (not the boom), so the next
+    // frame's lookAt starts clean and nothing drifts.
+    if (rt.camShake > 0) {
+      shakeClock += dt;
+      const a = rt.camShake * 0.06;
+      rt.camera.rotateX(Math.sin(shakeClock * 61) * a);
+      rt.camera.rotateY(Math.sin(shakeClock * 47 + 1.3) * a);
+      rt.camShake = Math.max(0, rt.camShake - dt * 1.4);
+    }
   }
   function cameraPlanarBasis() {
     rt.camera.getWorldDirection(_fwd);
@@ -114,13 +124,32 @@ export function cameraClamps(rt) {
 
 export function bindOrbit(dom, rt) {
   dom.addEventListener("contextmenu", (e) => e.preventDefault());
+  // Right button held: mouselook, the hero turns with the camera. Both buttons
+  // held: the hero also walks forward (rt.mouseButtons, read by move.js).
+  // A second button pressed while one is down arrives as a pointermove, not a
+  // pointerdown, so every pointer event resyncs the button state.
+  const syncButtons = (e) => {
+    rt.mouseButtons = e.buttons & 3;
+    rt.mouseLook = !!(e.buttons & 2);
+  };
+  const clearButtons = () => {
+    rt.mouseButtons = 0;
+    rt.mouseLook = false;
+  };
+  rt.mouseButtons = 0;
   dom.addEventListener("pointerdown", (e) => {
     if (e.button === 0 || e.button === 2) dom.setPointerCapture(e.pointerId);
+    syncButtons(e);
   });
+  dom.addEventListener("pointerup", syncButtons);
+  dom.addEventListener("lostpointercapture", clearButtons);
+  window.addEventListener("blur", clearButtons);
   dom.addEventListener("pointermove", (e) => {
+    syncButtons(e);
     if (!(e.buttons & 3)) return;
+    // Dragging up tips the camera down toward the horizon (and down raises it).
     rt.camYaw -= e.movementX * 0.005;
-    rt.camPitch -= e.movementY * 0.0035;
+    rt.camPitch += e.movementY * 0.0035;
     const k = cameraClamps(rt);
     rt.camPitch = Math.max(k.pitchMin, Math.min(k.pitchMax, rt.camPitch));
   });

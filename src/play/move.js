@@ -120,8 +120,11 @@ export function attachMovement(rt) {
   }
   function update(dt) {
     time += dt;
-    const keys = rt.keys;
-    const forward = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+    const frozen = rt.transit || !!(rt.vitals && rt.vitals.deathLock);
+    const keys = frozen ? {} : rt.keys;
+    // Both mouse buttons held walks forward, like holding W.
+    const mouseRun = !frozen && (rt.mouseButtons & 3) === 3;
+    const forward = (keys.KeyW || keys.ArrowUp || mouseRun ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
     const strafe = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
     rt.cameraPlanarBasis();
     _wish.set(0, 0, 0);
@@ -155,13 +158,16 @@ export function attachMovement(rt) {
       player.position.x = nx;
       player.position.z = nz;
       if (rt.noteExtractMove) rt.noteExtractMove(Math.hypot(dx, dz));
-      if (!windup) {
+      if (!windup && !rt.mouseLook) {
         // Local forward is −z, so the yaw that faces travel d is atan2(−d.x, −d.z).
         const targetYaw = Math.atan2(-_wish.x, -_wish.z);
         player.rotation.y = dampAngle(player.rotation.y, targetYaw, 14, dt);
       }
       walkPhase += dt * (sprint ? 11.5 : 8.2);
     }
+    // Mouselook: the hero faces where the camera looks (the camera sits at +camYaw
+    // behind the focus, so facing away from it is rotation.y = camYaw).
+    if (rt.mouseLook && !windup && !frozen) player.rotation.y = dampAngle(player.rotation.y, rt.camYaw, 22, dt);
     if (dungeon) player.position.y = 0;
     else {
       if (rt.stepHeroLevel) rt.stepHeroLevel(player.position.x, player.position.z);
@@ -198,7 +204,9 @@ export function attachMovement(rt) {
     rt.updateSun();
     if (rt.collectDrops) rt.collectDrops();
     if (!dungeon && rt.refreshTownPrompt) rt.refreshTownPrompt();
+    else if (dungeon && rt.refreshDungeonPrompt) rt.refreshDungeonPrompt();
     if (rt.tickCombat) rt.tickCombat(dt);
+    if (rt.poseHero) rt.poseHero(dt);
   }
   function resetHero(x, z, yaw) {
     for (const k in rt.keys) rt.keys[k] = false;
@@ -234,13 +242,17 @@ export function bindKeys(rt) {
       const n = e.code.charCodeAt(5) - 49;
       if (n >= 0 && n < 8) {
         if (n === 3 && rt.space === "dungeon") rt.extractKey = true;
+        // A Mend started from the key is a hold: letting go of 3 breaks it.
+        rt.mendKey = n === 2;
         rt.tryAbility(n);
+        rt.mendKey = false;
       }
     }
   });
   window.addEventListener("keyup", (e) => {
     rt.keys[e.code] = false;
     if (e.code === "Digit4" && rt.releaseExtract) rt.releaseExtract();
+    if (e.code === "Digit3" && rt.releaseMend) rt.releaseMend();
   });
   window.addEventListener("blur", () => {
     for (const k in rt.keys) rt.keys[k] = false;

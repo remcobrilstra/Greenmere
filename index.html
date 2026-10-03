@@ -4,6 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Greenmere — The Outer Wood</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#2a1e14" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Greenmere" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./icons/icon-192.png" type="image/png" sizes="192x192" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
   <style>
     html, body {
       margin: 0;
@@ -83,6 +92,26 @@
     .bar.health > span {
       background: repeating-linear-gradient(90deg, #8e2e28 0 8px, #b64034 8px 16px, #9a342c 16px 22px);
     }
+    .bar.health > span.ward-overlay {
+      position: absolute;
+      top: 0;
+      transition: none;
+      background: repeating-linear-gradient(115deg, rgba(214, 234, 255, 0.85) 0 4px, rgba(127, 184, 255, 0.75) 4px 8px);
+      box-shadow: 0 0 6px rgba(160, 205, 255, 0.9);
+    }
+    .bar.health > span.ward-overlay[hidden] { display: none; }
+    .bar.health > span.ward-overlay.hit { background: #f4faff; }
+    .bar .ward-timer {
+      position: absolute;
+      left: 0;
+      bottom: -1px;
+      height: 2px;
+      background: #cfe6ff;
+      box-shadow: 0 0 4px rgba(160, 205, 255, 0.9);
+    }
+    .bar .ward-timer[hidden] { display: none; }
+    .bar .ward-timer.ending { animation: ward-blink 0.2s steps(2, end) infinite; }
+    @keyframes ward-blink { 50% { opacity: 0.2; } }
     .bar.mana > span {
       background: repeating-linear-gradient(90deg, #1c3f8c 0 8px, #2d62c8 8px 16px, #244f9e 16px 22px);
     }
@@ -298,6 +327,221 @@
       white-space: normal;
     }
     #barks .bark[hidden] { display: none; }
+    #hurtfx {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      opacity: 0;
+      background: radial-gradient(ellipse at center, transparent 48%, rgba(142, 46, 40, 0.38) 74%, rgba(110, 20, 16, 0.78) 100%);
+      box-shadow: inset 0 0 90px rgba(182, 64, 52, 0.55);
+    }
+    #deathfx {
+      --grey: 0;
+      --dark: 0;
+      --black: 0;
+      position: fixed;
+      inset: 0;
+      z-index: 29;
+      pointer-events: none;
+      display: none;
+      place-items: center;
+      backdrop-filter: grayscale(var(--grey)) contrast(calc(1 + var(--grey) * 0.1));
+      background:
+        linear-gradient(rgba(0, 0, 0, var(--black)), rgba(0, 0, 0, var(--black))),
+        radial-gradient(ellipse at center, rgba(20, 6, 4, calc(var(--dark) * 0.25)) 30%, rgba(20, 6, 4, var(--dark)) 100%);
+    }
+    #deathfx.on { display: grid; }
+    #deathfx .death-words {
+      margin: 0 0 8vh;
+      font-size: 44px;
+      letter-spacing: 0.12em;
+      color: #c9b48c;
+      text-shadow: 0 0 24px rgba(142, 46, 40, 0.8), 0 2px 3px #000;
+      opacity: 0;
+    }
+    #portalfx {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 30;
+      opacity: 0;
+    }
+    #ability-tip {
+      position: fixed;
+      z-index: 20;
+      width: 250px;
+      padding: 9px 12px 10px;
+      background: linear-gradient(180deg, rgba(42, 30, 20, 0.97), rgba(26, 18, 12, 0.97));
+      border: 1px solid rgba(226, 186, 96, 0.7);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+      color: #f4e7c8;
+      font-size: 13px;
+      line-height: 1.35;
+      pointer-events: none;
+    }
+    #ability-tip[hidden] { display: none; }
+    #ability-tip .tip-head { display: flex; justify-content: space-between; align-items: baseline; }
+    #ability-tip .tip-name { font-size: 16px; color: #ffe2a8; letter-spacing: 0.04em; }
+    #ability-tip .tip-key {
+      font-size: 11px;
+      padding: 1px 6px;
+      color: #e2ba60;
+      border: 1px solid rgba(226, 186, 96, 0.55);
+      border-radius: 3px;
+    }
+    #ability-tip .tip-meta { margin-top: 2px; font-size: 11px; letter-spacing: 0.05em; color: #c9b48c; }
+    #ability-tip .tip-body { margin: 6px 0 0; }
+    #ability-tip .tip-note { margin: 5px 0 0; font-size: 12px; color: #c9b48c; font-style: italic; }
+    #levelup-banner {
+      position: fixed;
+      left: 50%;
+      top: 12%;
+      transform: translateX(-50%);
+      z-index: 7;
+      display: grid;
+      justify-items: center;
+      pointer-events: none;
+      color: #ffe2a8;
+      text-shadow: 0 0 18px rgba(255, 196, 90, 0.85), 0 2px 3px rgba(20, 14, 8, 0.95);
+      opacity: 0;
+    }
+    #levelup-banner[hidden] { display: none; }
+    #levelup-banner .small { font-size: 14px; letter-spacing: 0.4em; text-transform: uppercase; color: #e2ba60; }
+    #levelup-banner .big { font-size: 46px; letter-spacing: 0.08em; }
+    #levelup-banner.play { animation: levelup-rise 2.6s ease-out forwards; }
+    @keyframes levelup-rise {
+      0% { opacity: 0; transform: translate(-50%, 24px) scale(0.7); }
+      12% { opacity: 1; transform: translate(-50%, 0) scale(1.08); }
+      22% { transform: translate(-50%, 0) scale(1); }
+      75% { opacity: 1; transform: translate(-50%, -8px) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -26px) scale(1); }
+    }
+    #key-prompt {
+      position: fixed;
+      left: 50%;
+      bottom: 186px;
+      transform: translateX(-50%);
+      z-index: 6;
+      display: grid;
+      grid-template-columns: auto auto;
+      column-gap: 12px;
+      align-items: center;
+      padding: 9px 18px 10px 10px;
+      background: linear-gradient(180deg, rgba(42, 30, 20, 0.94), rgba(26, 18, 12, 0.94));
+      border: 1px solid rgba(226, 186, 96, 0.75);
+      box-shadow: 0 0 22px rgba(226, 186, 96, 0.35), inset 0 0 0 1px rgba(20, 14, 8, 0.8);
+      color: #f4e7c8;
+      cursor: pointer;
+      animation: key-prompt-pulse 1.6s ease-in-out infinite;
+    }
+    #key-prompt[hidden] { display: none; }
+    #key-prompt .key {
+      grid-row: span 2;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      font-size: 19px;
+      font-weight: bold;
+      color: #1a120c;
+      background: linear-gradient(180deg, #ffe2a8, #d4a03a 60%, #a07a2a);
+      border: 1px solid #f7dc9a;
+      border-radius: 5px;
+      box-shadow: 0 2px 0 #6b4a1c;
+    }
+    #key-prompt .label { font-size: 17px; letter-spacing: 0.04em; }
+    #key-prompt .sub { font-size: 12px; color: #c9b48c; }
+    #key-prompt .sub[hidden] { display: none; }
+    #key-prompt.single .key { grid-row: auto; }
+    #key-prompt.barred { cursor: default; }
+    #key-prompt.barred { border-color: rgba(182, 64, 52, 0.85); box-shadow: 0 0 22px rgba(182, 64, 52, 0.4); animation: none; }
+    #key-prompt.barred .key { background: #4a2a24; color: #a08070; border-color: #6e3a30; box-shadow: none; }
+    @keyframes key-prompt-pulse {
+      0%, 100% { box-shadow: 0 0 14px rgba(226, 186, 96, 0.25), inset 0 0 0 1px rgba(20, 14, 8, 0.8); }
+      50% { box-shadow: 0 0 30px rgba(226, 186, 96, 0.6), inset 0 0 0 1px rgba(20, 14, 8, 0.8); }
+    }
+    #castbar {
+      left: 50%;
+      bottom: 132px;
+      transform: translateX(-50%);
+      width: min(300px, calc(100vw - 32px));
+      padding: 6px 12px 9px;
+      color: #f4e7c8;
+    }
+    #castbar[hidden] { display: none; }
+    #castbar .cast-label {
+      display: flex;
+      justify-content: space-between;
+      margin: 0 0 5px;
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #e2ba60;
+    }
+    #castbar .cast-left { letter-spacing: 0.06em; color: #e7d7b4; }
+    #castbar .cast-track {
+      position: relative;
+      height: 10px;
+      background: #140e0a;
+      border: 1px solid rgba(226, 186, 96, 0.45);
+      overflow: hidden;
+    }
+    #castbar .cast-track span {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0;
+      background: linear-gradient(180deg, #ffe2a8, #d4a03a 55%, #a07a2a);
+      box-shadow: 0 0 10px rgba(255, 210, 122, 0.7);
+    }
+    #castbar.mend .cast-label { color: #8ed15a; }
+    #castbar.mend .cast-track span { background: linear-gradient(180deg, #d8f8b0, #6fbf3a 55%, #3c6e2e); box-shadow: 0 0 10px rgba(142, 209, 90, 0.6); }
+    #castbar.broken .cast-label { color: #e0877a; }
+    #castbar.pushed .cast-track { border-color: #e0877a; animation: castbar-shudder 0.12s linear infinite; }
+    #castbar.pushed .cast-track span { background: linear-gradient(180deg, #ffb0a0, #c0503e 60%, #8e2e28); }
+    @keyframes castbar-shudder { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+    #castbar.broken .cast-track span { background: #8e2e28; box-shadow: none; }
+    #foebars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 1;
+    }
+    #foebars .foebar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #foebars .foebar[hidden] { display: none; }
+    #foebars .foebar-track {
+      position: relative;
+      width: 46px;
+      height: 6px;
+      background: #140e0a;
+      border: 1px solid rgba(20, 14, 10, 0.9);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+    }
+    #foebars .foebar-track span { position: absolute; left: 0; top: 0; bottom: 0; }
+    #foebars .foebar-lag { background: #f4e7c8; opacity: 0.75; }
+    #foebars .foebar-fill { background: linear-gradient(180deg, #d0584a, #8e2e28); }
+    #foebars .foebar-ward { top: auto; height: 2px; background: #9fd0ff; }
+    #foebars .elite .foebar-track { width: 58px; border-color: #e2ba60; }
+    #foebars .boss .foebar-track { width: 150px; height: 9px; border-color: #e2ba60; }
+    #foebars .foebar-name {
+      margin-bottom: 2px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #e2ba60;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      white-space: nowrap;
+    }
     #barks .bark::after {
       content: "";
       position: absolute;
@@ -388,6 +632,20 @@
       scrollbar-color: #8d5b34 rgba(20, 14, 8, 0.4);
     }
     #sheet[hidden] { display: none; }
+    #atlas {
+      top: calc(50% - 40px);
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 8px 14px 12px;
+      pointer-events: auto;
+      z-index: 4;
+      color: #f4e7c8;
+    }
+    #atlas[hidden] { display: none; }
+    #atlas .atlas-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+    #atlas .atlas-close { flex: none; min-height: 26px; padding: 2px 10px; font-size: 12px; }
+    #atlas canvas { display: block; border: 1px solid rgba(226, 186, 96, 0.45); }
+    #atlas .atlas-legend { margin: 6px 0 0; font-size: 12px; color: #c9b892; text-align: center; }
     #sheet .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     #sheet .sheet-close { flex: none; min-height: 26px; padding: 2px 10px; font-size: 12px; }
     #sheet .section-label {
@@ -461,6 +719,15 @@
       color: #f4e7c8;
     }
     #panel .pack-row .slot { flex: 0 1 auto; }
+    #panel .pack-row .detail { flex: 1 1 100%; font-size: 12px; line-height: 1.35; color: #d9c69c; text-align: left; }
+    #panel .detail.muted, #panel .panel-line.muted { color: #b8a57f; }
+    #panel .up { color: #9ad86a; }
+    #panel .down, #panel .detail.down { color: #ef8f6f; }
+    #panel .verdict { flex: 0 0 auto; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    #panel .verdict.better { color: #9ad86a; }
+    #panel .verdict.worse { color: #ef8f6f; }
+    #panel .verdict.mixed { color: #e2ba60; }
+    #panel .verdict.same { color: #b8a57f; }
     #panel input {
       width: 72px;
       margin: 0;
@@ -636,5 +903,11 @@
     });
   </script>
   <script type="module" src="./src/main.js"></script>
+  <script>
+    // Installable app: register the service worker (not during the self-test).
+    if ("serviceWorker" in navigator && !new URLSearchParams(location.search).has("test")) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+    }
+  </script>
 </body>
 </html>

@@ -39,10 +39,13 @@ import {
   stepOrb,
   orbHits
 } from "../sim/balance.js";
-import { generateFloor, setSealedThrows, tileToWorld } from "../sim/floorgen.js";
+import { generateFloor, setSealedThrows, tileToWorld, SAFE_RADIUS } from "../sim/floorgen.js";
+import { mendCastSeconds, MEND_PUSHBACK, DEATH_LOCK_S } from "../sim/balance.js";
+import { biomeIndex } from "../sim/biomes.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
 import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
+import { heroStats, compareEquip, compareUpgrade, trackNext } from "../sim/gearstats.js";
 import { KEEPERS, WANDERERS, VENDORS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter, staticTownColliders, shiftPart } from "../sim/townfolk.js";
 import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt, insideRect } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
@@ -223,14 +226,48 @@ export function installSelfTest(rt) {
     vitals.hp = 100;
     vitals.mp = 80;
     cdLeft[2] = 0;
+    // Mend is a held channel: nothing happens until it completes.
     const mend = tryAbility(2);
-    check(mend.ok && vitals.hp === 122 && vitals.mp === 66, "Mend heals 22 and spends 14 mana (" + vitals.hp + " hp, " + vitals.mp + " mp)");
+    check(mend.ok && mend.reason === "channel" && vitals.hp === 100 && vitals.mp === 80 && rt.castInfo().kind === "mend", "Mend starts a channel and spends nothing yet");
+    rt.stepCombat(0.7);
+    check(vitals.hp === 100 && rt.castInfo() && rt.castInfo().t > 0.6, "mid-channel Mend has not healed");
+    rt.stepCombat(0.79);
+    const mpBeforeLand = vitals.mp;
+    rt.stepCombat(0.02);
+    check(!rt.castInfo() && vitals.hp === 122 && Math.abs(vitals.mp - (mpBeforeLand - 14)) < 0.2, "Mend heals 22 and spends 14 mana when the channel lands (" + vitals.hp + " hp, " + vitals.mp.toFixed(1) + " mp)");
     check(document.getElementById("hp-label").textContent === "122 / 160", "health label tracks the bar");
     check(castLine.textContent === "The wood steadies you.", "Mend speaks in the cast line");
-    const cooling = tryAbility(2);
-    check(!cooling.ok && cooling.reason === "cooldown", "Mend respects its cooldown");
-    tickHud(9);
-    check(cdLeft[2] === 0, "cooldown finishes as time passes");
+    check(cdLeft[2] === 0, "Mend leaves no cooldown");
+    const again = tryAbility(2);
+    check(again.ok && again.reason === "channel", "Mend can be cast again straight away");
+    rt.stepCombat(0.8);
+    const tBefore = rt.castInfo().t;
+    rt.hurtHero(5);
+    check(!!rt.castInfo() && Math.abs(rt.castInfo().t - Math.max(0.0001, tBefore - MEND_PUSHBACK)) < 1e-6 && vitals.hp === 117, "a hit pushes Mend back instead of breaking it");
+    rt.stepCombat(0.1);
+    rt.hurtHero(5);
+    rt.hurtHero(5);
+    check(!!rt.castInfo() && rt.castInfo().t > 0 && rt.castInfo().t < 0.01, "pushback never goes below an empty bar");
+    rt.cancelMend();
+    vitals.hp = 122;
+
+    // Ward is visible: a bubble and a shield segment while it holds, shards when broken.
+    if (rt.wardFx) {
+      check(!rt.wardFx.visible() && !rt.wardFx.overlayShown(), "no ward, no bubble or shield segment");
+      rt.session.wardAbsorb = 30;
+      rt.session.wardT = 4;
+      rt.update(0.016);
+      check(rt.wardFx.visible() && rt.wardFx.overlayShown(), "a raised ward shows its bubble and a shield segment on the health bar");
+      rt.session.wardAbsorb = 12;
+      rt.update(0.016);
+      check(rt.wardFx.visible() && !rt.wardFx.shattering(), "a worn ward still shows");
+      rt.session.wardAbsorb = 0;
+      rt.update(0.016);
+      check(!rt.wardFx.visible() && rt.wardFx.shattering() && !rt.wardFx.overlayShown(), "a ward emptied by damage shatters");
+      rt.session.wardT = 0;
+      for (let i = 0; i < 20; i++) rt.update(0.05);
+      check(!rt.wardFx.shattering(), "the shards clear");
+    }
 
     vitals.mp = 3;
     cdLeft[1] = 0;
@@ -243,6 +280,20 @@ export function installSelfTest(rt) {
     cdLeft[2] = 0;
     const hale = tryAbility(2);
     check(!hale.ok && hale.reason === "full" && vitals.hp === 160 && vitals.mp === 80, "Mend does nothing at full health");
+    check(mendCastSeconds(0) === 1.5 && mendCastSeconds(4) === 1.1 && mendCastSeconds(9) === 1.1, "Mend channels 1.5 s, down to 1.1 s by rank 4");
+    vitals.hp = 100;
+    vitals.mp = 80;
+    cdLeft[2] = 0;
+    tryAbility(2);
+    rt.noteExtractMove(0.7);
+    rt.stepCombat(2);
+    check(!rt.castInfo() && vitals.hp === 100 && vitals.mp === 80 && cdLeft[2] === 0, "moving breaks Mend and spends nothing");
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit3", bubbles: true }));
+    rt.stepCombat(0.3);
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit3", bubbles: true }));
+    rt.stepCombat(2);
+    check(!rt.castInfo() && vitals.hp === 100 && vitals.mp === 80, "letting go of 3 early breaks Mend");
+    vitals.hp = 160;
 
     resetHud();
     window.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit1", bubbles: true }));
@@ -597,7 +648,7 @@ export function installSelfTest(rt) {
         player.position.set(bank.x, 0, bank.z);
         rt.update(0.016);
         rt.refreshTownPrompt();
-        check(castLine.textContent === "F — The Counting House", "cast line is F — The Counting House at the grille");
+        check(rt.keyPrompt.label() === "The Counting House", "the F prompt names The Counting House at the grille");
         tap("KeyF");
         check(!panelNode.hidden && panelNode.querySelector(".eyebrow").textContent === "The Counting House" && panelNode.textContent.indexOf("Aldous Penn") >= 0 && !!panelNode.querySelector('[data-act="deposit"]') && !panelNode.querySelector('[data-act="sell"]'), "F at the grille opens the Counting House with Aldous");
       }
@@ -663,10 +714,10 @@ export function installSelfTest(rt) {
       rt.update(0.016);
       player.position.set(walker.x + 1.0, 0, walker.z);
       rt.refreshTownPrompt();
-      const offered = castLine.textContent;
+      const offered = rt.keyPrompt.label();
       if (rt.barks) rt.barks.clear();
       tap("KeyF");
-      check(offered === "F — Talk to " + walker.name && rt.barks.has(walker.id) && rt.barks.text(walker.id).indexOf(walker.name) === 0, "F beside " + walker.name + " starts a word with them (" + offered + ")");
+      check(offered === "Talk to " + walker.name && rt.barks.has(walker.id) && rt.barks.text(walker.id).indexOf(walker.name) === 0, "F beside " + walker.name + " starts a word with them (" + offered + ")");
       rt.townfolkSolid = false;
       rt.barks.clear();
       resetHero(0, 0, 0);
@@ -741,7 +792,7 @@ export function installSelfTest(rt) {
       check(!!board && board.panel === "board", "the notice board in the square is a station");
       player.position.set(board.x, 0, board.z);
       rt.refreshTownPrompt();
-      check(castLine.textContent === "F — Notice Board", "cast line is F — Notice Board in front of it");
+      check(rt.keyPrompt.label() === "Notice Board", "the F prompt names the Notice Board in front of it");
       tap("KeyF");
       const panelNode = document.getElementById("panel");
       const takes = panelNode.querySelectorAll('[data-act="quest-take"]');
@@ -966,7 +1017,7 @@ export function installSelfTest(rt) {
       player.position.x = sp.x;
       player.position.z = sp.z;
       rt.refreshTownPrompt();
-      check(castLine.textContent === "F — The Quench", "cast line is F — The Quench within 2.4 of the smith's anvil (" + castLine.textContent + ")");
+      check(rt.keyPrompt.label() === "The Quench", "the F prompt names The Quench within 2.4 of the smith's anvil (" + rt.keyPrompt.label() + ")");
     }
 
     // Townsfolk: keepers at their counters, wanderers on a connected, clear graph.
@@ -1042,6 +1093,41 @@ export function installSelfTest(rt) {
       check(orrin.near === false && !rt.barks.has("orrin"), "keepers in other buildings stay quiet");
       rt.barks.clear();
       rt.resetInterior();
+
+      // Out in the streets one greeting does not set off the next villager.
+      {
+        const realRandom = Math.random;
+        Math.random = () => 0;
+        const outdoor = rt.townfolk.filter((f) => f.kind === "walker" && !buildingAt(f.x, f.z));
+        const saved = rt.townfolk.map((f) => [f, f.lastBark, f.near]);
+        for (const f of rt.townfolk) f.lastBark = 1e9;
+        rt.barks.clear();
+        rt.resetGreetings();
+        const a = outdoor[0];
+        const b = outdoor[1];
+        let first = false;
+        let second = false;
+        if (a && b) {
+          a.near = false;
+          a.lastBark = -1e9;
+          player.position.set(a.x + 1, 0, a.z);
+          rt.update(0.016);
+          first = rt.barks.has(a.id);
+          b.near = false;
+          b.lastBark = -1e9;
+          player.position.set(b.x + 1, 0, b.z);
+          rt.update(0.016);
+          second = rt.barks.has(b.id);
+        }
+        check(!!a && !!b && first && !second, "only one unprompted street greeting at a time (" + first + ", " + second + ")");
+        Math.random = realRandom;
+        for (const [f, last, near] of saved) {
+          f.lastBark = last;
+          f.near = near;
+        }
+        rt.barks.clear();
+        rt.resetInterior();
+      }
     }
     resetHero(0, 0, 0);
     rt.camYaw = 0.42;
@@ -1057,12 +1143,12 @@ export function installSelfTest(rt) {
     lines.push("note: ES Math.round half-up for positive values; enemyBudget rounds halves away from zero via floor(x+0.5).");
 
     const table = [
-      [1, 7, 5, 38, 91, 304, 8, 4, 12, 0, 512, 2712],
-      [5, 7, 8, 78, 187, 624, 17, 9, 28, 0, 560, 2760],
-      [10, 9, 13, 128, 307, 1024, 28, 14, 48, 0, 620, 2820],
-      [25, 13, 25, 278, 667, 2224, 61, 31, 108, 207, 1007, 3207],
-      [50, 15, 36, 528, 1267, 4224, 116, 58, 208, 295, 1395, 3595],
-      [100, 15, 36, 1028, 2467, 8224, 226, 113, 408, 470, 2170, 4370]
+      [1, 17, 8, 38, 91, 304, 8, 4, 12, 0, 512, 2712],
+      [5, 17, 12, 78, 187, 624, 17, 9, 28, 0, 560, 2760],
+      [10, 17, 17, 128, 307, 1024, 28, 14, 48, 0, 620, 2820],
+      [25, 21, 32, 278, 667, 2224, 61, 31, 108, 207, 1007, 3207],
+      [50, 25, 36, 528, 1267, 4224, 116, 58, 208, 295, 1395, 3595],
+      [100, 27, 36, 1028, 2467, 8224, 226, 113, 408, 470, 2170, 4370]
     ];
     for (let i = 0; i < table.length; i++) {
       const [n, span, budget, hp, ehp, bhp, dmg, gold, xp, epic, rare, unc] = table[i];
@@ -1240,6 +1326,7 @@ export function installSelfTest(rt) {
     let bossFail = "";
     let detFail = "";
     let layoutFail = "";
+    let safeFail = "";
     let lastGenMs = 0;
     let maxGenMs = 0;
     const random = Math.random;
@@ -1288,6 +1375,8 @@ export function installSelfTest(rt) {
             if (inRoom(plan.rooms[0], plan.spawns[s].col, plan.spawns[s].row) && !spawnFail) {
               spawnFail = "seed " + seed + " floor " + n + " spawned inside the entrance room";
             }
+            const gap = Math.hypot(plan.spawns[s].col - plan.entrance.col, plan.spawns[s].row - plan.entrance.row) * 4;
+            if (gap < SAFE_RADIUS && !safeFail) safeFail = "seed " + seed + " floor " + n + " spawn " + s + " at " + gap.toFixed(1) + " m";
           }
         }
       }
@@ -1304,7 +1393,7 @@ export function installSelfTest(rt) {
       if (deepMs > 40 && !layoutFail) layoutFail = "floor 1000 took " + deepMs.toFixed(3) + " ms";
       if (deep) {
         const deepRoom = deep.rooms.find((room) => room.id === deep.stairsRoomId);
-        check(deep.cols === 15 && deep.enemyBudget === 36 && deep.spawns.length === 36, "floor 1000 span 15 budget 36 spawns 36");
+        check(deep.cols === 27 && deep.enemyBudget === 36 && deep.spawns.length === 36, "floor 1000 span 27 budget 36 spawns 36");
         check(!!deepRoom && inRoom(deepRoom, deep.stairs.col, deep.stairs.row), "floor 1000 stairs sit inside a room");
         check(canon(deep) === canon(generateFloor(1, 1000)), "floor 1000 plan is deterministic");
       }
@@ -1318,6 +1407,7 @@ export function installSelfTest(rt) {
     }
     check(!spawnFail, "spawns.length === min(36, enemyBudget) for seeds 1..50" + (spawnFail ? " (" + spawnFail + ")" : ""));
     check(!reachFail, "every floor cell is reachable from the entrance" + (reachFail ? " (" + reachFail + ")" : ""));
+    check(!safeFail && SAFE_RADIUS > 9, "no planned spawn within SAFE_RADIUS of the entrance, beyond 9 m aggro" + (safeFail ? " (" + safeFail + ")" : ""));
     check(!bossFail, "boss cell equals the stairs cell inside stairsRoomId" + (bossFail ? " (" + bossFail + ")" : ""));
     check(!detFail, "same seed and floor rebuild the same tiles, entrance, stairs, and spawn ids" + (detFail ? " (" + detFail + ")" : ""));
     check(randomCalls === 0, "floor generation does not call Math.random (" + randomCalls + ")");
@@ -1336,6 +1426,10 @@ export function installSelfTest(rt) {
 
     rt.freshGame();
     check(rt.session.run === null && rt.space === "town", "a fresh game has no run and stands in town");
+    rt.questMarks.refresh();
+    const tamsinMark = rt.scene.getObjectByName("questMark:tamsin");
+    check(rt.questMarks.stateOf("tamsin") === "bang" && !!tamsinMark && tamsinMark.visible && tamsinMark.getObjectByName("questBang").visible, "Old Tamsin wears a yellow ! for her first request");
+    check(rt.questMarks.stateOf("maud") === "" && !rt.scene.getObjectByName("questMark:maud").visible, "a keeper with nothing to offer yet wears no mark");
     check(rt.vitals.hp === rt.vitals.hpMax && rt.vitals.hpMax === 160, "fresh health is the maximum 160 (" + rt.vitals.hp + "/" + rt.vitals.hpMax + ")");
     check(rt.vitals.mp === rt.vitals.mpMax && rt.vitals.mpMax === 80, "fresh mana is the maximum 80 (" + rt.vitals.mp + "/" + rt.vitals.mpMax + ")");
     check(window.__game.generateFloor === generateFloor && window.__game.balance && window.__game.balance.arcHit === arcHit, "window.__game exposes generateFloor and balance");
@@ -1389,6 +1483,48 @@ export function installSelfTest(rt) {
         Math.random = randomFn;
       }
       return n;
+    }
+    {
+      // Walking through the gate's portal starts a delve; standing on the gate line does not.
+      rt.freshGame();
+      const gateSt = rt.stations.find((st) => st.id === "gate");
+      const o = gateSt && gateSt.opening;
+      check(!!gateSt && !!gateSt.portal && gateSt.portal.veil.isMesh && gateSt.portal.veil.visible, "the gate opening holds a portal veil");
+      if (o) {
+        rt.resetInterior();
+        player.position.set(o.x, 0, o.z + 0.6);
+        rt.update(0.016);
+        player.position.set(o.x, 0, o.z);
+        rt.update(0.016);
+        check(rt.space === "town", "standing on the gate line does not delve");
+        player.position.set(o.x + 2.6, 0, o.z + 0.4);
+        rt.update(0.016);
+        player.position.set(o.x + 2.6, 0, o.z - 0.4);
+        rt.update(0.016);
+        check(rt.space === "town", "passing beside the gate does not delve");
+        player.position.set(o.x, 0, o.z + 0.4);
+        rt.update(0.016);
+        player.position.set(o.x, 0, o.z - 0.3);
+        rt.update(0.016);
+        check(!!rt.transit && rt.space === "town", "walking through the portal starts the transit");
+        player.position.set(o.x, 0, o.z + 0.4);
+        rt.update(0.016);
+        check(!!rt.transit, "stepping back mid-transit does not start a second one");
+        for (let i = 0; i < 60 && rt.transit; i++) rt.update(0.05);
+        check(!rt.transit && rt.player.scale.x === 1, "the transit finishes and the Warden is full size again");
+        check(rt.space === "dungeon" && !!rt.session.run && rt.session.run.floorIndex === 1, "walking through the portal enters floor 1");
+        // Crossing in a frame that ends inside the line's 5 cm band still counts.
+        rt.freshGame();
+        rt.resetInterior();
+        player.position.set(o.x, 0, o.z + 0.3);
+        rt.update(0.016);
+        player.position.set(o.x, 0, o.z - 0.03);
+        rt.update(0.016);
+        player.position.set(o.x, 0, o.z - 0.2);
+        rt.update(0.016);
+        for (let i = 0; i < 60 && rt.transit; i++) rt.update(0.05);
+        check(rt.space === "dungeon", "a crossing that pauses inside the gate line's band still delves");
+      }
     }
     rt.freshGame();
     const injectedRolls = countRandom(function () { rt.startRun(0, 1); });
@@ -1448,7 +1584,7 @@ export function installSelfTest(rt) {
     }
     check(wallHits >= 1, "a wall raycast from inside the room hits the wall mesh (" + wallHits + ")");
     const eyebrowNode = document.querySelector("#minimap .eyebrow");
-    check(eyebrowNode && eyebrowNode.textContent === "Floor 1 · Moss", "minimap eyebrow reads Floor 1 · Moss");
+    check(eyebrowNode && eyebrowNode.textContent === "Floor 1 · Mossy Caves", "minimap eyebrow reads Floor 1 · Mossy Caves");
     check(slots[3].querySelector(".name").textContent === "Extract", "slot 4 is Extract in the dungeon");
     let dungeonFlatMiss = [];
     rt.dungeonRoot.traverse((o) => {
@@ -1610,6 +1746,11 @@ export function installSelfTest(rt) {
       foe.hp = foe.hpMax;
       foe.state = "idle";
       foe.telegraph = 0;
+      // Floors are big enough that the fixture spot can sit past the 16 m leash; home it there.
+      const homeX = foe.spawnX;
+      const homeZ = foe.spawnZ;
+      foe.spawnX = fx;
+      foe.spawnZ = fz;
       foe.x = fx;
       foe.z = fz;
       player.position.set(losPair.a.x, 0, losPair.a.z);
@@ -1621,6 +1762,8 @@ export function installSelfTest(rt) {
       rt.stepCombat(0.016);
       check(!losNow && foe.state === "idle" && rt.vitals.hp === hpBeforeLos, "a skirmisher across a wall does not aggro (" + foe.state + ")");
       rt.suspendCombat = true;
+      foe.spawnX = homeX;
+      foe.spawnZ = homeZ;
       foe.x = foe.spawnX;
       foe.z = foe.spawnZ;
       foe.state = "idle";
@@ -1753,7 +1896,9 @@ export function installSelfTest(rt) {
     check(rt.vitals.hp === 0 && rt.space === "dungeon" && rt.vitals.deathTransitions === 1, "lethal damage starts one death lock and stays in the dungeon");
     rt.hurtHero(50);
     check(rt.space === "dungeon" && rt.vitals.deathTransitions === 1, "a second hit during the lock does not arrive twice");
-    rt.stepCombat(1.2);
+    rt.stepCombat(DEATH_LOCK_S - 0.1);
+    check(rt.space === "dungeon" && rt.vitals.deathLock, "the Warden lies fallen for the length of the death lock");
+    rt.stepCombat(0.15);
     check(rt.session.run === null && rt.space === "town", "death sets run to null and returns to town");
     check(rt.session.pack.length === 0 && rt.session.purse === 0, "death empties the pack and the purse");
     check(rt.session.bank === 80 && rt.session.stash.length === 1 && rt.session.blade === keptBlade && rt.session.bestDepth === 4, "death leaves the bank, stash, blade, and bestDepth");
@@ -2136,6 +2281,41 @@ export function installSelfTest(rt) {
     check(addMaterial(mats, "heartwood", 1) === 0 && mats.heartwood === 999, "a 1000th material unit is not added");
     check(addMaterial(mats, "emberglass", 5) === 1 && mats.emberglass === 999, "materials cap at 999");
 
+    // Gear previews: the stat sums match derive(), the shop compares against
+    // what is worn, the smith shows what +1 buys, the Circle shows the next rank.
+    {
+      if (rt.derivePools) rt.derivePools();
+      const st = heroStats(rt.session);
+      check(st.hp === rt.vitals.hpMax && st.mp === rt.vitals.mpMax && st.might === rt.session.might && st.guard === rt.session.guard, "heroStats matches derive() (" + st.hp + " / " + rt.vitals.hpMax + ")");
+      const worn = rt.session.equipped.weapon;
+      const strong = { uid: "cmp-strong", kind: "gear", slot: "weapon", rarity: 1, ilvl: 3, baseId: "blade", themeId: 0, weaponBase: (worn ? worn.weaponBase : 12) + 10, affixes: [{ id: "might", t: 1 }], name: "Strong Blade" };
+      const weak = Object.assign({}, strong, { uid: "cmp-weak", weaponBase: 1, affixes: [], name: "Weak Blade" });
+      const up = compareEquip(rt.session, strong);
+      const down = compareEquip(rt.session, weak);
+      check(up.verdict === "better" && up.changes.some((c) => c.key === "damage" && c.delta > 0 && c.good), "a stronger blade compares as better with more strike damage");
+      check(down.verdict === "worse" && down.changes.every((c) => !c.good), "a weaker blade compares as worse");
+      const hollow = compareUpgrade(rt.session, { kind: "gear", slot: "head", ilvl: 1, themeId: 0, affixes: [] });
+      check(hollow.hollow === true && !hollow.changes.length, "upgrading a piece with no affixes is flagged as changing nothing");
+      const blade = compareUpgrade(rt.session, strong);
+      check(blade.changes.some((c) => c.key === "damage" && c.delta > 0), "upgrading a blade shows the strike damage it gains");
+      const edge0 = trackNext("edge", 0);
+      check(edge0.length === 1 && edge0[0][0] === "Strike damage" && edge0[0][2] === "×1.12", "the Circle shows Edge rank 1 as strike damage x1.12");
+      check(trackNext("delver", 5).length === 0, "a mastered track has nothing next");
+      const packWas = rt.session.pack;
+      rt.session.pack = [strong, weak];
+      rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
+      const panelNow = document.getElementById("panel");
+      const rows = panelNow.querySelectorAll(".pack-row");
+      const verdicts = panelNow.querySelectorAll(".verdict");
+      check(verdicts.length === 2 && verdicts[0].classList.contains("better") && verdicts[1].classList.contains("worse"), "the store marks each carried piece better or worse than worn");
+      check(panelNow.textContent.indexOf("vs " + (worn ? worn.name : "empty weapon")) >= 0 && !!panelNow.querySelector(".pack-row .up") && !!panelNow.querySelector(".pack-row .down"), "the store lists the stat changes against the worn piece");
+      const sellBtn = panelNow.querySelector('[data-act="sell"]');
+      check(!!sellBtn && sellBtn.textContent.indexOf(sellValue(strong) + " gold") >= 0, "the sell control names the gold it pays");
+      check(rows.length > 0, "store rows render");
+      rt.closePanel();
+      rt.session.pack = packWas;
+    }
+
     keys.KeyW = false;
     keys.KeyA = false;
     keys.KeyS = false;
@@ -2148,7 +2328,7 @@ export function installSelfTest(rt) {
       player.position.z = sp.z;
     }
     rt.refreshTownPrompt();
-    check(castLine.textContent === "F \u2014 Bramble & Board", "cast line is F — Bramble & Board at the store");
+    check(rt.keyPrompt.label() === "Bramble & Board" && rt.keyPrompt.sub() === "Buy and sell" && !rt.keyPrompt.node.hidden, "the F prompt shows Bramble & Board and what you do there");
     tap("KeyF");
     const panel = document.getElementById("panel");
     const vitalsBox = document.getElementById("vitals").getBoundingClientRect();
@@ -2178,9 +2358,9 @@ export function installSelfTest(rt) {
     rt.session.purse = 7;
     rt.session.bank = 0;
     rt.openPanel("store", { x: -6.5, z: 2.5, id: "store" });
-    const marked = panel.querySelector(".pack-row .name");
+    const marked = panel.querySelector(".slot.pack-row .name");
     check(!!marked && marked.textContent === "<img src=x onerror=alert(1)>" && panel.innerHTML.indexOf("<img") < 0, "item names are textContent, never parsed HTML");
-    const markedRow = panel.querySelector(".pack-row");
+    const markedRow = panel.querySelector(".slot.pack-row");
     check(!!markedRow && markedRow.style.borderTopWidth === "2px", "a pack slot keeps a 2 px rarity edge");
 
     rt.session.pack = [rareBlade];
@@ -2312,7 +2492,7 @@ export function installSelfTest(rt) {
     tap("Escape");
     check(panel.hidden, "Escape closes the store");
     rt.refreshTownPrompt();
-    castLine.click();
+    rt.keyPrompt.node.click();
     check(!panel.hidden, "a click on the prompt opens the store");
     const flameBefore = rt.flame.rotation.y;
     update(0.05);
@@ -2554,7 +2734,7 @@ export function installSelfTest(rt) {
       player.position.set(sp.x, groundY(sp.x, sp.z), sp.z);
     }
     rt.refreshTownPrompt();
-    check(castLine.textContent === "F \u2014 The Circle", "cast line is F — The Circle");
+    check(rt.keyPrompt.label() === "The Circle", "the F prompt names The Circle");
     tap("KeyF");
     check(!panel.hidden && panel.querySelector(".eyebrow") && panel.querySelector(".eyebrow").textContent === "The Circle", "F at the Circle opens the trainer");
     const trainerBox = panel.getBoundingClientRect();
@@ -2623,7 +2803,10 @@ export function installSelfTest(rt) {
     vitals.mp = 80;
     cdLeft[2] = 0;
     const mendRank0 = tryAbility(2);
-    check(mendRank0.ok && vitals.hp === 122 && vitals.mp === 66, "Mend rank 0 still heals 22 and spends 14 mana (" + vitals.hp + " hp, " + vitals.mp + " mp)");
+    rt.stepCombat(1.49);
+    const mpRank0 = vitals.mp;
+    rt.stepCombat(0.02);
+    check(mendRank0.ok && vitals.hp === 122 && Math.abs(vitals.mp - (mpRank0 - 14)) < 0.2, "Mend rank 0 still heals 22 and spends 14 mana (" + vitals.hp + " hp, " + vitals.mp + " mp)");
 
     if (rt.closePanel) rt.closePanel();
     rt.freshGame();
@@ -2848,16 +3031,143 @@ export function installSelfTest(rt) {
     rt.freshGame();
     rt.suspendCombat = false;
 
-    check(generateFloor(1, 1).themeId === 0, "floor 1 theme id is moss");
-    check(generateFloor(1, 2).themeId === 1, "floor 2 theme id is root");
-    check(generateFloor(1, 4).themeId === 3, "floor 4 theme id is ember");
-    check(generateFloor(1, 5).themeId === 0, "floor 5 theme id is moss");
+    check(generateFloor(1, 1).themeId === 0 && generateFloor(1, 10).themeId === 0, "floors 1-10 are the Mossy Caves");
+    check(generateFloor(1, 11).themeId === 1 && generateFloor(1, 20).themeId === 1, "floors 11-20 are the Sunken Temple");
+    check(generateFloor(1, 41).themeId === 4 && generateFloor(1, 50).biomeKey === "forge", "floors 41-50 are the Ember Forge");
+    check(biomeIndex(51) === 0 && generateFloor(1, 51).biomeKey === "cave", "floor 51 loops back to the caves");
     rt.suspendCombat = true;
-    rt.startRun(1, 2);
-    check(document.querySelector("#minimap .eyebrow").textContent === "Floor 2 · Root", "floor 2 eyebrow reads Floor 2 · Root");
-    rt.startRun(1, 4);
+    rt.startRun(1, 11);
+    check(document.querySelector("#minimap .eyebrow").textContent === "Floor 11 · Sunken Temple", "floor 11 eyebrow reads Floor 11 · Sunken Temple");
+    rt.startRun(1, 41);
     const emberBrow = document.querySelector("#minimap .eyebrow");
-    check(!!rt.plan && rt.plan.themeId === 3 && emberBrow && emberBrow.textContent === "Floor 4 · Ember", "floor 4 builds as ember");
+    check(!!rt.plan && rt.plan.themeId === 4 && emberBrow && emberBrow.textContent === "Floor 41 · Ember Forge", "floor 41 builds as the Ember Forge");
+    const stroller = { id: 3, archetype: "skirmisher", state: "idle", hp: 10, hpMax: 10, x: 0, z: 0, spawnX: 0, spawnZ: 0, speed: 4.6, hurt: 0.45 };
+    const farWorld = { px: 40, pz: 40, los: function () { return true; }, resolve: function (x, z) { return { x: x, z: z }; } };
+    let strolled = 0;
+    let strayed = 0;
+    const strollRandom = countRandom(function () {
+      for (let i = 0; i < 600; i++) {
+        stepFoe(stroller, 0.033, farWorld);
+        strolled = Math.max(strolled, Math.hypot(stroller.x, stroller.z));
+      }
+    });
+    strayed = Math.hypot(stroller.x, stroller.z);
+    check(strolled > 0.5 && strolled <= 2.65 && strayed <= 2.65 && stroller.state === "idle", "an idle foe strolls near its spawn and stays within 2.6 m (" + strolled.toFixed(2) + ")");
+    check(strollRandom === 0, "idle strolling does not call Math.random");
+    const wardenNear = { px: 1.5, pz: 0, los: function () { return true; }, resolve: function (x, z) { return { x: x, z: z }; } };
+    stepFoe(stroller, 0.016, wardenNear);
+    check(stroller.state !== "idle" && !stroller.wanderTo, "a strolling foe that sees the Warden drops the stroll");
+    const atlasPlan = rt.plan;
+    rt.tickHud(0.2);
+    check(!!rt.tileSeen && rt.tileSeen(atlasPlan.entrance.col, atlasPlan.entrance.row) && !rt.tileSeen(atlasPlan.stairs.col, atlasPlan.stairs.row), "the atlas has seen the arrival tile and not yet the stairs");
+    rt.toggleAtlas();
+    const atlasNode = document.getElementById("atlas");
+    check(rt.atlasOpen && atlasNode && !atlasNode.hidden && atlasNode.querySelector(".eyebrow").textContent === "Floor 41 · Ember Forge", "M opens the floor atlas with the floor title");
+    rt.toggleAtlas();
+    check(!rt.atlasOpen && atlasNode.hidden, "the atlas closes again");
+    const barFoe = rt.enemies.find((e) => e && e.hp > 0 && !e.boss);
+    const entW = tileToWorld(atlasPlan.entrance.col + 1, atlasPlan.entrance.row, atlasPlan.cols, atlasPlan.rows);
+    const barHome = { x: barFoe.x, z: barFoe.z, hp: barFoe.hp };
+    barFoe.x = entW.x;
+    barFoe.z = entW.z;
+    barFoe.hp = barFoe.hpMax;
+    rt.tickHud(0.016);
+    check(rt.foeBars.count() === 0, "a foe at full health shows no health bar");
+    barFoe.hp = Math.round(barFoe.hpMax * 0.5);
+    rt.tickHud(0.016);
+    const barNode = document.querySelector("#foebars .foebar");
+    check(rt.foeBars.visibleCount() === 1 && !!barNode && parseFloat(barNode.querySelector(".foebar-fill").style.width) === 50, "a wounded foe in sight shows a bar at its health (" + (barNode ? barNode.querySelector(".foebar-fill").style.width : "none") + ")");
+    barFoe.hp = 0;
+    rt.tickHud(0.016);
+    check(rt.foeBars.count() === 0, "the bar goes when the foe dies");
+    barFoe.hp = barHome.hp;
+    rt.groundDrops.length = 0;
+    const burstRun = rt.session.run;
+    const burstX = barFoe.x;
+    const burstZ = barFoe.z;
+    burstRun.picked = [];
+    rt.spawnKillLoot(barFoe, burstRun, true);
+    const burstDrops = rt.groundDrops.slice();
+    check(burstDrops.length > 0 && burstDrops.every((d) => !!d.fly), "kill loot leaves the body airborne (" + burstDrops.length + ")");
+    player.position.set(burstDrops[0].x, 0, burstDrops[0].z);
+    const burstPurse = rt.session.purse;
+    const burstPack = rt.session.pack.length;
+    rt.tickHud(0.016);
+    check(rt.groundDrops.length === burstDrops.length && rt.session.purse === burstPurse && rt.session.pack.length === burstPack, "airborne loot cannot be picked up");
+    player.position.set(burstX + 30, 0, burstZ + 30);
+    for (let i = 0; i < 30; i++) rt.stepCombat(0.033);
+    let burstOk = true;
+    for (let i = 0; i < burstDrops.length; i++) {
+      const d = burstDrops[i];
+      const c = Math.round(d.x / 4 + (atlasPlan.cols - 1) / 2);
+      const r = Math.round(d.z / 4 + (atlasPlan.rows - 1) / 2);
+      const spread = Math.hypot(d.x - burstX, d.z - burstZ);
+      if (d.fly || atlasPlan.tiles[r * atlasPlan.cols + c] !== 1 || spread > 1.75 || Math.abs(d.mesh.position.x - d.x) > 1e-6 || Math.abs(d.mesh.position.y - d.restY) > 1e-6) burstOk = false;
+    }
+    check(burstOk, "burst loot lands on floor within 1.75 m of the fallen foe and settles");
+    for (let i = 0; i < burstDrops.length; i++) rt.releaseDropMesh(burstDrops[i]);
+    rt.groundDrops.length = 0;
+    barFoe.x = barHome.x;
+    barFoe.z = barHome.z;
+    rt.heroHurtFx(40);
+    check(rt.hurtFlash() > 0.4 && rt.camShake > 0, "a hit flashes the screen edge red and shakes the camera");
+    rt.tickHud(2);
+    check(rt.hurtFlash() === 0, "the hurt flash fades out");
+    rt.camShake = 0;
+    rt.cdLeft[0] = 0;
+    for (let i = 0; i < rt.enemies.length; i++) rt.enemies[i].stagger = 99;
+    const swingStart = rt.beginStrike();
+    rt.stepCombat(0.17);
+    rt.poseHero(0);
+    const swingCocked = rt.rightArm.rotation.x;
+    const swingTwist = rt.body.rotation.y;
+    rt.stepCombat(0.05);
+    rt.stepCombat(0.05);
+    rt.poseHero(0);
+    const swingDone = rt.rightArm.rotation.x;
+    const swingLunge = rt.body.position.z;
+    const swingArc = rt.strikeCrescent.userData.material.opacity;
+    check(swingStart.ok && swingCocked < -1.5 && swingTwist < -0.3 && swingDone > 0.6 && swingLunge < -0.15 && swingArc > 0.2, "the strike cocks the blade back, then whips it across with a lunge (" + swingCocked.toFixed(2) + " → " + swingDone.toFixed(2) + ")");
+    for (let i = 0; i < 20; i++) rt.stepCombat(0.033);
+    rt.poseHero(0);
+    check(!rt.strikeInfo() && Math.abs(rt.body.rotation.y) < 1e-9 && Math.abs(rt.body.position.z) < 1e-9, "after the strike the body settles back to the walk pose");
+    for (let i = 0; i < rt.enemies.length; i++) rt.enemies[i].stagger = 0;
+    const hearthBegin = rt.beginExtract();
+    rt.stepCombat(0.5);
+    for (let i = 0; i < 20; i++) rt.poseHero(0.033);
+    rt.tickHud(0.016);
+    const hearthBar = document.getElementById("castbar");
+    check(hearthBegin.ok && rt.hearthChannel.visible && rt.rightArm.rotation.x > 2 && rt.leftArm.rotation.x > 2, "holding the hearth raises both arms inside the rune ring");
+    check(rt.castBar.shown() && /^Hearth/.test(rt.castBar.text()) && parseFloat(hearthBar.querySelector(".cast-track span").style.width) > 10, "the hearth shows a filling cast bar (" + rt.castBar.text() + ")");
+    rt.noteExtractMove(2);
+    rt.tickHud(0.016);
+    check(!rt.extractInfo() && rt.castBar.shown() && /^Interrupted/.test(rt.castBar.text()), "moving breaks the hearth and the bar says Interrupted");
+    rt.tickHud(1.2);
+    for (let i = 0; i < 30; i++) rt.poseHero(0.033);
+    check(!rt.castBar.shown() && !rt.hearthChannel.visible, "the bar and the rune ring clear away");
+    let chestSeed = 0;
+    for (let seed = 1; seed < 60 && !chestSeed; seed++) if (generateFloor(seed, 3).chests.length) chestSeed = seed;
+    check(chestSeed > 0, "some floors hold a treasure chest");
+    rt.startRun(chestSeed, 3);
+    const chest = rt.dungeonRoot.userData.chests[0];
+    const chestPlan = rt.plan.chests[0];
+    const chestTile = tileToWorld(chestPlan.col, chestPlan.row, rt.plan.cols, rt.plan.rows);
+    check(!!chest && !chest.opened && chest.gem.visible && Math.hypot(chestPlan.ox, chestPlan.oz) - (chestPlan.r || 0.55) >= 0.9, "a shut chest sits in a tile corner with its gem lit");
+    player.position.set(chestTile.x, 0, chestTile.z);
+    check(rt.chestNear() === chest, "standing by the chest offers it to F");
+    rt.groundDrops.length = 0;
+    check(rt.tryOpenChest() && chest.opened && rt.session.run.killed.indexOf(5000 + chest.id) >= 0, "F opens the chest and the run remembers it");
+    const chestDrops = rt.groundDrops.slice();
+    check(chestDrops.some((d) => d.kind === "gear") && chestDrops.some((d) => d.kind === "gold") && chestDrops.every((d) => !!d.fly), "the chest bursts out gear and gold (" + chestDrops.length + " drops)");
+    player.position.set(chestTile.x + 30, 0, chestTile.z + 30);
+    for (let i = 0; i < 30; i++) rt.stepCombat(0.033);
+    check(chest.lid.rotation.x > 1.8 && !chest.gem.visible && chestDrops.every((d) => !d.fly), "the lid swings open and the loot settles");
+    check(!rt.tryOpenChest(), "an open chest cannot be opened again");
+    const chestDoc = JSON.parse(JSON.stringify(rt.captureSaveDoc()));
+    rt.applySaveDoc(chestDoc);
+    const reChest = rt.dungeonRoot.userData.chests[0];
+    check(reChest.opened && rt.groundDrops.length === chestDrops.length && rt.groundDrops.every((d) => !d.fly), "a resumed floor shows the chest open with its loot already on the ground");
+    rt.startRun(1, 41);
     let brazierLights = 0;
     let brazierShadow = false;
     if (rt.dungeonRoot) {

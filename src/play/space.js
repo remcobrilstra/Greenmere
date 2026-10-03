@@ -6,6 +6,7 @@ import { applyTownLight, applyDungeonLight, dungeonTheme } from "../view/lights.
 import { buildFloorMesh, buildColliderOverlay } from "../view/dungeon.js";
 import { tileToWorld } from "../sim/floorgen.js";
 import { TOWN_ARRIVAL } from "../sim/townplan.js";
+import { biomeEntry, biomeFor } from "../sim/biomes.js";
 
 function rollSeed() {
   const salt = Math.random();
@@ -161,6 +162,9 @@ export function attachSpace(rt) {
     if (rt.setStationPrompt) rt.setStationPrompt("");
     syncColliderOverlay();
     if (genMs + meshMs > 20 && rt.say) rt.say("The stair opens…");
+    rt.bossName = run.floorIndex % 5 === 0 ? biomeFor(run.floorIndex).boss : "";
+    if (reason === "stairs" && biomeEntry(run.floorIndex) && rt.say) rt.say("The stair winds down into the " + theme.name + ".");
+    else if (reason !== "resume" && rt.bossName && rt.say) rt.say("The " + rt.bossName + " holds the stair. Follow the red light.");
     if (rt.questEvent && reason !== "resume") rt.questEvent({ type: "floor", floor: run.floorIndex });
     if (reason === "dev" && rt.say) rt.say("This delve is not written into the town ledger.");
     return { genMs, meshMs, plan };
@@ -397,12 +401,18 @@ export function attachSpace(rt) {
     return true;
   }
 
-  function tryStairs() {
-    if (rt.space !== "dungeon" || !session.run || !rt.plan) return false;
+  // Whether the hero stands in the stair well, and whether a boss bars it.
+  function stairsState() {
+    if (rt.space !== "dungeon" || !session.run || !rt.plan) return null;
     const plan = rt.plan;
     const w = tileToWorld(plan.stairs.col, plan.stairs.row, plan.cols, plan.rows);
     const d = Math.hypot(rt.player.position.x - w.x, rt.player.position.z - w.z);
-    if (d > 2) return false;
+    return { near: d <= 2, blocked: bossBlocksStairs(), next: session.run.floorIndex + 1 };
+  }
+
+  function tryStairs() {
+    const st = stairsState();
+    if (!st || !st.near) return false;
     return descendFloor();
   }
 
@@ -476,6 +486,7 @@ export function attachSpace(rt) {
   rt.startDevFloor = startDevFloor;
   rt.descendFloor = descendFloor;
   rt.tryStairs = tryStairs;
+  rt.stairsState = stairsState;
   rt.arriveTown = arriveTown;
   rt.freshGame = freshGame;
   rt.buildAndShow = buildAndShow;

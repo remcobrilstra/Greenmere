@@ -11,6 +11,8 @@ import {
   wardAbsorb,
   wardDuration,
   extractSeconds,
+  mendCastSeconds,
+  MEND_PUSHBACK,
   xpGrant,
   grantXp,
   foeProfile,
@@ -20,7 +22,7 @@ import {
   livingCount,
   PLAYER_HURT
 } from "../sim/balance.js";
-import { tileToWorld } from "../sim/floorgen.js";
+import { tileToWorld, CHEST_BASE } from "../sim/floorgen.js";
 import { gearTotals, lootRng, rollGearDrop, killExtras, extrasRng } from "../sim/items.js";
 import { buildStrikeCrescent, buildGlint, buildLootMesh } from "../view/dungeon.js";
 
@@ -44,9 +46,13 @@ export function attachCombat(rt) {
   }
   const strike = { windup: 0, recovery: 0, locked: null };
   const extract = { t: 0, hold: false, moved: 0, key: false };
+  // Mend channel: started by hud.tryAbility with the apply step as `done`.
+  const mend = { t: 0, total: 0, key: false, moved: 0, done: null };
+  const CHEST_REACH = 2.1;
   const _fwd = new THREE.Vector3();
   const _proj = new THREE.Vector3();
   let crescentT = 0;
+  const CRESCENT_LIFE = 0.16;
 
   const crescent = buildStrikeCrescent();
   rt.player.add(crescent);
@@ -95,6 +101,55 @@ export function attachCombat(rt) {
     rt.extractKey = false;
   }
 
+  function cancelMend() {
+    mend.t = 0;
+    mend.total = 0;
+    mend.key = false;
+    mend.moved = 0;
+    mend.done = null;
+  }
+
+  // Hold 3 to mend. Moving 0.6 m, letting go, a strike, or the hearth breaks it;
+  // a broken mend spends nothing. A hit pushes the cast back (MEND_PUSHBACK) rather
+  // than breaking it. On completion `done` applies cost and heal.
+  function beginMend(done) {
+    const s = session();
+    if (!s || rt.vitals.deathLock) return { ok: false, reason: "cooldown" };
+    if (mend.t > 0) return { ok: false, reason: "channel" };
+    if (extract.t > 0) cancelExtract();
+    mend.t = 0.0001;
+    mend.total = mendCastSeconds(s.tracks ? s.tracks.mend : 0);
+    mend.key = !!rt.mendKey;
+    mend.moved = 0;
+    mend.done = done || null;
+    return { ok: true, reason: "channel" };
+  }
+
+  function pushBackMend() {
+    if (!(mend.t > 0)) return;
+    mend.t = Math.max(0.0001, mend.t - MEND_PUSHBACK);
+    rt.mendPushT = 0.35;
+  }
+
+  function releaseMend() {
+    if (!mend.key) return;
+    if (mend.t > 0 && mend.t < mend.total) cancelMend();
+  }
+
+  function tickMend(dt) {
+    if (!(mend.t > 0)) return;
+    if (rt.vitals.deathLock) {
+      cancelMend();
+      return;
+    }
+    mend.t += dt;
+    if (mend.t < mend.total) return;
+    const done = mend.done;
+    cancelMend();
+    const res = done ? done() : { ok: true };
+    if (res && res.ok !== false) rt.mendBurstT = 0.55;
+  }
+
   function cancelStrike() {
     strike.windup = 0;
     strike.recovery = 0;
@@ -106,6 +161,7 @@ export function attachCombat(rt) {
 
   function clearCombatMotion() {
     cancelExtract();
+    cancelMend();
     cancelStrike();
     const s = session();
     if (!s) return;
@@ -331,6 +387,7 @@ export function attachCombat(rt) {
       living.push(e);
     }
     rt.enemies = actors;
+    restoreChests(run);
     return living;
   }
 
@@ -414,7 +471,7 @@ export function attachCombat(rt) {
           }
           noteRunDirty();
         }
-        if (t.spawnX != null || t.spawnZ != null) spawnKillLoot(t, s.run);
+        if (t.spawnX != null || t.spawnZ != null) spawnKillLoot(t, s.run, true);
         grantKill(t);
       } else if (s.run && s.run.enemyHp && t.id != null) {
         s.run.enemyHp[t.id] = t.hp;
@@ -460,6 +517,7 @@ export function attachCombat(rt) {
       if (rt.say) rt.say("Strike is not ready.");
       return { ok: false, reason: "cooldown" };
     }
+    cancelMend();
     const fwd = heroForward();
     strike.locked = { x: fwd.x, z: fwd.z };
     strike.windup = 0.18;
@@ -472,6 +530,7 @@ export function attachCombat(rt) {
   function beginExtract() {
     if (rt.space !== "dungeon" || !session() || !session().run) return { ok: false, reason: "missing" };
     if (rt.vitals.deathLock) return { ok: false, reason: "cooldown" };
+    cancelMend();
     extract.hold = true;
     extract.key = !!rt.extractKey;
     if (extract.t <= 0) {
@@ -490,6 +549,10 @@ export function attachCombat(rt) {
   }
 
   function noteExtractMove(dist) {
+    if (mend.t > 0 && dist > 0) {
+      mend.moved += dist;
+      if (mend.moved >= 0.6) cancelMend();
+    }
     if (extract.t <= 0 || !(dist > 0)) return;
     extract.moved += dist;
     if (extract.moved >= 1) cancelExtract();
@@ -506,9 +569,11 @@ export function attachCombat(rt) {
   function hurtHero(hpLoss) {
     const loss = guardFirstHit(hpLoss);
     cancelExtract();
+    if (loss > 0) pushBackMend();
     const s = session();
     if (s) s.outOfCombat = 0;
     applyDamage(rt.vitals, loss);
+    if (loss > 0 && rt.heroHurtFx) rt.heroHurtFx(loss);
     if (rt.syncVitals) rt.syncVitals();
     noteRunDirty();
   }
@@ -524,9 +589,11 @@ export function attachCombat(rt) {
     s.wardAbsorb = dealt.wardLeft;
     const loss = guardFirstHit(dealt.hpLoss);
     cancelExtract();
+    if (loss > 0) pushBackMend();
     s.outOfCombat = 0;
     applyDamage(rt.vitals, loss);
     noteRunDirty();
+    if (loss > 0 && rt.heroHurtFx) rt.heroHurtFx(loss);
     if (rt.pushFloater) {
       rt.pushFloater(String(loss), rt.player.position.x, 1.6, rt.player.position.z, "#b64034");
     }
@@ -795,14 +862,12 @@ export function attachCombat(rt) {
     }
     if (strike.windup > 0) {
       strike.windup -= dt;
-      const u = 1 - Math.max(0, strike.windup) / 0.18;
-      rt.rightArm.rotation.x = -1.15 * u;
       if (strike.windup <= 0) {
         strike.windup = 0;
         rt.strikeWindup = false;
         strike.recovery = 0.28;
         crescent.visible = true;
-        crescentT = 0.12;
+        crescentT = CRESCENT_LIFE;
         if (strike.locked && rt.space === "dungeon") {
           resolveStrikeAt(
             { x: rt.player.position.x, z: rt.player.position.z },
@@ -831,6 +896,9 @@ export function attachCombat(rt) {
         }
       }
     }
+    tickMend(dt);
+    stepDropFlights(dt);
+    stepChests(dt);
     regen(dt);
     tickMendHot(dt);
     if (rt.space !== "dungeon" || rt.suspendCombat || rt.vitals.deathLock) {
@@ -874,31 +942,103 @@ export function attachCombat(rt) {
     drop.mesh = null;
   }
 
-  function placeGearDrop(item, x, z) {
+  // ---- Loot burst ----
+  // A kill throws its drops out of the body: each flies a short arc to its own spot
+  // 1-1.7 m away, bounces once, and settles. The spot comes from the drop id, so the
+  // same kill always scatters the same way. Airborne drops cannot be picked up.
+  const BURST_TIME = 0.62;
+  function idHash(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+    return (h >>> 0) / 4294967296;
+  }
+  function spotClear(x, z) {
+    if (rt.space !== "dungeon" || !rt.plan) return true;
+    const m = 0.3;
+    if (cellBlocked(x - m, z - m) || cellBlocked(x + m, z - m) || cellBlocked(x - m, z + m) || cellBlocked(x + m, z + m)) return false;
+    const props = (rt.dungeonRoot && rt.dungeonRoot.userData.propColliders) || [];
+    for (let i = 0; i < props.length; i++) {
+      const p = props[i];
+      if (Math.hypot(p.x - x, p.z - z) < p.r + 0.25) return false;
+    }
+    return true;
+  }
+  // Ordinal 0 is gear, 1 gold, 2 material: three directions about 120 degrees apart.
+  function landingSpot(ox, oz, uid, ordinal) {
+    const kill = uid.slice(0, uid.lastIndexOf("-"));
+    const a = idHash(kill) * Math.PI * 2 + ordinal * 2.1 + (idHash(uid) - 0.5) * 0.6;
+    const r = 1.0 + idHash(uid + "r") * 0.7;
+    for (let k = 0; k < 6; k++) {
+      const ang = a + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.9;
+      const rr = k < 3 ? r : r * 0.6;
+      const x = ox + Math.cos(ang) * rr;
+      const z = oz + Math.sin(ang) * rr;
+      if (spotClear(x, z)) return { x, z };
+    }
+    return { x: ox, z: oz };
+  }
+  function launch(drop, ox, oz, restY) {
+    drop.restY = restY;
+    if (ox == null) {
+      drop.mesh.position.set(drop.x, restY, drop.z);
+      return;
+    }
+    drop.fly = { t: 0, x0: ox, z0: oz, spin: (idHash(String(drop.uid)) - 0.5) * 14 };
+    drop.mesh.position.set(ox, 0.9, oz);
+  }
+  function stepDropFlights(dt) {
+    const drops = rt.groundDrops;
+    if (!drops) return;
+    for (let i = 0; i < drops.length; i++) {
+      const d = drops[i];
+      if (!d || !d.fly || !d.mesh) continue;
+      const f = d.fly;
+      f.t += dt;
+      const u = Math.min(1, f.t / BURST_TIME);
+      // Main arc covers 85% of the way; a small hop covers the rest.
+      let reach;
+      let lift;
+      if (u < 0.78) {
+        const v = u / 0.78;
+        reach = v * 0.85;
+        lift = 0.9 * (1 - v) + 1.25 * 4 * v * (1 - v);
+      } else {
+        const v = (u - 0.78) / 0.22;
+        reach = 0.85 + v * 0.15;
+        lift = 0.28 * 4 * v * (1 - v);
+      }
+      d.mesh.position.set(f.x0 + (d.x - f.x0) * reach, d.restY + lift, f.z0 + (d.z - f.z0) * reach);
+      d.mesh.rotation.y += f.spin * dt * (1 - u);
+      if (u >= 1) {
+        d.mesh.position.set(d.x, d.restY, d.z);
+        d.fly = null;
+      }
+    }
+  }
+
+  function placeGearDrop(item, x, z, fromX, fromZ) {
     if (!item) return null;
     const drop = { kind: "gear", uid: item.uid, item, x, z };
-    const mesh = buildGlint();
-    mesh.position.set(x, 0.46, z);
-    drop.mesh = mesh;
+    drop.mesh = buildGlint();
+    launch(drop, fromX, fromZ, 0.46);
     const parent = rt.dungeonRoot || rt.scene;
-    if (parent) parent.add(mesh);
+    if (parent) parent.add(drop.mesh);
     if (!rt.groundDrops) rt.groundDrops = [];
     rt.groundDrops.push(drop);
     return drop;
   }
 
   // Gold and theme materials per kill (uids "-1" and "-2"; gear stays "-0").
-  function placeLootDrop(drop) {
-    const mesh = buildLootMesh(drop.kind, drop.material);
-    mesh.position.set(drop.x, drop.kind === "gold" ? 0.08 : 0.16, drop.z);
-    drop.mesh = mesh;
+  function placeLootDrop(drop, fromX, fromZ) {
+    drop.mesh = buildLootMesh(drop.kind, drop.material);
+    launch(drop, fromX, fromZ, drop.kind === "gold" ? 0.08 : 0.16);
     const parent = rt.dungeonRoot || rt.scene;
-    parent.add(mesh);
+    parent.add(drop.mesh);
     if (!rt.groundDrops) rt.groundDrops = [];
     rt.groundDrops.push(drop);
     return drop;
   }
-  function spawnKillExtras(enemy, run, kind) {
+  function spawnKillExtras(enemy, run, kind, burst) {
     const picked = run.picked || [];
     const drops = rt.groundDrops || [];
     const base = "drop-" + run.floorIndex + "-" + enemy.id + "-";
@@ -908,18 +1048,133 @@ export function attachCombat(rt) {
       kind,
       delver: s && s.tracks ? s.tracks.delver : 0
     });
-    const x = enemy.spawnX != null ? enemy.spawnX : enemy.x;
-    const z = enemy.spawnZ != null ? enemy.spawnZ : enemy.z;
+    const x = enemy.x;
+    const z = enemy.z;
+    const fromX = burst ? x : null;
     const exists = (uid) => picked.indexOf(uid) >= 0 || drops.some((d) => d && d.uid === uid);
     if (extra.gold > 0 && !exists(base + "1")) {
-      placeLootDrop({ kind: "gold", uid: base + "1", amount: extra.gold, x: x + 0.35, z: z + 0.2 });
+      const at = landingSpot(x, z, base + "1", 1);
+      placeLootDrop({ kind: "gold", uid: base + "1", amount: extra.gold, x: at.x, z: at.z }, fromX, z);
     }
     if (extra.material && !exists(base + "2")) {
-      placeLootDrop({ kind: "material", uid: base + "2", material: extra.material.key, amount: extra.material.count, x: x - 0.35, z: z + 0.15 });
+      const at = landingSpot(x, z, base + "2", 2);
+      placeLootDrop({ kind: "material", uid: base + "2", material: extra.material.key, amount: extra.material.count, x: at.x, z: at.z }, fromX, z);
     }
   }
 
-  function spawnKillLoot(enemy, run) {
+  // ---- Treasure chests ----
+  // F next to a shut chest throws the lid open and bursts its loot: one forced gear
+  // roll at elite quality, plus elite gold and the 40% material. The open chest is
+  // recorded in run.killed as CHEST_BASE + id, so a resumed floor shows it open and
+  // lays out whatever was not picked up.
+  function floorChests() {
+    return (rt.dungeonRoot && rt.dungeonRoot.userData.chests) || [];
+  }
+  function chestNear() {
+    if (rt.space !== "dungeon") return null;
+    const p = rt.player.position;
+    let best = null;
+    let bestD = CHEST_REACH;
+    for (const c of floorChests()) {
+      if (c.opened) continue;
+      const d = Math.hypot(p.x - c.x, p.z - c.z);
+      if (d <= bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+  function chestLoot(c, run, burst) {
+    const sid = CHEST_BASE + c.id;
+    const picked = run.picked || [];
+    const drops = rt.groundDrops || [];
+    const exists = (uid) => picked.indexOf(uid) >= 0 || drops.some((d) => d && d.uid === uid);
+    const base = "drop-" + run.floorIndex + "-" + sid + "-";
+    // Loot leaves through the open front (local −z), so aim the burst a step out.
+    const yaw = c.group ? c.group.rotation.y : 0;
+    const ox = c.x - Math.sin(yaw) * 0.9;
+    const oz = c.z - Math.cos(yaw) * 0.9;
+    const s = session();
+    const extra = killExtras(extrasRng(run.runSeed, run.floorIndex, sid), {
+      floorIndex: run.floorIndex,
+      kind: "elite",
+      delver: s && s.tracks ? s.tracks.delver : 0
+    });
+    if (extra.gold > 0 && !exists(base + "1")) {
+      const at = landingSpot(ox, oz, base + "1", 1);
+      placeLootDrop({ kind: "gold", uid: base + "1", amount: extra.gold, x: at.x, z: at.z }, burst ? c.x : null, c.z);
+    }
+    if (extra.material && !exists(base + "2")) {
+      const at = landingSpot(ox, oz, base + "2", 2);
+      placeLootDrop({ kind: "material", uid: base + "2", material: extra.material.key, amount: extra.material.count, x: at.x, z: at.z }, burst ? c.x : null, c.z);
+    }
+    if (!exists(base + "0")) {
+      const item = rollGearDrop(lootRng(run.runSeed, run.floorIndex, sid), {
+        floorIndex: run.floorIndex,
+        spawnId: sid,
+        kind: "elite",
+        ordinal: 0,
+        force: true
+      });
+      if (item) {
+        const at = landingSpot(ox, oz, base + "0", 0);
+        if (burst) placeGearDrop(item, at.x, at.z, c.x, c.z);
+        else placeGearDrop(item, at.x, at.z);
+      }
+    }
+  }
+  function openChest(c) {
+    const s = session();
+    const run = s && s.run;
+    if (!c || c.opened || !run) return false;
+    c.opened = true;
+    c.openT = 0;
+    if (!Array.isArray(run.killed)) run.killed = [];
+    if (run.killed.indexOf(CHEST_BASE + c.id) < 0) run.killed.push(CHEST_BASE + c.id);
+    noteRunDirty();
+    chestLoot(c, run, true);
+    if (rt.say) rt.say("The chest gives up its hoard.");
+    if (rt.questEvent) rt.questEvent({ type: "chest", floor: run.floorIndex });
+    return true;
+  }
+  function tryOpenChest() {
+    return openChest(chestNear());
+  }
+  function restoreChests(run) {
+    const killed = (run && run.killed) || [];
+    for (const c of floorChests()) {
+      if (killed.indexOf(CHEST_BASE + c.id) < 0) continue;
+      c.opened = true;
+      c.openT = 1;
+      chestLoot(c, run, false);
+    }
+  }
+  // Lid swings open with a small overshoot; the gem fades, the hoard glows.
+  function stepChests(dt) {
+    const list = floorChests();
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c.opened) {
+        if (c.gem) {
+          c.gem.rotation.y += dt * 2;
+          c.gem.position.y = 1.25 + Math.sin(performance.now() / 400 + i) * 0.06;
+        }
+        continue;
+      }
+      if (c.openT == null) c.openT = 0;
+      c.openT = Math.min(1, c.openT + dt / 0.45);
+      const u = c.openT;
+      const swing = u < 1 ? 1.95 * (1 - Math.pow(1 - u, 3)) + Math.sin(u * Math.PI) * 0.25 : 1.95;
+      if (c.lid) c.lid.rotation.x = swing;
+      if (c.gem) c.gem.visible = false;
+      if (c.hoard) c.hoard.visible = true;
+    }
+  }
+
+  // Live kills burst from where the foe fell; a resumed floor lays the same drops
+  // out around the spawn point (where resume stands the dead), already settled.
+  function spawnKillLoot(enemy, run, burst) {
     if (!enemy || enemy.id == null || !run) return null;
     const uid = "drop-" + run.floorIndex + "-" + enemy.id + "-0";
     const picked = run.picked || [];
@@ -929,7 +1184,7 @@ export function attachCombat(rt) {
       if (drops[i] && drops[i].uid === uid) return drops[i];
     }
     const kind = enemy.boss ? "boss" : enemy.eliteAffix ? "elite" : "normal";
-    spawnKillExtras(enemy, run, kind);
+    spawnKillExtras(enemy, run, kind, burst);
     const item = rollGearDrop(lootRng(run.runSeed, run.floorIndex, enemy.id), {
       floorIndex: run.floorIndex,
       spawnId: enemy.id,
@@ -937,15 +1192,36 @@ export function attachCombat(rt) {
       ordinal: 0
     });
     if (!item) return null;
-    const x = enemy.spawnX != null ? enemy.spawnX : enemy.x;
-    const z = enemy.spawnZ != null ? enemy.spawnZ : enemy.z;
-    return placeGearDrop(item, x, z);
+    const at = landingSpot(enemy.x, enemy.z, uid, 0);
+    return burst ? placeGearDrop(item, at.x, at.z, enemy.x, enemy.z) : placeGearDrop(item, at.x, at.z);
   }
 
   rt.derivePools = derive;
   rt.fillPools = fillPools;
   rt.placeGearDrop = placeGearDrop;
   rt.releaseDropMesh = releaseDropMesh;
+  rt.beginMend = beginMend;
+  rt.releaseMend = releaseMend;
+  rt.cancelMend = cancelMend;
+  rt.chestNear = chestNear;
+  rt.tryOpenChest = tryOpenChest;
+  // The cast in progress, for the cast bar and the pose layer.
+  rt.castInfo = function () {
+    if (mend.t > 0) return { kind: "mend", name: "Mend", t: mend.t, total: mend.total };
+    if (extract.t > 0 && rt.space === "dungeon") return { kind: "hearth", name: "Hearth", t: extract.t, total: extractSeconds(delverRank(session())) };
+    return null;
+  };
+  // Read by play/heroanim.js (pose, arc fade) and ui/castbar.js (Extract bar).
+  // s runs 0 → 0.46 through windup (0.18) and recovery (0.28).
+  rt.strikeInfo = function () {
+    if (strike.windup > 0) return { s: 0.18 - strike.windup, arc: 0 };
+    if (strike.recovery > 0) return { s: 0.18 + (0.28 - strike.recovery), arc: crescentT / CRESCENT_LIFE };
+    return null;
+  };
+  rt.extractInfo = function () {
+    if (!(extract.t > 0) || rt.space !== "dungeon") return null;
+    return { t: extract.t, total: extractSeconds(delverRank(session())) };
+  };
   rt.spawnKillLoot = spawnKillLoot;
   rt.tickCombat = tickCombat;
   rt.stepCombat = tickCombat;

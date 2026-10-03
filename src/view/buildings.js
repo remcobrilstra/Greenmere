@@ -593,9 +593,10 @@ function buildOne(kit, b) {
         kit.box("shell", DOOR_W - 0.1, DOOR_H - 0.1, 0.08, TIMBER_M, a, (DOOR_H - 0.1) / 2, 0.04);
         kit.box("shell", 0.08, 0.08, 0.06, GOLD, a + 0.5, 1.1, 0.1);
       }
-      kit.box("shell", 0.2, DOOR_H + 0.1, 0.24, TIMBER_D, a - DOOR_W / 2 - 0.1, (DOOR_H + 0.1) / 2, 0.04);
-      kit.box("shell", 0.2, DOOR_H + 0.1, 0.24, TIMBER_D, a + DOOR_W / 2 + 0.1, (DOOR_H + 0.1) / 2, 0.04);
-      kit.box("shell", DOOR_W + 0.6, 0.22, 0.26, TIMBER_D, a, DOOR_H + 0.11, 0.05);
+      // Frame lips 2 cm over the plaster jambs and lintel so the faces never share a plane.
+      kit.box("shell", 0.22, DOOR_H + 0.1, 0.24, TIMBER_D, a - DOOR_W / 2 - 0.09, (DOOR_H + 0.1) / 2, 0.04);
+      kit.box("shell", 0.22, DOOR_H + 0.1, 0.24, TIMBER_D, a + DOOR_W / 2 + 0.09, (DOOR_H + 0.1) / 2, 0.04);
+      kit.box("shell", DOOR_W + 0.6, 0.24, 0.26, TIMBER_D, a, DOOR_H + 0.1, 0.05);
       kit.box("shell", DOOR_W + 0.5, 0.12, 0.75, STONE, a, -F + 0.06, 0.38);
       kit.box("shell", DOOR_W - 0.2, 0.05, 0.05, GOLD, a, DOOR_H + 0.25, 0.19);
     }
@@ -679,19 +680,20 @@ function buildOne(kit, b) {
     if (b.stairs) buildUpperRoom(kit, b, base, uw, ud, top, U);
     else kit.box("upper", uw, U, ud, PLASTER, 0, top + U / 2, 0);
     // Sill and plate beams wrap the outside of the storey (a ring, not a slab).
-    for (const [y, h] of [[top + 0.11, 0.22], [top + U - 0.09, 0.18]]) {
+    // They stand 2 cm proud of the plaster's top and bottom (posts 1 cm) to avoid z-fighting.
+    for (const [y, h] of [[top + 0.1, 0.24], [top + U - 0.08, 0.2]]) {
       kit.box("upper", uw + 0.1, h, 0.16, TIMBER_D, 0, y, ud / 2 + 0.03);
       kit.box("upper", uw + 0.1, h, 0.16, TIMBER_D, 0, y, -ud / 2 - 0.03);
       kit.box("upper", 0.16, h, ud + 0.1, TIMBER_D, uw / 2 + 0.03, y, 0);
       kit.box("upper", 0.16, h, ud + 0.1, TIMBER_D, -uw / 2 - 0.03, y, 0);
     }
     for (let x = -uw / 2 + 0.1; x <= uw / 2; x += uw / Math.max(2, Math.round(uw / 2.2))) {
-      kit.box("upper", 0.2, U, 0.2, TIMBER_D, x, top + U / 2, ud / 2 + 0.02);
-      kit.box("upper", 0.2, U, 0.2, TIMBER_D, x, top + U / 2, -ud / 2 - 0.02);
+      kit.box("upper", 0.2, U + 0.02, 0.2, TIMBER_D, x, top + U / 2, ud / 2 + 0.02);
+      kit.box("upper", 0.2, U + 0.02, 0.2, TIMBER_D, x, top + U / 2, -ud / 2 - 0.02);
     }
     for (let z = -ud / 2 + 0.1; z <= ud / 2; z += ud / Math.max(2, Math.round(ud / 2.2))) {
-      kit.box("upper", 0.2, U, 0.2, TIMBER_D, -uw / 2 - 0.02, top + U / 2, z);
-      kit.box("upper", 0.2, U, 0.2, TIMBER_D, uw / 2 + 0.02, top + U / 2, z);
+      kit.box("upper", 0.2, U + 0.02, 0.2, TIMBER_D, -uw / 2 - 0.02, top + U / 2, z);
+      kit.box("upper", 0.2, U + 0.02, 0.2, TIMBER_D, uw / 2 + 0.02, top + U / 2, z);
     }
     for (const sgn of [-1, 1]) {
       for (const a of [-b.w / 4, b.w / 4]) {

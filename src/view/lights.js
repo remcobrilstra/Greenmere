@@ -1,61 +1,129 @@
 import * as THREE from "three";
 
-// Fog, ground, and face hexes are the DUN-10 rows. Instance meshes tint these;
-// they do not replace them.
+// One palette per biome (src/sim/biomes.js, same id). Instance meshes tint these;
+// they do not replace them. Fog stays mid-tone so the Outer Wood palette still reads.
 export const DUNGEON_THEMES = [
   {
     id: 0,
-    name: "Moss",
-    fog: 0xc5d4a4,
-    density: 0.04,
-    ground: 0x3d5a30,
-    floor: [0x3c6e2e, 0x4f8c38, 0x2c6b2a],
-    wall: [0x4c545e, 0x5e6771, 0x3e4650],
-    rock: [0x4c545e, 0x5e6771, 0x3e4650],
+    name: "Mossy Caves",
+    foe: { body: [0x4c545e, 0x5e6771, 0x3e4650], skin: [0x3c6e2e, 0x4f8c38, 0x2c6b2a], muzzle: [0xc8f08a, 0x8fb84a], sac: [0x7fe0c8, 0x9ff0d8, 0x5ab8a0], crest: "tuft", crestHex: [0x2c6b2a, 0x4f8c38] },
+    fog: 0x9fb393,
+    density: 0.034,
+    sky: 0xcfe3c8,
+    ground: 0x2f4a2a,
+    hemi: 0.7,
+    sun: 0xfff0c8,
+    sunI: 1.9,
+    floor: [0x4a5a3a, 0x55663f, 0x3f5034],
+    floorAlt: [0x3c6e2e, 0x4f8c38, 0x2c6b2a],
+    grout: 0x2e3a26,
+    wall: [0x5e6771, 0x4c545e, 0x6e7882],
+    wallTop: [0x3c6e2e, 0x4f8c38, 0x2c6b2a],
+    trim: [0x4c545e, 0x3e4650],
+    rock: [0x6e7882, 0x5e6771, 0x4c545e],
     root: [0x3a2416, 0x5a3a24, 0x6b4428],
-    accent: 0
+    cloth: [0x2c6b2a],
+    accent: 0x7fe0c8,
+    glow: 0xc8f08a
   },
   {
     id: 1,
-    name: "Root",
-    fog: 0xc4b89a,
-    density: 0.045,
-    ground: 0x3a2a22,
-    floor: [0x3a2416, 0x5a3a24, 0x6b4428],
-    wall: [0x2f363e, 0x3a2416],
-    rock: [0x2f363e, 0x3a2416],
-    root: [0x3a2416, 0x5a3a24, 0x6b4428],
-    accent: 0
+    name: "Sunken Temple",
+    foe: { body: [0xa88a58, 0xb89a64, 0x8f7448], skin: [0x6b4428, 0x8d5b34, 0x5a3a24], muzzle: [0xe2ba60, 0xd4a03a], sac: [0xffc860, 0xe2ba60, 0xd4a03a], crest: "horns", crestHex: [0xe2ba60, 0xd4a03a] },
+    fog: 0xd9c59a,
+    density: 0.032,
+    sky: 0xf2e6c8,
+    ground: 0x6a5434,
+    hemi: 0.72,
+    sun: 0xffe0a8,
+    sunI: 2.1,
+    floor: [0xc9a96e, 0xbf9d62, 0xd3b47c],
+    floorAlt: [0xa88a58, 0xb8955a],
+    grout: 0x7d6440,
+    wall: [0xb89a64, 0xa88a58, 0xc4a670],
+    wallTop: [0xa89060, 0x9a8456, 0xb09868, 0x8a9a4a],
+    trim: [0xe2ba60, 0xd4a03a],
+    rock: [0xb89a64, 0xa88a58, 0x8f7448],
+    root: [0x4f8c38, 0x3c6e2e, 0x6b8a3a],
+    cloth: [0x8e2e28, 0x2e5a6e],
+    accent: 0xff8a2a,
+    glow: 0xffc860
   },
   {
     id: 2,
-    name: "Slate",
-    fog: 0xb7c0b0,
-    density: 0.042,
-    ground: 0x2f363e,
-    floor: [0x2f363e, 0x4c545e, 0x6e7882],
-    wall: [0x1c2228, 0x3e4650],
-    rock: [0x2f363e, 0x4c545e, 0x6e7882],
-    root: [0x1c2228, 0x3e4650, 0x3a2416],
-    accent: 0
+    name: "Rootdeep",
+    foe: { body: [0x3a2416, 0x5a3a24, 0x6b4428], skin: [0x8e2e28, 0x6e2e28, 0xa34a3a], muzzle: [0xe0a878, 0xd4a03a], sac: [0x8fb84a, 0xc6d46a, 0x6a9a32], crest: "antlers", crestHex: [0x5a3a24, 0x6b4428] },
+    fog: 0xa8946c,
+    density: 0.036,
+    sky: 0xe0cfa8,
+    ground: 0x3a2a22,
+    hemi: 0.7,
+    sun: 0xffe2b0,
+    sunI: 1.8,
+    floor: [0x5a3a24, 0x6b4428, 0x4a3020],
+    floorAlt: [0x3c6e2e, 0x4a3020],
+    grout: 0x2a1c12,
+    wall: [0x4a3426, 0x3a2416, 0x5a4030],
+    wallTop: [0x3c6e2e, 0x5a3a24, 0x2c6b2a],
+    trim: [0x3a2416, 0x5a3a24],
+    rock: [0x4c545e, 0x3a2416, 0x5e6771],
+    root: [0x3a2416, 0x5a3a24, 0x6b4428],
+    cloth: [0x3c6e2e],
+    accent: 0xf0b040,
+    glow: 0xffd27a
   },
   {
     id: 3,
-    name: "Ember",
-    fog: 0xd5c4a8,
-    density: 0.04,
+    name: "Slate Crypt",
+    foe: { body: [0xd8c8a0, 0xc4b48a, 0xe7d7b4], skin: [0x6e7882, 0x8d93a0, 0x5e6771], muzzle: [0x9fd0ff, 0xd8ecff], sac: [0x9fd0ff, 0xd8ecff, 0x7eb6ef], crest: "spines", crestHex: [0xe7d7b4, 0xd8c8a0] },
+    fog: 0x9aa6b4,
+    density: 0.036,
+    sky: 0xd8e4f4,
+    ground: 0x2f363e,
+    hemi: 0.68,
+    sun: 0xe8eeff,
+    sunI: 1.7,
+    floor: [0x4c545e, 0x5e6771, 0x434b55],
+    floorAlt: [0x3e4650, 0x6e7882],
+    grout: 0x2a3038,
+    wall: [0x3e4650, 0x4c545e, 0x353d47],
+    wallTop: [0x5e6771, 0x6e7882, 0x4c545e],
+    trim: [0x8d93a0, 0x6e7882],
+    rock: [0x4c545e, 0x6e7882, 0x3e4650],
+    root: [0x1c2228, 0x3e4650, 0x3a2416],
+    cloth: [0x4a3a6e, 0x2e3a5a],
+    accent: 0x9fd0ff,
+    glow: 0xd8ecff
+  },
+  {
+    id: 4,
+    name: "Ember Forge",
+    foe: { body: [0x241c18, 0x2f363e, 0x3a2416], skin: [0x4a3024, 0x6b3a24, 0x3a2416], muzzle: [0xff8a2a, 0xffb84a], sac: [0xff8a2a, 0xffb84a, 0xd4602a], crest: "embers", crestHex: [0xff8a2a, 0xd4602a] },
+    fog: 0xb87a58,
+    density: 0.036,
+    sky: 0xffd0a0,
     ground: 0x4a3024,
+    hemi: 0.68,
+    sun: 0xffc890,
+    sunI: 1.9,
     floor: [0x3e4650, 0x4a3024, 0x2f363e],
-    wall: [0x3a2416, 0x4c545e],
+    floorAlt: [0x5a3a24, 0x2f363e],
+    grout: 0x1c1410,
+    wall: [0x3a2416, 0x4c545e, 0x2f363e],
+    wallTop: [0x4a3024, 0x3a2a22, 0x2f363e],
+    trim: [0xd4a03a, 0x8a5a2a],
     rock: [0x3e4650, 0x4a3024, 0x2f363e],
     root: [0x3a2416, 0x4a3024, 0x4c545e],
-    accent: 0xff8a2a
+    cloth: [0x8e2e28],
+    accent: 0xff8a2a,
+    glow: 0xffb84a
   }
 ];
 
 export function dungeonTheme(themeId) {
   const n = Number(themeId);
-  const id = Number.isFinite(n) ? ((Math.floor(n) % 4) + 4) % 4 : 0;
+  const len = DUNGEON_THEMES.length;
+  const id = Number.isFinite(n) ? ((Math.floor(n) % len) + len) % len : 0;
   return DUNGEON_THEMES[id];
 }
 
@@ -107,6 +175,8 @@ export function applyTownLight(scene, rt) {
   lights.sun.color.setHex(0xffd7a4);
   setShadow(lights.sun, 2048, 34);
   resetTownTime(scene, rt);
+  if (lights.sky) lights.sky.visible = true;
+  if (lights.sunMesh) lights.sunMesh.visible = true;
 
   if (lights.sky) {
     rt.updateSun = lights.updateSun;
@@ -171,11 +241,17 @@ export function applyDungeonLight(scene, rt, themeId) {
   const lights = rt._lights || createLights(scene, rt);
   scene.background = new THREE.Color(theme.fog);
   scene.fog = new THREE.FogExp2(theme.fog, theme.density);
-  lights.hemi.color.setHex(0xc5e4ff);
-  lights.hemi.groundColor.setHex(theme.ground);
-  lights.sun.color.setHex(0xffd7a4);
-  setShadow(lights.sun, 1024, 18);
   resetTownTime(scene, rt);
+  lights.hemi.color.setHex(theme.sky);
+  lights.hemi.groundColor.setHex(theme.ground);
+  lights.hemi.intensity = theme.hemi;
+  lights.sun.color.setHex(theme.sun);
+  lights.sun.intensity = theme.sunI;
+  setShadow(lights.sun, 1024, 18);
+  // The sky dome and sun disc are town furniture; under a dungeon fog they would only
+  // show as a bright smear above the walls.
+  if (lights.sky) lights.sky.visible = false;
+  if (lights.sunMesh) lights.sunMesh.visible = false;
 }
 
 // ---------- Town day and night ----------

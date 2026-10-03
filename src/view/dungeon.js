@@ -1,12 +1,56 @@
 import * as THREE from "three";
-import { mulberry32 } from "../sim/rng.js";
+import { mulberry32, hash2 } from "../sim/rng.js";
 import { mixSeed, tileToWorld } from "../sim/floorgen.js";
 import { paintFacesWith, mergeParts, lambert } from "./materials.js";
 import { dungeonTheme } from "./lights.js";
+import { makeBuilder, writeProp, pick } from "./dungeonkit.js";
 
 const TILE = 4;
-const BODY_HEX = [0x3a2416, 0x5a3a24, 0x6b4428];
-const SKIN_HEX = [0x8e2e28, 0x6e2e28, 0xa34a3a];
+// Rootdeep's palette is the original Underwood beast; other biomes pass their own.
+const FOE_DEFAULT = {
+  body: [0x3a2416, 0x5a3a24, 0x6b4428],
+  skin: [0x8e2e28, 0x6e2e28, 0xa34a3a],
+  muzzle: [0xe0a878, 0xd4a03a],
+  sac: [0x8fb84a, 0xc6d46a, 0x6a9a32],
+  crest: "antlers",
+  crestHex: [0x5a3a24, 0x6b4428]
+};
+
+// Biome crest on the back or head: the quickest read of "this is a temple beast".
+// (x, y, z) is the crest anchor; local −z is the face.
+function addCrest(parts, f, rand, y, z, s) {
+  const hex = f.crestHex;
+  function cone(r, h, x, py, pz, tiltX, tiltZ, sides) {
+    const g = new THREE.ConeGeometry(r * s, h * s, sides || 5);
+    g.rotateX(tiltX || 0);
+    g.rotateZ(tiltZ || 0);
+    g.translate(x * s, py, pz);
+    parts.push(paintFacesWith(g, hex, rand));
+  }
+  if (f.crest === "tuft") {
+    for (let i = 0; i < 3; i++) cone(0.07, 0.22, 0, y + 0.06, z + (i - 1) * 0.13 * s, -0.5, 0, 4);
+  } else if (f.crest === "horns") {
+    cone(0.06, 0.3, -0.14, y + 0.14 * s, z - 0.04 * s, -0.35, 0.55);
+    cone(0.06, 0.3, 0.14, y + 0.14 * s, z - 0.04 * s, -0.35, -0.55);
+  } else if (f.crest === "antlers") {
+    for (let side = -1; side <= 1; side += 2) {
+      const g = new THREE.CylinderGeometry(0.025 * s, 0.035 * s, 0.32 * s, 4);
+      g.rotateZ(side * -0.5);
+      g.translate(side * 0.12 * s, y + 0.14 * s, z);
+      parts.push(paintFacesWith(g, hex, rand));
+      cone(0.03, 0.16, side * 0.2, y + 0.24 * s, z - 0.06 * s, -0.6, side * -0.2, 4);
+    }
+  } else if (f.crest === "spines") {
+    for (let i = 0; i < 4; i++) cone(0.045, 0.26, 0, y + 0.08, z + (i - 1.5) * 0.12 * s, 0.35, 0, 4);
+  } else if (f.crest === "embers") {
+    for (let i = 0; i < 3; i++) {
+      const g = new THREE.BoxGeometry(0.12 * s, 0.16 * s, 0.1 * s);
+      g.rotateY(0.6);
+      g.translate((i - 1) * 0.12 * s, y + 0.08, z + (i - 1) * 0.06 * s);
+      parts.push(paintFacesWith(g, hex, rand));
+    }
+  }
+}
 
 const _dummy = new THREE.Object3D();
 const _nearWhite = new THREE.Color(0xffffff);
@@ -22,32 +66,6 @@ function nearWhiteInstances(mesh) {
 let _townBox = null;
 let _townRing = null;
 let _tileEdges = null;
-
-function mergeChunks(chunks) {
-  let count = 0;
-  for (let i = 0; i < chunks.length; i++) count += chunks[i].attributes.position.count;
-  const pos = new Float32Array(count * 3);
-  const nrm = new Float32Array(count * 3);
-  let o = 0;
-  for (let c = 0; c < chunks.length; c++) {
-    const p = chunks[c].attributes.position;
-    const n = chunks[c].attributes.normal;
-    for (let i = 0; i < p.count; i++) {
-      const k = (o + i) * 3;
-      pos[k] = p.getX(i);
-      pos[k + 1] = p.getY(i);
-      pos[k + 2] = p.getZ(i);
-      nrm[k] = n.getX(i);
-      nrm[k + 1] = n.getY(i);
-      nrm[k + 2] = n.getZ(i);
-    }
-    o += p.count;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
-  return geo;
-}
 
 function disposeObject(root) {
   const geos = new Set();
@@ -68,11 +86,11 @@ function disposeObject(root) {
   });
 }
 
-function makeSkirmisherGeo(rand) {
+function makeSkirmisherGeo(rand, f) {
   const parts = [];
   const body = new THREE.BoxGeometry(0.72, 0.34, 0.48);
   body.translate(0, 0.42, 0);
-  parts.push(paintFacesWith(body, BODY_HEX, rand));
+  parts.push(paintFacesWith(body, f.body, rand));
   for (let i = 0; i < 4; i++) {
     const leg = new THREE.CylinderGeometry(0.07, 0.09, 0.26, 5);
     const sx = (i & 1) ? 0.22 : -0.22;
@@ -82,19 +100,20 @@ function makeSkirmisherGeo(rand) {
   }
   const head = new THREE.IcosahedronGeometry(0.2, 0);
   head.translate(0, 0.74, -0.02);
-  parts.push(paintFacesWith(head, SKIN_HEX, rand));
+  parts.push(paintFacesWith(head, f.skin, rand));
   // Local −z is the face. The muzzle sits on that axis by construction.
   const muzzle = new THREE.BoxGeometry(0.1, 0.08, 0.16);
   muzzle.translate(0, 0.7, -0.24);
-  parts.push(paintFacesWith(muzzle, [0xe0a878, 0xd4a03a], rand));
+  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
+  addCrest(parts, f, rand, f.crest === "horns" || f.crest === "antlers" ? 0.8 : 0.59, f.crest === "horns" || f.crest === "antlers" ? -0.02 : 0.08, 1);
   return mergeParts(parts);
 }
 
-function makeBruteGeo(rand) {
+function makeBruteGeo(rand, f) {
   const parts = [];
   const body = new THREE.BoxGeometry(1.15, 0.72, 0.78);
   body.translate(0, 0.78, 0);
-  parts.push(paintFacesWith(body, BODY_HEX, rand));
+  parts.push(paintFacesWith(body, f.body, rand));
   for (let i = 0; i < 4; i++) {
     const leg = new THREE.CylinderGeometry(0.11, 0.14, 0.42, 5);
     const sx = (i & 1) ? 0.34 : -0.34;
@@ -104,18 +123,19 @@ function makeBruteGeo(rand) {
   }
   const head = new THREE.BoxGeometry(0.46, 0.36, 0.4);
   head.translate(0, 1.32, -0.04);
-  parts.push(paintFacesWith(head, SKIN_HEX, rand));
+  parts.push(paintFacesWith(head, f.skin, rand));
   const muzzle = new THREE.BoxGeometry(0.28, 0.14, 0.22);
   muzzle.translate(0, 1.22, -0.32);
-  parts.push(paintFacesWith(muzzle, [0xe0a878, 0xd4a03a], rand));
+  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
+  addCrest(parts, f, rand, f.crest === "horns" || f.crest === "antlers" ? 1.42 : 1.14, f.crest === "horns" || f.crest === "antlers" ? -0.04 : 0.12, 1.7);
   return mergeParts(parts);
 }
 
-function makeSpitterGeo(rand) {
+function makeSpitterGeo(rand, f) {
   const parts = [];
   const body = new THREE.BoxGeometry(0.7, 0.4, 0.55);
   body.translate(0, 0.46, 0.06);
-  parts.push(paintFacesWith(body, [0x3c6e2e, 0x4f8c38, 0x2c6b2a], rand));
+  parts.push(paintFacesWith(body, f.skin, rand));
   for (let i = 0; i < 4; i++) {
     const leg = new THREE.CylinderGeometry(0.06, 0.08, 0.24, 5);
     const sx = (i & 1) ? 0.22 : -0.22;
@@ -125,16 +145,17 @@ function makeSpitterGeo(rand) {
   }
   const sac = new THREE.SphereGeometry(0.22, 6, 5);
   sac.translate(0, 0.48, -0.38);
-  parts.push(paintFacesWith(sac, [0x8fb84a, 0xc6d46a, 0x6a9a32], rand));
+  parts.push(paintFacesWith(sac, f.sac, rand));
   const muzzle = new THREE.BoxGeometry(0.1, 0.08, 0.16);
   muzzle.translate(0, 0.5, -0.58);
-  parts.push(paintFacesWith(muzzle, [0xe0a878, 0xd4a03a], rand));
+  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
+  addCrest(parts, f, rand, 0.66, 0.16, 0.9);
   return mergeParts(parts);
 }
 
-function makeShadeGeo(rand) {
+function makeShadeGeo(rand, f) {
   const parts = [];
-  const slate = [0x4c545e, 0x6e7882, 0x3e4650];
+  const slate = f.body;
   const leg = new THREE.CylinderGeometry(0.12, 0.13, 0.44, 5);
   const boot = new THREE.BoxGeometry(0.18, 0.12, 0.28);
   const leftLeg = leg.clone();
@@ -166,9 +187,9 @@ function makeShadeGeo(rand) {
   return geo;
 }
 
-function makeBossGeo(rand) {
+function makeBossGeo(rand, f) {
   const parts = [];
-  const moss = [0x2c6b2a, 0x3c6e2e, 0x1d4a22];
+  const moss = f.body;
   const body = new THREE.BoxGeometry(1.45, 0.95, 0.9);
   body.translate(0, 1.05, 0);
   parts.push(paintFacesWith(body, moss, rand));
@@ -184,10 +205,11 @@ function makeBossGeo(rand) {
   }
   const head = new THREE.BoxGeometry(0.62, 0.48, 0.52);
   head.translate(0, 1.78, -0.06);
-  parts.push(paintFacesWith(head, [0x4f8c38, 0x3c6e2e], rand));
+  parts.push(paintFacesWith(head, f.skin, rand));
   const muzzle = new THREE.BoxGeometry(0.36, 0.16, 0.28);
   muzzle.translate(0, 1.66, -0.42);
-  parts.push(paintFacesWith(muzzle, [0xe2ba60, 0xd4a03a], rand));
+  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
+  addCrest(parts, f, rand, 2.0, -0.06, 2.4);
   return mergeParts(parts);
 }
 
@@ -226,205 +248,564 @@ function makeRing(inner, outer) {
   return ring;
 }
 
+// A treasure chest, front on local −z. The lid is its own group hinged on the
+// back top edge: rotation.x from 0 (shut) to about 1.9 (thrown open). A small gold
+// gem hovers over a chest that has not been opened.
+export function buildChest(theme) {
+  const wood = [0x6b4428, 0x5a3a24, 0x7a5030];
+  const band = theme && theme.trim ? theme.trim : [0xd4a03a, 0xe2ba60];
+  const group = new THREE.Group();
+  group.name = "chest";
+  const base = makeBuilder();
+  base.box(0, 0.26, 0, 1.0, 0.52, 0.62, wood[0], wood[1]);
+  base.box(0, 0.05, 0, 1.06, 0.1, 0.68, 0x3a2416);
+  for (const x of [-0.36, 0.36]) base.box(x, 0.27, 0, 0.09, 0.54, 0.66, band[0], band[0]);
+  base.box(0, 0.4, -0.315, 0.16, 0.18, 0.04, band[1] || band[0]);
+  base.box(0, 0.36, -0.34, 0.06, 0.07, 0.03, 0x241c18);
+  const baseMesh = new THREE.Mesh(base.geometry(), lambert({ side: THREE.FrontSide }));
+  baseMesh.castShadow = true;
+  baseMesh.receiveShadow = true;
+  group.add(baseMesh);
+  // Hinge on the back top edge; the lid geometry runs forward (−z) from it.
+  const lid = new THREE.Group();
+  lid.position.set(0, 0.52, 0.31);
+  const top = makeBuilder();
+  top.box(0, 0.09, -0.31, 1.02, 0.18, 0.64, wood[2], wood[0]);
+  top.box(0, 0.2, -0.31, 1.0, 0.06, 0.5, wood[1], wood[2]);
+  for (const x of [-0.36, 0.36]) top.box(x, 0.13, -0.31, 0.09, 0.2, 0.66, band[0], band[0]);
+  top.box(0, 0.06, -0.635, 0.18, 0.12, 0.04, band[1] || band[0]);
+  const lidMesh = new THREE.Mesh(top.geometry(), lambert({ side: THREE.FrontSide }));
+  lidMesh.castShadow = true;
+  lidMesh.receiveShadow = true;
+  lid.add(lidMesh);
+  group.add(lid);
+  const gem = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.11, 0),
+    new THREE.MeshLambertMaterial({ color: 0xffd27a, emissive: 0xe2ba60, emissiveIntensity: 0.9, flatShading: true })
+  );
+  gem.position.set(0, 1.25, 0);
+  gem.castShadow = false;
+  group.add(gem);
+  // Glow inside the chest, seen once the lid lifts.
+  const hoard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.06, 0.46),
+    new THREE.MeshLambertMaterial({ color: 0xffd27a, emissive: 0xd4a03a, emissiveIntensity: 0.8, flatShading: true })
+  );
+  hoard.position.set(0, 0.5, 0);
+  hoard.visible = false;
+  group.add(hoard);
+  group.userData = { lid, gem, hoard };
+  return group;
+}
+
+// The sword's swept arc: a flat ribbon in front of the Warden, tilted along the
+// diagonal slash. Play fades it through material.opacity.
 export function buildStrikeCrescent() {
   const group = new THREE.Group();
   group.name = "strikeCrescent";
   const mat = new THREE.MeshLambertMaterial({
     color: 0xf4e7c8,
-    emissive: 0xf4e7c8,
-    emissiveIntensity: 0.85,
-    flatShading: true
+    emissive: 0xffe9b0,
+    emissiveIntensity: 0.9,
+    flatShading: true,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    side: THREE.DoubleSide
   });
-  const spots = [[-0.38, -0.82], [0, -1.05], [0.38, -0.82]];
-  for (let i = 0; i < spots.length; i++) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.46, 0.02), mat);
-    mesh.position.set(spots[i][0], 1.12, spots[i][1]);
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    group.add(mesh);
-  }
+  // Ring in XY, laid flat so angle π/2 points down local −z (the Warden's front).
+  const arc = new THREE.RingGeometry(0.55, 1.5, 14, 1, Math.PI / 2 - 1.25, 2.5);
+  arc.rotateX(-Math.PI / 2);
+  const ribbon = new THREE.Mesh(arc, mat);
+  ribbon.rotation.z = 0.55;
+  ribbon.position.set(0, 1.12, -0.1);
+  ribbon.castShadow = false;
+  ribbon.receiveShadow = false;
+  group.add(ribbon);
+  group.userData.material = mat;
   group.visible = false;
+  return group;
+}
+
+// Hearth channel around the Warden while Extract is held: a rune ring on the
+// floor, petals that light up with progress, motes rising in a spiral, and a
+// faint column of light. Play drives every value each frame.
+// `tint` recolours it: the Hearth is gold (default); Mend passes greens.
+export function buildHearthChannel(tint) {
+  const c = Object.assign({ name: "hearthChannel", lit: 0xffd27a, glow: 0xe2ba60, dim: 0x8d6a2a, dimGlow: 0x5a3a14, column: 0xffe6a8, columnGlow: 0xffd27a }, tint || {});
+  const group = new THREE.Group();
+  group.name = c.name;
+  const gold = new THREE.MeshLambertMaterial({ color: c.lit, emissive: c.glow, emissiveIntensity: 0.9, flatShading: true });
+  const dim = new THREE.MeshLambertMaterial({ color: c.dim, emissive: c.dimGlow, emissiveIntensity: 0.4, flatShading: true });
+  const ringGeo = new THREE.RingGeometry(0.95, 1.08, 28);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ring = new THREE.Mesh(ringGeo, gold);
+  ring.position.y = 0.04;
+  group.add(ring);
+  const petals = [];
+  const petalGeo = new THREE.BoxGeometry(0.1, 0.03, 0.3);
+  const PETALS = 20;
+  for (let i = 0; i < PETALS; i++) {
+    const a = (i / PETALS) * Math.PI * 2;
+    const petal = new THREE.Mesh(petalGeo, dim);
+    // Petal 0 sits at the Warden's front (−z) and the ring fills clockwise from above.
+    petal.position.set(Math.sin(a) * 1.3, 0.045, -Math.cos(a) * 1.3);
+    petal.rotation.y = -a;
+    group.add(petal);
+    petals.push(petal);
+  }
+  const motes = [];
+  const moteGeo = new THREE.OctahedronGeometry(0.06, 0);
+  for (let i = 0; i < 14; i++) {
+    const mote = new THREE.Mesh(moteGeo, gold);
+    group.add(mote);
+    motes.push(mote);
+  }
+  const columnGeo = new THREE.CylinderGeometry(0.8, 1.0, 3.4, 12, 1, true);
+  columnGeo.translate(0, 1.7, 0);
+  const columnMat = new THREE.MeshLambertMaterial({
+    color: c.column,
+    emissive: c.columnGlow,
+    emissiveIntensity: 0.7,
+    flatShading: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  const column = new THREE.Mesh(columnGeo, columnMat);
+  group.add(column);
+  group.traverse((o) => {
+    o.castShadow = false;
+    o.receiveShadow = false;
+  });
+  group.visible = false;
+  group.userData = { ring, petals, motes, column, gold, dim };
   return group;
 }
 
 export function buildFloorMesh(plan) {
   const rand = mulberry32(mixSeed(plan.runSeed || 1, (plan.floorIndex || 1) + 0x5a17));
   const theme = dungeonTheme(plan.themeId);
+  const key = plan.biomeKey || "cave";
+  const organic = key === "cave" || key === "root";
   const cols = plan.cols;
   const rows = plan.rows;
   const tiles = plan.tiles;
   const root = new THREE.Group();
   root.name = "dungeonRoot";
+  const H = TILE / 2;
+  const baseH = organic ? 3.3 : 3.6;
+  const extentX = (cols / 2) * TILE;
+  const extentZ = (rows / 2) * TILE;
 
-  const floorChunks = [];
-  let quadCount = 0;
+  function isFloor(c, r) {
+    return c >= 0 && r >= 0 && c < cols && r < rows && tiles[r * cols + c] === 1;
+  }
+
+  // Rock heights per solid cell. Organic biomes step their tops; built ones stay level.
+  const heights = new Float32Array(cols * rows);
+  for (let i = 0; i < heights.length; i++) heights[i] = organic ? baseH + rand() * 1.3 : baseH;
+  // Rock three or more cells from any floor is only ever seen from above, through fog:
+  // it gets one flat slab at rim height instead of a dressed top.
+  const near = new Uint8Array(cols * rows);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (tiles[r * cols + c] !== 1) continue;
-      quadCount++;
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr >= 0 && nc >= 0 && nr < rows && nc < cols) near[nr * cols + nc] = 1;
+        }
+      }
     }
   }
-  const floorPos = new Float32Array(quadCount * 18);
-  let q = 0;
+  for (let i = 0; i < heights.length; i++) if (!near[i]) heights[i] = baseH;
+
+  // Organic walls and floors share one jittered 2 m lattice, keyed by world position,
+  // so every shared vertex moves together and nothing cracks. The outer rim stays put.
+  const J = organic ? 0.42 : 0;
+  const salt = ((plan.runSeed || 1) % 997) * 0.013 + (plan.floorIndex || 1) * 0.071;
+  function P(x, y, z) {
+    if (!J || Math.abs(x) >= extentX - 1e-3 || Math.abs(z) >= extentZ - 1e-3) return [x, y, z];
+    return [
+      x + (hash2(x * 0.731 + salt, z * 1.37) - 0.5) * 2 * J,
+      y,
+      z + (hash2(x * 1.913, z * 0.517 + salt) - 0.5) * 2 * J
+    ];
+  }
+
+  // ---------- Floor ----------
+  const fb = makeBuilder();
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (tiles[r * cols + c] !== 1) continue;
+      if (!isFloor(c, r)) continue;
       const w = tileToWorld(c, r, cols, rows);
-      const x0 = w.x - TILE / 2;
-      const x1 = w.x + TILE / 2;
-      const y0 = -w.z - TILE / 2;
-      const y1 = -w.z + TILE / 2;
-      const v = [
-        x0, y0, 0, x1, y0, 0, x1, y1, 0,
-        x0, y0, 0, x1, y1, 0, x0, y1, 0
-      ];
-      floorPos.set(v, q);
-      q += 18;
+      if (organic) {
+        for (let q = 0; q < 4; q++) {
+          const ax = w.x - H + (q & 1) * H;
+          const az = w.z - H + (q >> 1) * H;
+          const hex = rand() < 0.16 ? pick(theme.floorAlt, rand) : pick(theme.floor, rand);
+          fb.quad(P(ax, 0, az), P(ax + H, 0, az), P(ax + H, 0, az + H), P(ax, 0, az + H), hex, w.x, -1, w.z);
+        }
+      } else {
+        fb.quad([w.x - H, 0, w.z - H], [w.x + H, 0, w.z - H], [w.x + H, 0, w.z + H], [w.x - H, 0, w.z + H], theme.grout, w.x, -1, w.z);
+        const g = 0.045;
+        for (let q = 0; q < 4; q++) {
+          const ax = w.x - H + (q & 1) * H + g;
+          const az = w.z - H + (q >> 1) * H + g;
+          const bx = ax + H - 2 * g;
+          const bz = az + H - 2 * g;
+          const hex = rand() < 0.12 ? pick(theme.floorAlt, rand) : pick(theme.floor, rand);
+          fb.quad([ax, 0.02, az], [bx, 0.02, az], [bx, 0.02, bz], [ax, 0.02, bz], hex, w.x, -1, w.z);
+        }
+      }
     }
   }
-  const floorGeo = new THREE.BufferGeometry();
-  floorGeo.setAttribute("position", new THREE.BufferAttribute(floorPos, 3));
-  const paintedFloor = paintFacesWith(floorGeo, theme.floor, rand);
+  // Under-sheet: catches any sliver between floor and rock.
+  fb.quad([-extentX - 4, -0.05, -extentZ - 4], [extentX + 4, -0.05, -extentZ - 4], [extentX + 4, -0.05, extentZ + 4], [-extentX - 4, -0.05, extentZ + 4], theme.grout, 0, -1, 0);
+  const floorGeo = fb.geometry();
+  // The floor keeps the PR-03 convention: geometry in the XY plane, mesh rotated −90° on X.
+  floorGeo.rotateX(Math.PI / 2);
   const floorMat = lambert({ side: THREE.FrontSide });
-  const floorMesh = new THREE.Mesh(paintedFloor, floorMat);
+  const floorMesh = new THREE.Mesh(floorGeo, floorMat);
   floorMesh.rotation.x = -Math.PI / 2;
   floorMesh.receiveShadow = true;
   floorMesh.castShadow = false;
   floorMesh.name = "dungeonFloor";
   root.add(floorMesh);
 
-  const wallChunks = [];
-  function addWall(sx, sy, sz, x, y, z) {
-    const box = new THREE.BoxGeometry(sx, sy, sz);
-    box.translate(x, y, z);
-    const raw = box.index ? box.toNonIndexed() : box;
-    if (raw !== box) box.dispose();
-    if (!raw.attributes.normal) raw.computeVertexNormals();
-    wallChunks.push(raw);
+  // ---------- Rock / masonry ----------
+  // Solid cells form a heightfield: a top for each, and a side wherever the
+  // neighbour is floor or lower rock. This mesh is also the camera occluder.
+  const wb = makeBuilder();
+  const db = makeBuilder();
+  const gb = makeBuilder();
+  const goldB = makeBuilder();
+  const rimH = baseH;
+  const DIRS = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1]
+  ];
+  // Edge of a cell toward direction d: three lattice points, start → mid → end.
+  function edgePoints(w, d) {
+    const x0 = w.x - H;
+    const x1 = w.x + H;
+    const z0 = w.z - H;
+    const z1 = w.z + H;
+    if (d === 0) return [[x1, z0], [x1, w.z], [x1, z1]];
+    if (d === 1) return [[x0, z1], [x0, w.z], [x0, z0]];
+    if (d === 2) return [[x1, z1], [w.x, z1], [x0, z1]];
+    return [[x0, z0], [w.x, z0], [x1, z0]];
   }
-  const half = 0.2;
+  const floorFaces = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (tiles[r * cols + c] !== 1) continue;
+      const i = r * cols + c;
+      if (tiles[i] === 1) continue;
       const w = tileToWorld(c, r, cols, rows);
-      const neigh = [
-        [1, 0, TILE / 2 + half, 0, 0.4, TILE],
-        [-1, 0, -(TILE / 2 + half), 0, 0.4, TILE],
-        [0, 1, 0, TILE / 2 + half, TILE, 0.4],
-        [0, -1, 0, -(TILE / 2 + half), TILE, 0.4]
+      const h = heights[i];
+      if (!near[i]) {
+        // Oversized by 0.45 so it tucks under the jittered rim of its dressed neighbours.
+        const o = H + 0.45;
+        wb.quad([w.x - o, h - 0.01, w.z - o], [w.x + o, h - 0.01, w.z - o], [w.x + o, h - 0.01, w.z + o], [w.x - o, h - 0.01, w.z + o], theme.wallTop[0], w.x, h - 5, w.z);
+        continue;
+      }
+      const ring = [
+        [w.x - H, w.z - H], [w.x, w.z - H], [w.x + H, w.z - H], [w.x + H, w.z],
+        [w.x + H, w.z + H], [w.x, w.z + H], [w.x - H, w.z + H], [w.x - H, w.z]
       ];
-      for (let n = 0; n < neigh.length; n++) {
-        const dc = neigh[n][0];
-        const dr = neigh[n][1];
-        const nc = c + dc;
-        const nr = r + dr;
+      const top = pick(theme.wallTop, rand);
+      const peak = P(w.x, h + (organic ? rand() * 0.35 : 0), w.z);
+      for (let k = 0; k < 8; k++) {
+        const a = ring[k];
+        const b = ring[(k + 1) % 8];
+        wb.tri(peak, P(a[0], h, a[1]), P(b[0], h, b[1]), top, w.x, h - 5, w.z);
+      }
+      for (let d = 0; d < 4; d++) {
+        const nc = c + DIRS[d][0];
+        const nr = r + DIRS[d][1];
         const outside = nc < 0 || nr < 0 || nc >= cols || nr >= rows;
-        if (!outside && tiles[nr * cols + nc] === 1) continue;
-        const ox = neigh[n][2];
-        const oz = neigh[n][3];
-        const sx = neigh[n][4];
-        const sz = neigh[n][5];
-        addWall(sx, 2.6, sz, w.x + ox, 1.3, w.z + oz);
+        let y0;
+        if (outside) y0 = rimH;
+        else if (tiles[nr * cols + nc] === 1) y0 = 0;
+        else y0 = heights[nr * cols + nc];
+        if (y0 >= h - 1e-3) continue;
+        const e = edgePoints(w, d);
+        const hex = pick(theme.wall, rand);
+        for (let s = 0; s < 2; s++) {
+          const a = e[s];
+          const b = e[s + 1];
+          wb.quad(P(a[0], y0, a[1]), P(b[0], y0, b[1]), P(b[0], h, b[1]), P(a[0], h, a[1]), hex, w.x, (y0 + h) / 2, w.z);
+        }
+        if (y0 === 0) floorFaces.push({ c, r, d, w, h, e });
       }
     }
   }
-  let wallMesh = null;
-  if (wallChunks.length) {
-    const wallGeo = paintFacesWith(mergeChunks(wallChunks), theme.wall, rand);
-    wallMesh = new THREE.Mesh(wallGeo, lambert({ side: THREE.DoubleSide }));
-    wallMesh.castShadow = true;
-    wallMesh.receiveShadow = true;
-    wallMesh.name = "dungeonWalls";
-    root.add(wallMesh);
-    for (let i = 0; i < wallChunks.length; i++) {
-      if (wallChunks[i] !== wallGeo) wallChunks[i].dispose();
+  // Rim: the rock shelf beyond the grid, out into the fog.
+  const far = 90;
+  const rimHex = theme.wallTop[0];
+  wb.quad([-extentX - far, rimH, -extentZ - far], [extentX + far, rimH, -extentZ - far], [extentX + far, rimH, -extentZ], [-extentX - far, rimH, -extentZ], rimHex, 0, rimH - 1, -extentZ - 1);
+  wb.quad([-extentX - far, rimH, extentZ], [extentX + far, rimH, extentZ], [extentX + far, rimH, extentZ + far], [-extentX - far, rimH, extentZ + far], rimHex, 0, rimH - 1, extentZ + 1);
+  wb.quad([-extentX - far, rimH, -extentZ], [-extentX, rimH, -extentZ], [-extentX, rimH, extentZ], [-extentX - far, rimH, extentZ], rimHex, -extentX - 1, rimH - 1, 0);
+  wb.quad([extentX, rimH, -extentZ], [extentX + far, rimH, -extentZ], [extentX + far, rimH, extentZ], [extentX, rimH, extentZ], rimHex, extentX + 1, rimH - 1, 0);
+
+  // ---------- Wall dressing (no collision, not an occluder) ----------
+  for (let f = 0; f < floorFaces.length; f++) {
+    const face = floorFaces[f];
+    const nx = DIRS[face.d][0];
+    const nz = DIRS[face.d][1];
+    // Yaw that turns local +z into the face normal (out of the rock, into the room).
+    const yaw = Math.atan2(nx, nz);
+    const ex = (face.e[0][0] + face.e[2][0]) / 2;
+    const ez = (face.e[0][1] + face.e[2][1]) / 2;
+    const h = face.h;
+    if (organic) {
+      const n = rand() < 0.6 ? 1 : 2;
+      for (let k = 0; k < n; k++) {
+        const along = (rand() - 0.5) * 2.6;
+        const depth = 0.9 + rand() * 0.5;
+        const tall = 0.9 + rand() * 1.9;
+        db.at(ex, 0, ez, yaw, 1);
+        db.lump(along, tall / 2, -depth / 2 + 0.28, 1.3 + rand() * 0.8, tall, depth, 0.14, rand, theme.rock, pick(theme.wallTop, rand));
+      }
+      if (key === "root" && rand() < 0.45) {
+        db.at(ex, 0, ez, yaw, 1);
+        db.lump((rand() - 0.5) * 1.6, 0.22, 0.05, 3.2, 0.4, 0.45, 0.1, rand, theme.root);
+        const tx = (rand() - 0.5) * 2.4;
+        db.lathe(tx, 0.08, [[0, h - 2.4 - rand()], [0.14, h - 0.6], [0.2, h + 0.05]], 5, theme.root, rand);
+      }
+      if (rand() < 0.14) {
+        const a = (rand() - 0.5) * 2.2;
+        const mx = ex + nx * 0.55 + nz * a;
+        const mz = ez + nz * 0.55 + nx * a;
+        const spin = rand() * 6;
+        db.at(mx, 0, mz, spin, 0.8);
+        gb.at(mx, 0, mz, spin, 0.8);
+        writeProp(key === "cave" && rand() < 0.3 ? "crystal" : "mushroom", db, gb, theme, rand, baseH);
+      }
+      continue;
+    }
+    // Built biomes: plinth, cornice, a pilaster on every edge start.
+    db.at(ex, 0, ez, yaw, 1);
+    db.box(0, 0.22, 0.1, 4, 0.44, 0.36, theme.trim[1] || theme.trim[0], theme.trim[0]);
+    db.box(0, h - 0.16, 0.12, 4.1, 0.32, 0.44, theme.trim[0], pick(theme.wallTop, rand));
+    db.box(-1.85, h / 2, 0.14, 0.5, h - 0.3, 0.42, theme.wall[2] || theme.wall[0]);
+    const roll = rand();
+    if ((key === "temple" || key === "crypt") && roll < 0.16) {
+      const cloth = pick(theme.cloth, rand);
+      db.box(0.15, h - 1.45, 0.08, 1.2, 1.9, 0.06, cloth);
+      db.box(0.15, h - 2.43, 0.09, 1.25, 0.1, 0.07, theme.trim[0]);
+    } else if (key === "temple" && roll < 0.42) {
+      const n = 2 + Math.floor(rand() * 3);
+      for (let k = 0; k < n; k++) {
+        const len = 0.8 + rand() * 1.8;
+        db.box(-1.4 + rand() * 2.8, h - len / 2 - 0.3, 0.05, 0.14, len, 0.06, pick(theme.root, rand));
+      }
+    } else if (key === "forge" && roll < 0.35) {
+      gb.at(ex, 0, ez, yaw, 1);
+      gb.box((rand() - 0.5) * 1.6, 0.025, 0.42, 2.4, 0.03, 0.22, 0);
+      gb.box((rand() - 0.5) * 2.4, 0.9 + rand() * 0.8, 0.02, 0.1, 1.2 + rand(), 0.05, 0);
+    } else if (key === "crypt" && roll < 0.3) {
+      gb.at(ex, 0, ez, yaw, 1);
+      db.box(0.6, 1.25, 0.15, 0.5, 0.08, 0.3, theme.trim[0]);
+      db.lathe(0.6, 0.15, [[0.04, 1.29], [0.04, 1.5]], 5, [0xe7d7b4], rand);
+      gb.lathe(0.6, 0.15, [[0.035, 1.5], [0, 1.62]], 4, [0], rand);
     }
   }
 
+  // ---------- Floor scatter (no collision) ----------
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!isFloor(c, r)) continue;
+      if ((c === plan.entrance.col && r === plan.entrance.row) || (c === plan.stairs.col && r === plan.stairs.row)) continue;
+      const w = tileToWorld(c, r, cols, rows);
+      const roll = rand();
+      if (roll < 0.3) {
+        db.at(w.x, 0, w.z, 0, 1);
+        const n = 2 + Math.floor(rand() * 3);
+        const hexes = key === "forge" ? [0x241c18, 0x2f363e] : organic ? theme.rock : theme.floorAlt;
+        for (let k = 0; k < n; k++) {
+          const s = 0.12 + rand() * 0.16;
+          db.lump((rand() - 0.5) * 3.2, s * 0.3, (rand() - 0.5) * 3.2, s * 1.4, s * 0.6, s, 0.2, rand, hexes);
+        }
+      } else if (key === "crypt" && roll < 0.38) {
+        db.at(w.x + (rand() - 0.5) * 2.6, 0, w.z + (rand() - 0.5) * 2.6, rand() * 6, 1);
+        db.box(0, 0.04, 0, 0.5, 0.06, 0.07, 0xe7d7b4);
+        db.box(0.1, 0.04, 0.12, 0.07, 0.06, 0.36, 0xd8c8a0);
+        db.lump(-0.28, 0.1, 0.05, 0.18, 0.18, 0.2, 0.1, rand, [0xe7d7b4]);
+      }
+    }
+  }
+
+  // ---------- Props from the plan ----------
   const propColliders = [];
-  const rockItems = [];
-  const rootItems = [];
-  const brazierItems = [];
   const props = plan.props || [];
+  const glowSpots = [];
   for (let i = 0; i < props.length; i++) {
     const prop = props[i];
     const w = tileToWorld(prop.col, prop.row, cols, rows);
     const x = w.x + prop.ox;
     const z = w.z + prop.oz;
-    const s = 0.85 + rand() * 0.15;
-    const yaw = rand() * Math.PI * 2;
-    const item = { x, z, s, yaw };
-    if (prop.kind === "brazier" && theme.id === 3 && brazierItems.length < 4) brazierItems.push(item);
-    else if (prop.kind === "root") rootItems.push(item);
-    else rockItems.push(item);
-    propColliders.push({ x, z, r: 0.45, tileX: w.x, tileZ: w.z });
+    const pillar = prop.kind === "pillar";
+    const s = pillar ? 1 : 0.85 + rand() * 0.3;
+    const yaw = pillar ? 0 : rand() * Math.PI * 2;
+    db.at(x, 0, z, yaw, s);
+    gb.at(x, 0, z, yaw, s);
+    writeProp(prop.kind, db, gb, theme, rand, baseH);
+    propColliders.push({ x, z, r: prop.r || 0.45, tileX: w.x, tileZ: w.z });
+    if (prop.kind === "brazier" || prop.kind === "crystal" || prop.kind === "candle" || prop.kind === "mushroom" || prop.kind === "slag") {
+      glowSpots.push({ x, z });
+    }
   }
-  function stamp(geo, items, y, mat) {
-    if (!items.length) {
-      geo.dispose();
-      return null;
-    }
-    const mesh = new THREE.InstancedMesh(geo, mat || lambert(), items.length);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      _dummy.position.set(it.x, y, it.z);
-      _dummy.rotation.set(0, it.yaw, 0);
-      _dummy.scale.setScalar(it.s);
-      _dummy.updateMatrix();
-      mesh.setMatrixAt(i, _dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    nearWhiteInstances(mesh);
+
+  // ---------- Treasure chests ----------
+  const chests = [];
+  const planChests = plan.chests || [];
+  for (let i = 0; i < planChests.length; i++) {
+    const c = planChests[i];
+    const w = tileToWorld(c.col, c.row, cols, rows);
+    const x = w.x + c.ox;
+    const z = w.z + c.oz;
+    const chest = buildChest(theme);
+    chest.position.set(x, 0, z);
+    chest.rotation.y = c.yaw || 0;
+    chest.name = "chest:" + c.id;
+    root.add(chest);
+    propColliders.push({ x, z, r: c.r || 0.55, tileX: w.x, tileZ: w.z });
+    chests.push({ id: c.id, x, z, group: chest, lid: chest.userData.lid, gem: chest.userData.gem, hoard: chest.userData.hoard, open: 0, opened: false });
+  }
+
+  // ---------- Arrival landing ----------
+  const ent = tileToWorld(plan.entrance.col, plan.entrance.row, cols, rows);
+  db.at(0, 0, 0, 0, 1);
+  goldB.at(0, 0, 0, 0, 1);
+  db.disc(ent.x, 0.03, ent.z, 1.3, 14, theme.trim[1] || theme.trim[0]);
+  goldB.ring(ent.x, 0.045, ent.z, 1.3, 1.46, 20, 0);
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    goldB.at(ent.x + Math.cos(a) * 0.85, 0.05, ent.z + Math.sin(a) * 0.85, -a, 1);
+    goldB.box(0, 0, 0, 0.1, 0.02, 0.36, 0);
+  }
+  const postX = ent.x + 1.45;
+  const postZ = ent.z + 1.45;
+  db.at(postX, 0, postZ, 0, 1);
+  goldB.at(postX, 0, postZ, 0, 1);
+  db.lathe(0, 0, [[0.16, 0], [0.07, 0.2], [0.06, 2.1]], 5, [0x241c18, 0x3a2416], rand);
+  db.box(0, 2.12, 0, 0.36, 0.06, 0.36, 0x241c18);
+  db.box(0, 2.62, 0, 0.36, 0.06, 0.36, 0x241c18);
+  goldB.box(0, 2.37, 0, 0.24, 0.44, 0.24, 0);
+  propColliders.push({ x: postX, z: postZ, r: 0.25, tileX: ent.x, tileZ: ent.z });
+
+  // ---------- Stair well ----------
+  const st = tileToWorld(plan.stairs.col, plan.stairs.row, cols, rows);
+  const wellHexes = [theme.wall[1] || theme.wall[0], theme.grout, 0x241c18, 0x140e0a];
+  db.at(0, 0, 0, 0, 1);
+  db.ring(st.x, 0.03, st.z, 1.35, 1.6, 20, theme.trim[1] || theme.trim[0]);
+  for (let k = 0; k < 3; k++) db.ring(st.x, 0.032 + k * 0.002, st.z, 1.35 - (k + 1) * 0.3, 1.35 - k * 0.3, 16, wellHexes[k]);
+  db.disc(st.x, 0.04, st.z, 0.45, 12, wellHexes[3]);
+  goldB.at(0, 0, 0, 0, 1);
+  goldB.ring(st.x, 0.05, st.z, 1.6, 1.74, 24, 0);
+  const corners = [[1, 1], [-1, 1], [1, -1], [-1, -1]];
+  for (let k = 0; k < corners.length; k++) {
+    const ox = st.x + corners[k][0] * 1.45;
+    const oz = st.z + corners[k][1] * 1.45;
+    db.at(ox, 0, oz, Math.PI / 4, 1);
+    db.lathe(0, 0, [[0.36, 0], [0.28, 1.7], [0, 2.25]], 4, [theme.wall[0], theme.trim[0]], rand);
+    goldB.at(ox, 0, oz, Math.atan2(-corners[k][0], -corners[k][1]), 1);
+    goldB.box(0, 1.15, 0.27, 0.12, 0.5, 0.04, 0);
+    propColliders.push({ x: ox, z: oz, r: 0.35, tileX: st.x, tileZ: st.z });
+  }
+
+  const wallGeo = wb.geometry();
+  const wallMesh = new THREE.Mesh(wallGeo, lambert({ side: THREE.DoubleSide }));
+  wallMesh.castShadow = true;
+  wallMesh.receiveShadow = true;
+  wallMesh.name = "dungeonWalls";
+  root.add(wallMesh);
+
+  if (db.count()) {
+    const detail = new THREE.Mesh(db.geometry(), lambert({ side: THREE.DoubleSide }));
+    detail.castShadow = true;
+    detail.receiveShadow = true;
+    detail.name = "dungeonDetail";
+    root.add(detail);
+  }
+  function glowMesh(builder, hex, strength, name) {
+    if (!builder.count()) return null;
+    const mesh = new THREE.Mesh(builder.geometry(), new THREE.MeshLambertMaterial({
+      color: hex,
+      emissive: hex,
+      emissiveIntensity: strength,
+      flatShading: true,
+      side: THREE.DoubleSide
+    }));
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = name;
     root.add(mesh);
     return mesh;
   }
-  const rockGeo = paintFacesWith(new THREE.DodecahedronGeometry(0.46, 0), theme.rock, rand);
-  const rootGeo = paintFacesWith(new THREE.ConeGeometry(0.28, 0.72, 5), theme.root, rand);
-  rootGeo.translate(0, 0.28, 0);
-  stamp(rockGeo, rockItems, 0.22);
-  stamp(rootGeo, rootItems, 0);
+  glowMesh(gb, theme.accent, 0.9, "dungeonGlow");
+  glowMesh(goldB, 0xe2ba60, 0.85, "dungeonRunes");
 
-  if (theme.id === 3 && brazierItems.length) {
-    const bowl = new THREE.CylinderGeometry(0.26, 0.34, 0.22, 6);
-    bowl.translate(0, 0.12, 0);
-    const bowlGeo = paintFacesWith(bowl, theme.wall, rand);
-    if (bowl !== bowlGeo) bowl.dispose();
-    stamp(bowlGeo, brazierItems, 0);
-    const flameGeo = new THREE.ConeGeometry(0.16, 0.5, 5);
-    flameGeo.translate(0, 0.5, 0);
-    const flameMat = new THREE.MeshLambertMaterial({
-      color: theme.accent || 0xff8a2a,
-      emissive: theme.accent || 0xff8a2a,
-      emissiveIntensity: 0.95,
-      flatShading: true
-    });
-    const flameMesh = stamp(flameGeo, brazierItems, 0, flameMat);
-    if (flameMesh) {
-      flameMesh.castShadow = false;
-      flameMesh.name = "braziers";
-    }
-    for (let i = 0; i < brazierItems.length && i < 4; i++) {
-      const it = brazierItems[i];
-      const light = new THREE.PointLight(theme.accent || 0xff8a2a, 6, 9, 2);
-      light.castShadow = false;
-      light.position.set(it.x, 0.72, it.z);
-      light.name = "brazierLight";
-      root.add(light);
-    }
+  function beam(x, z, r0, r1, height, hex, opacity, name) {
+    const geo = new THREE.CylinderGeometry(r1, r0, height, 10, 1, true);
+    geo.translate(0, height / 2, 0);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      color: hex,
+      emissive: hex,
+      emissiveIntensity: 0.8,
+      flatShading: true,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }));
+    mesh.position.set(x, 0, z);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = name;
+    root.add(mesh);
+    return mesh;
   }
+  beam(ent.x, ent.z, 1.2, 1.9, 16, 0xfff4d8, 0.07, "arrivalShaft");
+  const bossFloor = (plan.floorIndex || 1) % 5 === 0;
+  // The beacon over the stair well shows the way across a big floor; it burns red
+  // while a boss still holds the stairs.
+  const beacon = beam(st.x, st.z, 0.8, 0.8, 40, bossFloor ? 0xb64034 : 0xe2ba60, 0.2, "stairsBeacon");
 
-  const stairsW = tileToWorld(plan.stairs.col, plan.stairs.row, cols, rows);
-  const stairs = new THREE.Mesh(
-    new THREE.BoxGeometry(1.15, 0.08, 1.15),
-    new THREE.MeshLambertMaterial({ color: 0xe2ba60, flatShading: true })
-  );
-  stairs.position.set(stairsW.x, 0.04, stairsW.z);
-  stairs.receiveShadow = true;
-  stairs.castShadow = false;
-  stairs.name = "stairs";
-  root.add(stairs);
+  // Point lights: arrival, stairs, then up to two glowing props far from both. Four at most.
+  function pointLight(x, y, z, hex, strength, dist, name) {
+    const light = new THREE.PointLight(hex, strength, dist, 2);
+    light.castShadow = false;
+    light.position.set(x, y, z);
+    light.name = name;
+    root.add(light);
+    return light;
+  }
+  pointLight(ent.x + 1.45, 2.4, ent.z + 1.45, 0xffd9a0, 7, 12, "arrivalLight");
+  const stairsLight = pointLight(st.x, 2.2, st.z, bossFloor ? 0xff6a4a : 0xe2ba60, 8, 11, "stairsLight");
+  const used = [ent, st];
+  for (let n = 0; n < 2; n++) {
+    let best = null;
+    let bestD = 14 * 14;
+    for (let i = 0; i < glowSpots.length; i++) {
+      const g = glowSpots[i];
+      let d = Infinity;
+      for (let k = 0; k < used.length; k++) d = Math.min(d, (g.x - used[k].x) ** 2 + (g.z - used[k].z) ** 2);
+      if (d > bestD) {
+        bestD = d;
+        best = g;
+      }
+    }
+    if (!best) break;
+    used.push(best);
+    pointLight(best.x, 1.6, best.z, theme.accent, 5, 9, "featureLight");
+  }
 
   const actors = [];
   const buckets = { skirmisher: [], brute: [], spitter: [], shade: [], boss: [] };
@@ -461,7 +842,7 @@ export function buildFloorMesh(plan) {
   }
 
   const packs = {};
-  const bossFloor = (plan.floorIndex || 1) % 5 === 0;
+  const foePal = theme.foe || FOE_DEFAULT;
   function addPack(name, geo, muzzle, ringGeo, capacity) {
     if (!(capacity > 0)) return;
     const body = new THREE.InstancedMesh(geo, lambert(), capacity);
@@ -488,11 +869,11 @@ export function buildFloorMesh(plan) {
   }
 
   const skirmCap = buckets.skirmisher.length + (bossFloor ? 16 : 0);
-  addPack("skirmisher", makeSkirmisherGeo(rand), new THREE.Vector3(0, 0.7, -0.24), makeRing(0.35, 1.15), skirmCap);
-  addPack("brute", makeBruteGeo(rand), new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length);
-  addPack("spitter", makeSpitterGeo(rand), new THREE.Vector3(0, 0.5, -0.58), makeRing(0.3, 1.05), buckets.spitter.length);
-  addPack("shade", makeShadeGeo(rand), new THREE.Vector3(0, 1.44 * 0.85, -0.28 * 0.85), makeRing(0.3, 1.15), buckets.shade.length);
-  addPack("boss", makeBossGeo(rand), new THREE.Vector3(0, 1.66, -0.42), makeWedge(2.4), buckets.boss.length);
+  addPack("skirmisher", makeSkirmisherGeo(rand, foePal), new THREE.Vector3(0, 0.7, -0.24), makeRing(0.35, 1.15), skirmCap);
+  addPack("brute", makeBruteGeo(rand, foePal), new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length);
+  addPack("spitter", makeSpitterGeo(rand, foePal), new THREE.Vector3(0, 0.5, -0.58), makeRing(0.3, 1.05), buckets.spitter.length);
+  addPack("shade", makeShadeGeo(rand, foePal), new THREE.Vector3(0, 1.44 * 0.85, -0.28 * 0.85), makeRing(0.3, 1.15), buckets.shade.length);
+  addPack("boss", makeBossGeo(rand, foePal), new THREE.Vector3(0, 1.66, -0.42), makeWedge(2.4), buckets.boss.length);
 
   let bossDonut = null;
   if (buckets.boss.length) {
@@ -542,6 +923,7 @@ export function buildFloorMesh(plan) {
     mesh.instanceMatrix.needsUpdate = true;
   }
 
+  let beaconHeld = bossFloor;
   function syncActors(list) {
     const names = ["skirmisher", "brute", "spitter", "shade", "boss"];
     for (let n = 0; n < names.length; n++) {
@@ -574,6 +956,17 @@ export function buildFloorMesh(plan) {
       if (pack.ring) pack.ring.instanceMatrix.needsUpdate = true;
     }
     if (bossDonut) bossDonut.instanceMatrix.needsUpdate = true;
+    if (bossFloor) {
+      let held = false;
+      for (let i = 0; i < foes.length; i++) if (foes[i] && foes[i].boss && foes[i].hp > 0) held = true;
+      if (held !== beaconHeld) {
+        beaconHeld = held;
+        const hex = held ? 0xb64034 : 0xe2ba60;
+        beacon.material.color.setHex(hex);
+        beacon.material.emissive.setHex(hex);
+        stairsLight.color.setHex(held ? 0xff6a4a : 0xe2ba60);
+      }
+    }
     if (orbMesh) {
       for (let i = 0; i < orbs.length && i < orbMesh.count; i++) {
         const o = orbs[i];
@@ -601,6 +994,7 @@ export function buildFloorMesh(plan) {
   root.userData.wallMesh = wallMesh;
   root.userData.occluders = wallMesh ? [wallMesh] : [];
   root.userData.propColliders = propColliders;
+  root.userData.chests = chests;
   root.userData.actors = actors;
   root.userData.enemyMesh = enemyMesh;
   root.userData.telegraphMesh = telegraphMesh;

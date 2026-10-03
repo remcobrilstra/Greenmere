@@ -2,6 +2,8 @@
 
 import { raiseRank, upgradeCost } from "../sim/balance.js";
 import { RECIPES, tryCraft, tryUpgrade } from "../sim/items.js";
+import { affixLines, changeText, compareEquip, compareUpgrade, trackEffects, trackNext, upgradedCopy } from "../sim/gearstats.js";
+import { upgradeStatus } from "./character.js";
 
 export const PACK_CAP = 24;
 export const STASH_CAP = 48;
@@ -88,11 +90,24 @@ function itemLabel(item) {
 }
 
 const TRAINER_ROWS = [
-  ["edge", "Edge"],
-  ["bulwark", "Bulwark"],
-  ["mend", "Mend"],
-  ["delver", "Delver"]
+  ["edge", "Edge", "Your strike: damage, reach, and speed."],
+  ["bulwark", "Bulwark", "Your ward: how much it soaks and how long it holds."],
+  ["mend", "Mend", "Your heal: how much, how fast, and how cheap."],
+  ["delver", "Delver", "Getting about: speed, the hearth home, and extra materials."]
 ];
+
+// What a carried supply does, in one line.
+const SUPPLY_TEXT = {
+  "draught-hp": "Restores " + DRAUGHT_HEAL + " health. Drink it from the action bar.",
+  oil: "Coats the blade: the next strikes deal 15% more damage, one charge each.",
+  kit: "Pays the materials for one upgrade at The Quench (gold is still due)."
+};
+const RECIPE_TEXT = {
+  "draught-hp": "Each restores " + DRAUGHT_HEAL + " health.",
+  oil: "10 strikes at +15% damage.",
+  kit: "Stands in for the materials of one upgrade."
+};
+const MAT_NAMES = ["heartwood", "rootfiber", "slag", "emberglass"];
 
 export function attachPanels(rt) {
   const buyback = [];
@@ -142,6 +157,50 @@ export function attachPanels(rt) {
     btn.classList.remove("deny");
     void btn.offsetWidth;
     btn.classList.add("deny");
+  }
+
+  // A full-width line under a row's name.
+  function detail(row, text, cls) {
+    row.appendChild(el("span", "detail" + (cls ? " " + cls : ""), text));
+  }
+
+  // Stat changes as green and red pieces: "Strike damage +3 · Max health −12".
+  function changeLine(row, prefix, changes) {
+    const line = el("span", "detail");
+    if (prefix) line.appendChild(el("span", "", prefix));
+    changes.forEach((c, i) => {
+      if (i) line.appendChild(el("span", "", "  ·  "));
+      line.appendChild(el("span", c.good ? "up" : "down", changeText(c)));
+    });
+    row.appendChild(line);
+  }
+
+  // What a carried piece is, and what wearing it would change.
+  function gearDetails(row, item, opts) {
+    const lines = affixLines(item);
+    detail(row, (lines.length ? lines.join("  ·  ") : "No affixes") + "  ·  ilvl " + Math.floor(Number(item.ilvl) || 0));
+    if (!opts || !opts.compare) return;
+    const cmp = compareEquip(rt.session, item);
+    if (!cmp) return;
+    const tag = { better: "▲ Better", worse: "▼ Worse", mixed: "◆ Trade-off", same: "= Same" }[cmp.verdict];
+    row.insertBefore(el("span", "verdict " + cmp.verdict, tag), row.children[1] || null);
+    const vs = "vs " + (cmp.worn ? itemLabel(cmp.worn) : "empty " + item.slot) + ": ";
+    if (cmp.changes.length) changeLine(row, vs, cmp.changes);
+    else detail(row, vs + "no change to your stats.", "muted");
+  }
+
+  function supplyDetails(row, item) {
+    const text = item && SUPPLY_TEXT[item.consumableId];
+    if (!text) return;
+    const charges = item.consumableId === "oil" ? "  " + Math.floor(Number(item.charges) || 0) + " charges left." : "";
+    detail(row, text + charges, "muted");
+  }
+
+  function carried(id) {
+    const pack = rt.session && Array.isArray(rt.session.pack) ? rt.session.pack : [];
+    let n = 0;
+    for (const it of pack) if (it && it.kind === "consumable" && it.consumableId === id) n += Math.max(1, Math.floor(Number(it.stack) || 1));
+    return n;
   }
 
   // Keeper name, then what they are saying, with a control to hear more.
@@ -222,6 +281,11 @@ export function attachPanels(rt) {
     const night = rt.townClock ? rt.townClock.phase : 0.5;
     const late = night < 0.24 || night >= 0.7;
     panel.appendChild(el("p", "section-label", "Rooms"));
+    const v = rt.vitals;
+    const hurt = v && (v.hp < v.hpMax || v.mp < v.mpMax);
+    panel.appendChild(el("p", "panel-line", "Free of charge. Restores health and mana to full"
+      + (v ? " (now " + Math.round(v.hp) + " / " + v.hpMax + " health, " + Math.round(v.mp) + " / " + v.mpMax + " mana)" : "")
+      + " and passes the time " + (late ? "until morning" : "until evening") + "." + (hurt ? "" : " You are already rested.")));
     const row = el("div", "row");
     row.appendChild(button("rest", late ? "Take a room until morning" : "Rest by the fire until evening"));
     panel.appendChild(row);
@@ -253,6 +317,11 @@ export function attachPanels(rt) {
     bankRow.appendChild(button("deposit", "Deposit"));
     bankRow.appendChild(button("withdraw", "Withdraw"));
     panel.appendChild(bankRow);
+    const allRow = el("div", "row");
+    allRow.appendChild(button("deposit-all", "Deposit all · " + purse));
+    allRow.appendChild(button("withdraw-all", "Withdraw all · " + bank));
+    panel.appendChild(allRow);
+    panel.appendChild(el("p", "panel-line muted", "Banked gold and stashed gear are safe if you fall below. Your purse and pack are not."));
     panel.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP));
     if (!pack.length) panel.appendChild(el("p", "panel-empty", "The pack is empty."));
     for (let i = 0; i < pack.length; i++) {
@@ -261,6 +330,7 @@ export function attachPanels(rt) {
       const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
       row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
       row.appendChild(el("span", "name", itemLabel(item)));
+      if (isGear(item)) gearDetails(row, item, { compare: true });
       row.appendChild(button("stash", "Stash", { "data-index": String(i) }));
       panel.appendChild(row);
     }
@@ -272,6 +342,7 @@ export function attachPanels(rt) {
       const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
       row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
       row.appendChild(el("span", "name", itemLabel(item)));
+      if (isGear(item)) gearDetails(row, item, { compare: true });
       row.appendChild(button("pack", "To pack", { "data-index": String(i) }));
       panel.appendChild(row);
     }
@@ -285,7 +356,10 @@ export function attachPanels(rt) {
       if ((recipe.station || "smith") !== station) continue;
       const row = el("div", "row pack-row");
       const gets = recipe.stack ? recipe.count + " " + recipe.name : recipe.name;
-      row.appendChild(el("span", "name", gets + "  ·  " + costLine(recipe)));
+      row.appendChild(el("span", "name", gets));
+      const have = carried(recipe.consumableId);
+      if (RECIPE_TEXT[recipe.id]) detail(row, RECIPE_TEXT[recipe.id] + (have ? "  You carry " + have + "." : ""), "muted");
+      costDetail(row, recipe);
       row.appendChild(button("craft", station === "still" ? "Distill" : "Craft", { "data-recipe": recipe.id }));
       panel.appendChild(row);
     }
@@ -310,25 +384,48 @@ export function attachPanels(rt) {
     while (panel.firstChild) panel.removeChild(panel.firstChild);
     panel.appendChild(el("p", "eyebrow", "The Circle"));
     keeperLine();
-    panel.appendChild(el("p", "panel-line", "Unspent points " + points));
+    panel.appendChild(el("p", "panel-line", "Unspent points " + points + (points ? "" : "  ·  you earn one each level")));
     for (let i = 0; i < TRAINER_ROWS.length; i++) {
       const key = TRAINER_ROWS[i][0];
       const label = TRAINER_ROWS[i][1];
       const rank = Math.max(0, Math.min(5, Math.floor(Number(tracks[key]) || 0)));
       const row = el("div", "row pack-row");
-      row.appendChild(el("span", "name", label + "  " + rank));
+      row.appendChild(el("span", "name", label + "  " + rank + " / 5"));
+      detail(row, TRAINER_ROWS[i][2], "muted");
+      const next = trackNext(key, rank);
+      if (rank >= 5) {
+        detail(row, "Mastered: " + trackEffects(key, rank).filter((e) => e[1] !== "—").map((e) => e[0] + " " + e[1]).join("  ·  "));
+      } else {
+        const line = el("span", "detail");
+        line.appendChild(el("span", "", "Rank " + (rank + 1) + ": "));
+        next.forEach((n, k) => {
+          if (k) line.appendChild(el("span", "", "  ·  "));
+          line.appendChild(el("span", "up", n[0] + " " + (n[1] === "—" ? n[2] : n[1] + " → " + n[2])));
+        });
+        row.appendChild(line);
+      }
       row.appendChild(button("raise", "Raise", { "data-track": key }));
       panel.appendChild(row);
     }
     panel.appendChild(button("close", "Close"));
   }
 
-  function costLine(cost) {
-    const parts = [Math.floor(Number(cost && cost.gold) || 0) + " gold"];
-    const mats = cost && cost.materials ? cost.materials : {};
-    const keys = Object.keys(mats);
-    for (let i = 0; i < keys.length; i++) parts.push(mats[keys[i]] + " " + keys[i]);
-    return parts.join(", ");
+  // "Costs 64 gold, 2 heartwood" with each part marked short when you lack it.
+  function costDetail(row, cost, skipMats) {
+    const s = rt.session || {};
+    const mats = s.materials || {};
+    const line = el("span", "detail");
+    line.appendChild(el("span", "", "Costs "));
+    const gold = Math.floor(Number(cost && cost.gold) || 0);
+    const purse = Math.floor(Number(s.purse) || 0);
+    line.appendChild(el("span", purse < gold ? "down" : "", gold + " gold"));
+    const req = !skipMats && cost && cost.materials ? cost.materials : {};
+    for (const k of Object.keys(req)) {
+      const have = Math.floor(Number(mats[k]) || 0);
+      line.appendChild(el("span", "", ", "));
+      line.appendChild(el("span", have < req[k] ? "down" : "", req[k] + " " + k + " (have " + have + ")"));
+    }
+    row.appendChild(line);
   }
 
   function matLine(materials) {
@@ -364,7 +461,7 @@ export function attachPanels(rt) {
       const item = equipped ? equipped[key] : null;
       if (!item || item.kind === "consumable") continue;
       gearRows += 1;
-      appendUpgradeRow(item, { "data-slot": key }, kit);
+      appendUpgradeRow(item, { "data-slot": key }, kit, key);
     }
     for (let i = 0; i < pack.length; i++) {
       const item = pack[i];
@@ -376,14 +473,28 @@ export function attachPanels(rt) {
     panel.appendChild(button("close", "Close"));
   }
 
-  function appendUpgradeRow(item, attrs, kit) {
+  // One piece at the smith: what +1 item level does for you, what it costs,
+  // and why it cannot be done yet.
+  function appendUpgradeRow(item, attrs, kit, worn) {
     const ilvl = Math.max(0, Math.floor(Number(item.ilvl) || 0));
     const themeId = Math.max(0, Math.floor(Number(item.themeId) || 0));
     const row = el("div", "row pack-row");
-    row.appendChild(el("span", "name", itemLabel(item) + "  ·  ilvl " + ilvl));
-    row.appendChild(el("span", "affix", costLine(upgradeCost(ilvl, themeId))));
+    row.appendChild(el("span", "name", itemLabel(item) + "  ·  ilvl " + ilvl + " → " + (ilvl + 1)));
+    if (worn) detail(row, "Worn · " + worn, "muted");
+    const up = compareUpgrade(rt.session, item);
+    if (up && up.hollow) {
+      detail(row, "No affixes: levelling it changes none of your stats.", "down");
+    } else if (up && up.changes.length) {
+      changeLine(row, worn ? "You gain: " : "If worn: ", up.changes);
+    } else {
+      detail(row, "Too small to show this level; affixes grow slowly with item level.", "muted");
+    }
+    detail(row, "Sells for " + sellValue(item) + " → " + sellValue(upgradedCopy(item)) + " gold", "muted");
+    costDetail(row, upgradeCost(ilvl, themeId));
+    const status = upgradeStatus(rt.session || {}, item);
+    if (status && !status.ok) detail(row, status.text, "down");
     row.appendChild(button("upgrade", "Upgrade", attrs));
-    if (kit) row.appendChild(button("upgrade-kit", "Use kit", attrs));
+    if (kit) row.appendChild(button("upgrade-kit", "Use kit (no materials)", attrs));
     panel.appendChild(row);
   }
 
@@ -419,12 +530,19 @@ export function attachPanels(rt) {
 
     panel.appendChild(el("p", "eyebrow", "Bramble & Board"));
     keeperLine();
-    panel.appendChild(el("p", "panel-line", "Purse " + purse));
+    panel.appendChild(el("p", "panel-line", "Purse " + purse + " gold"));
 
-    const buyRow = el("div", "row");
-    buyRow.appendChild(button("buy-hp", "Health draught · " + DRAUGHT_PRICE));
-    buyRow.appendChild(button("buy-mp", "Mana draught · " + DRAUGHT_PRICE));
+    panel.appendChild(el("p", "section-label", "For sale"));
+    const buyRow = el("div", "row pack-row");
+    buyRow.appendChild(el("span", "name", "Health Draught"));
+    detail(buyRow, "Restores " + DRAUGHT_HEAL + " health. You carry " + carried("draught-hp") + ".", "muted");
+    buyRow.appendChild(button("buy-hp", "Buy · " + DRAUGHT_PRICE + " gold"));
     panel.appendChild(buyRow);
+    const mpRow = el("div", "row pack-row");
+    mpRow.appendChild(el("span", "name", "Mana Draught"));
+    detail(mpRow, "You carry " + carried("draught-mp") + ".", "muted");
+    mpRow.appendChild(button("buy-mp", "Buy · " + DRAUGHT_PRICE + " gold"));
+    panel.appendChild(mpRow);
 
     panel.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP));
     if (!pack.length) panel.appendChild(el("p", "panel-empty", "The pack is empty."));
@@ -434,15 +552,13 @@ export function attachPanels(rt) {
       const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
       row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
       row.appendChild(el("span", "name", itemLabel(item)));
-      if (isGear(item) && item.affixes && item.affixes.length) {
-        const ids = [];
-        for (let k = 0; k < item.affixes.length; k++) {
-          if (item.affixes[k] && item.affixes[k].id) ids.push(item.affixes[k].id);
-        }
-        if (ids.length) row.appendChild(el("span", "affix", ids.join(" ")));
-      }
+      if (isGear(item)) gearDetails(row, item, { compare: true });
+      else supplyDetails(row, item);
       if (isGear(item) && item.slot) row.appendChild(button("equip", "Equip", { "data-index": String(i) }));
-      if (isGear(item)) row.appendChild(button("sell", "Sell · " + sellValue(item), { "data-index": String(i) }));
+      if (isGear(item)) {
+        const price = sellValue(item);
+        row.appendChild(button("sell", "Sell · " + price + " gold", { "data-index": String(i), title: "Purse " + purse + " → " + (purse + price) + ". Buy it back for the same price later this session." }));
+      }
       panel.appendChild(row);
     }
 
@@ -458,6 +574,7 @@ export function attachPanels(rt) {
       row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
       const label = wornLabel[key] + " · " + (item ? itemLabel(item) : "Empty");
       row.appendChild(el("span", "name", label.slice(0, 80)));
+      if (item) gearDetails(row, item);
       if (item) row.appendChild(button("unequip", "Unequip", { "data-slot": key }));
       panel.appendChild(row);
     }
@@ -529,7 +646,7 @@ export function attachPanels(rt) {
     if (!session) return;
     if (!Array.isArray(session.pack)) session.pack = [];
     if (!Array.isArray(session.stash)) session.stash = [];
-    const act = btn.getAttribute("data-act");
+    let act = btn.getAttribute("data-act");
     const index = btn.hasAttribute("data-index") ? Number(btn.getAttribute("data-index")) : -1;
     if (act === "close") {
       closePanel();
@@ -622,10 +739,12 @@ export function attachPanels(rt) {
       buy("draught-mp", btn);
       return;
     }
-    if (act === "deposit" || act === "withdraw") {
-      const n = amountValue();
+    if (act === "deposit" || act === "withdraw" || act === "deposit-all" || act === "withdraw-all") {
       const purse = Math.floor(Number(session.purse) || 0);
       const bank = Math.floor(Number(session.bank) || 0);
+      const n = act === "deposit-all" ? purse : act === "withdraw-all" ? bank : amountValue();
+      if (act === "deposit-all") act = "deposit";
+      else if (act === "withdraw-all") act = "withdraw";
       if (n <= 0 || (act === "deposit" ? purse < n : bank < n)) {
         refuse(btn);
         return;
@@ -833,7 +952,7 @@ export function attachPanels(rt) {
     let bestD = 2.2 + 1e-4;
     for (let i = 0; i < drops.length; i++) {
       const drop = drops[i];
-      if (!drop || drop.kind !== "gear" || !drop.item) continue;
+      if (!drop || drop.kind !== "gear" || !drop.item || drop.fly) continue;
       const dist = Math.hypot(player.position.x - drop.x, player.position.z - drop.z);
       if (dist <= bestD) {
         best = i;
@@ -867,6 +986,7 @@ export function attachPanels(rt) {
         drops.splice(i, 1);
         continue;
       }
+      if (drop.fly) continue;
       const dist = Math.hypot(player.position.x - drop.x, player.position.z - drop.z);
       if (dist > 1.35 + 1e-4) continue;
       if (drop.kind === "gold") {
