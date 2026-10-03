@@ -59,6 +59,16 @@
       background: #1a120c;
     }
     .portrait svg { display: block; width: 100%; height: 100%; }
+    .portrait .portrait-live { display: block; width: 100%; height: 100%; }
+    .portrait .portrait-live[hidden] { display: none; }
+    .sheet-doll {
+      float: right;
+      width: 120px;
+      height: 170px;
+      margin: 0 0 8px 10px;
+      border: 1px solid rgba(226, 186, 96, 0.45);
+      background: #1a120c;
+    }
     .identity { min-width: 0; }
     .eyebrow {
       margin: 0;
@@ -223,6 +233,8 @@
       cursor: pointer;
     }
     .slot svg { width: 24px; height: 24px; display: block; }
+    .slot.empty { opacity: 0.45; cursor: default; }
+    .slot.empty::after { content: ""; width: 24px; height: 24px; border: 1px dashed rgba(226, 186, 96, 0.35); }
     .slot .name {
       max-width: 100%;
       overflow: hidden;
@@ -857,11 +869,10 @@
           <span class="sweep"></span>
           <span class="name">Draught</span>
         </button>
-        <button type="button" class="slot" data-index="5" title="Kindle. 5 mana." aria-keyshortcuts="6" aria-label="Kindle, 5 mana">
+        <button type="button" class="slot empty" data-index="5" aria-keyshortcuts="6" aria-label="Empty slot">
           <span class="key">6</span>
-          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="14,4 18,4 18,7 14,7" fill="#d4a03a"/><polygon points="10,8 22,8 24,22 8,22" fill="#d4a03a"/><polygon points="13,11 19,11 20,19 12,19" fill="#ff8a2a"/><polygon points="12,22 20,22 18,27 14,27" fill="#3a2a22"/></svg>
           <span class="sweep"></span>
-          <span class="name">Kindle</span>
+          <span class="name"></span>
         </button>
         <button type="button" class="slot" data-index="6" title="Focus" aria-keyshortcuts="7" aria-label="Focus">
           <span class="key">7</span>

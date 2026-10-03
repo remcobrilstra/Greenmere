@@ -24,7 +24,7 @@ export function attachHud(rt) {
     { id: "mend", name: "Mend", cost: 14, cd: 8, heal: 22, say: "The wood steadies you.", full: "You are already hale." },
     { id: "hearth", name: "Hearth", cost: 0, cd: 1.6, say: "The campfire answers." },
     { id: "draught", name: "Draught", cost: 0, cd: 0, say: "The draught steadies you." },
-    { id: "kindle", name: "Kindle", cost: 0, cd: 3, say: "A warm light gathers in your hand." },
+    { id: "empty", name: "", cost: 0, cd: 0, say: "" },
     { id: "focus", name: "Focus", cost: 0, cd: 10, mana: 18, say: "You draw a slow breath.", full: "Your focus is already clear." },
     { id: "sprint", name: "Sprint", cost: 0, cd: 0, say: "Hold Shift to run." }
   ];
@@ -240,6 +240,8 @@ export function attachHud(rt) {
     applyRankStats();
     const a = abilities[index];
     if (!a) return { ok: false, reason: "missing" };
+    // Slot 6 is free for now (Kindle was removed).
+    if (a.id === "empty") return { ok: false, reason: "empty" };
     if (a.id === "draught") {
       const used = rt.useHealthDraught ? rt.useHealthDraught() : { ok: false, reason: "empty" };
       if (!used.ok) {
@@ -619,8 +621,6 @@ export function attachHud(rt) {
   slots[4].setAttribute("aria-label", "Draught");
   const draughtName = slots[4].querySelector(".name");
   if (draughtName) draughtName.textContent = "Draught";
-  slots[5].title = "Kindle";
-  slots[5].setAttribute("aria-label", "Kindle");
   resetHud();
   drawMinimap();
 }

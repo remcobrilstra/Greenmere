@@ -12,7 +12,7 @@ import {
   wardDuration,
   extractSeconds,
   mendCastSeconds,
-  MEND_PUSHBACK,
+  mendPushback,
   xpGrant,
   grantXp,
   foeProfile,
@@ -110,7 +110,7 @@ export function attachCombat(rt) {
   }
 
   // Hold 3 to mend. Moving 0.6 m, letting go, a strike, or the hearth breaks it;
-  // a broken mend spends nothing. A hit pushes the cast back (MEND_PUSHBACK) rather
+  // a broken mend spends nothing. A hit pushes the cast back (mendPushback) rather
   // than breaking it. On completion `done` applies cost and heal.
   function beginMend(done) {
     const s = session();
@@ -127,7 +127,8 @@ export function attachCombat(rt) {
 
   function pushBackMend() {
     if (!(mend.t > 0)) return;
-    mend.t = Math.max(0.0001, mend.t - MEND_PUSHBACK);
+    const s = session();
+    mend.t = Math.max(0.0001, mend.t - mendPushback(s && s.tracks ? s.tracks.mend : 0));
     rt.mendPushT = 0.35;
   }
 

@@ -40,7 +40,7 @@ import {
   orbHits
 } from "../sim/balance.js";
 import { generateFloor, setSealedThrows, tileToWorld, SAFE_RADIUS } from "../sim/floorgen.js";
-import { mendCastSeconds, MEND_PUSHBACK, DEATH_LOCK_S } from "../sim/balance.js";
+import { mendCastSeconds, MEND_PUSHBACK, mendPushback, DEATH_LOCK_S } from "../sim/balance.js";
 import { biomeIndex } from "../sim/biomes.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
@@ -244,6 +244,7 @@ export function installSelfTest(rt) {
     const tBefore = rt.castInfo().t;
     rt.hurtHero(5);
     check(!!rt.castInfo() && Math.abs(rt.castInfo().t - Math.max(0.0001, tBefore - MEND_PUSHBACK)) < 1e-6 && vitals.hp === 117, "a hit pushes Mend back instead of breaking it");
+    check(mendPushback(0) === MEND_PUSHBACK && mendPushback(1) === MEND_PUSHBACK && mendPushback(2) === MEND_PUSHBACK / 2 && mendPushback(5) === MEND_PUSHBACK / 2, "from Mend rank 2 a hit pushes the cast back half as far");
     rt.stepCombat(0.1);
     rt.hurtHero(5);
     rt.hurtHero(5);
@@ -1449,9 +1450,9 @@ export function installSelfTest(rt) {
 
     vitals.mp = 5;
     cdLeft[5] = 0;
-    const kindle = tryAbility(5);
-    check(kindle.ok && vitals.mp === 5, "Kindle costs 0 mana (" + vitals.mp + ")");
-    check(slots[5].title === "Kindle" && slots[5].getAttribute("aria-label") === "Kindle", "Kindle slot no longer prices 5 mana");
+    const emptySlot = tryAbility(5);
+    check(!emptySlot.ok && emptySlot.reason === "empty" && vitals.mp === 5 && cdLeft[5] === 0, "slot 6 is empty and does nothing");
+    check(slots[5].classList.contains("empty") && slots[5].getAttribute("aria-label") === "Empty slot" && !rt.abilityTip(5), "the empty slot is labelled and has no tooltip");
     check(rt.DECOR && rt.DECOR.join(",") === "flowers,grass,mushrooms,flame", "decor list is flowers, grass, mushrooms, flame");
 
     check(!rt.colliderOverlay, "collider overlay stays off without ?dev=1");

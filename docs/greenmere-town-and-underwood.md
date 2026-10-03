@@ -1041,7 +1041,7 @@ The action bar stays the eight buttons. Dungeon binding:
 | 3 | Digit3 | Mend | Mend |
 | 4 | Digit4 | Extract channel | Hearth, existing test behavior |
 | 5 | Digit5 | Draught after PR-05 | Draught after PR-05 |
-| 6 | Digit6 | Kindle line, 0 mana after PR-03 | same |
+| 6 | Digit6 | empty (Kindle removed) | same |
 | 7 | Digit7 | Focus, existing numbers | Focus |
 | 8 | Shift | Sprint, lit state as today | Sprint |
 

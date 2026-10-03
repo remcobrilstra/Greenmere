@@ -110,7 +110,11 @@ export function mendCooldown(rank) {
 }
 
 // A hit while mending pushes the cast back this far (it never goes below empty).
+// From rank 2 the Warden's hands are steadier: half as far.
 export const MEND_PUSHBACK = 0.5;
+export function mendPushback(rank) {
+  return clampRank(rank) >= 2 ? MEND_PUSHBACK / 2 : MEND_PUSHBACK;
+}
 
 // Mend is a held channel: 1.5 s at rank 0, 0.1 s quicker per rank to 1.1 s.
 // Moving 0.6 m or letting go breaks it and spends nothing; a hit pushes it back.

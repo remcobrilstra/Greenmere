@@ -12,6 +12,7 @@ export function attachHeroLook(rt, hero) {
     if (next === sig) return false;
     sig = next;
     rt.heroLooks = hero.dress(eq);
+    if (rt.refreshPortrait) rt.refreshPortrait();
     return true;
   }
   const prevPose = rt.poseHero;

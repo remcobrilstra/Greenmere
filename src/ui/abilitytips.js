@@ -8,7 +8,7 @@ import {
   mendCost,
   mendHot,
   mendCastSeconds,
-  MEND_PUSHBACK,
+  mendPushback,
   wardCost,
   wardDuration,
   wardAbsorb,
@@ -68,7 +68,7 @@ export function abilityTip(rt, index) {
         name: "Mend", key,
         meta: [mendCost(r) + " mana", fmt(mendCastSeconds(r)) + " s cast", "no cooldown"],
         body: "Hold to channel, then heal " + mendHeal(r) + " health" + (hot ? " and " + hot + " more over 4 s" : "") + ". Moving or letting go breaks it and spends nothing.",
-        note: "Each hit while casting pushes it back " + fmt(MEND_PUSHBACK) + " s."
+        note: "Each hit while casting pushes it back " + fmt(mendPushback(r)) + " s."
       };
     }
     case 3:
@@ -95,11 +95,7 @@ export function abilityTip(rt, index) {
       };
     }
     case 5:
-      return {
-        name: "Kindle", key,
-        meta: ["3 s cooldown"],
-        body: "Gather a warm light in your hand."
-      };
+      return null; // empty slot
     case 6:
       return {
         name: "Focus", key,

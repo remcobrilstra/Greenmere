@@ -6,7 +6,7 @@
 
 import {
   affixValue, strikeDamage, wardAbsorb, edgeMul, strikeRange, strikeArcDeg, strikeCooldown,
-  wardAbsorbMul, wardCost, wardDuration, mendHeal, mendCost, mendCooldown, MEND_PUSHBACK, mendCastSeconds,
+  wardAbsorbMul, wardCost, wardDuration, mendHeal, mendCost, mendCooldown, mendPushback, mendCastSeconds,
   mendHot, walkSpeed, sprintSpeed, extractSeconds
 } from "./balance.js";
 import { affixDef, gearTotals } from "./items.js";
@@ -168,7 +168,7 @@ export function trackEffects(track, rank) {
       ["Then over time", mendHot(r) ? "+" + mendHot(r) + " health" : "—"],
       ["Mend cost", mendCost(r) + " mana"],
       ["Mend cast", fmt(mendCastSeconds(r)) + " s"],
-      ["Hit while casting", "pushes back " + fmt(MEND_PUSHBACK) + " s"]
+      ["Hit while casting", "pushes back " + fmt(mendPushback(r)) + " s"]
     ];
   }
   if (track === "delver") {

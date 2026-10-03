@@ -103,6 +103,8 @@ export function attachCharacter(rt) {
     close.setAttribute("data-act", "sheet-close");
     head.appendChild(close);
     sheet.appendChild(head);
+    // The Warden as dressed now (ui/portrait.js keeps it current).
+    if (rt.dollNode) sheet.appendChild(rt.dollNode);
 
     const level = Math.max(1, int(s.level));
     const need = xpToNext(level);
