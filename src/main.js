@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { applyTownLight } from "./view/lights.js";
 import { buildTown, TREE_COUNT, DECOR } from "./view/town.js";
 import { buildHero } from "./view/hero.js";
+import { villagerPartsReady } from "./view/townfolk.js";
 import { createViewCamera, attachCamera, bindOrbit } from "./play/camera.js";
 import { attachMovement, bindKeys } from "./play/move.js";
 import { attachTown } from "./play/town.js";
@@ -86,7 +87,7 @@ rt.camp = town.camp;
 rt.townRoot = town.townRoot;
 rt.stations = town.stations;
 rt.buildings = town.buildings;
-rt.townModelsReady = town.modelsReady;
+rt.townModelsReady = Promise.all([town.modelsReady, villagerPartsReady()]);
 rt.setTownTier = town.setTier;
 rt.getTownTier = town.getTier;
 rt.townTierMeshes = town.tierMeshes;
@@ -404,6 +405,8 @@ if (params.has("test")) {
     }
     rt.placeCamera(0, true);
   }
+  // ?dev=1&hide=hero hides the Warden, for close looks at whatever the camera frames.
+  if (rt.dev && params.get("hide") === "hero") rt.player.visible = false;
   // ?dev=1&open=store|smith|still|trainer|inn|bank opens that counter's panel.
   if (rt.dev && params.has("open")) {
     if (params.get("open") === "sheet" && rt.openSheet) rt.openSheet();

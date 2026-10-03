@@ -1,12 +1,143 @@
-// Code-built villagers in the Warden's language, but cheaper: one merged body
-// (torso, head, hair, hat, apron) and four limb pivots, all on one shared
-// vertex-colour Lambert material. Local forward is −z, like the hero.
+// Villagers: one merged body (torso, head, hair, hat, apron) and four limb
+// pivots, all on one vertex-colour Lambert material. Local forward is −z, like
+// the hero. They are built from code first; once the Blender part library
+// (assets/models/villager.glb, tools/blender/villagers.py) loads, every
+// villager is re-skinned from it, painted from their own `look`. The rig,
+// pivots and poses are the same either way.
 
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
 
 let _mat = null;
+
+// ---------- Blender part library ----------
+
+// Vertex colour R carries a slot ((slot + 0.5) / 16), G a baked shade.
+const SLOTS = ["tunic", "tunicDark", "trim", "skin", "hair", "leather", "boots", "eye", "linen", "apron",
+  "trousers", "hat", "gold", "lip", "skinShade", "white"];
+const PIVOTS = { arm_l: [-0.4, 1.33], arm_r: [0.4, 1.33], leg_l: [-0.15, 0.53], leg_r: [0.15, 0.53] };
+let library = null;
+let libraryAsked = false;
+let partMat = null;
+const waiting = [];
+let markReady = null;
+const ready = new Promise((res) => { markReady = res; });
+
+// Resolves once the part library has loaded (or failed) and every villager built so far is re-skinned.
+export function villagerPartsReady() {
+  requestLibrary();
+  return ready;
+}
+
+function requestLibrary() {
+  if (libraryAsked) return;
+  libraryAsked = true;
+  new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync("./assets/models/villager.glb").then((gltf) => {
+    gltf.scene.updateMatrixWorld(true);
+    const lib = {};
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh || !o.name.startsWith("vp_")) return;
+      const src = o.geometry;
+      const index = src.index;
+      const n = index ? index.count : src.attributes.position.count;
+      const pos = new Float32Array(n * 3);
+      const code = new Float32Array(n * 2);
+      const p = src.attributes.position;
+      const c = src.attributes.color;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < n; i++) {
+        const k = index ? index.getX(i) : i;
+        v.set(p.getX(k), p.getY(k), p.getZ(k)).applyMatrix4(o.matrixWorld);
+        pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
+        code[i * 2] = c ? c.getX(k) : 0;
+        code[i * 2 + 1] = c ? c.getY(k) : 1;
+      }
+      lib[o.name.slice(3)] = { pos, code };
+    });
+    library = lib;
+    partMat = lambert({ side: THREE.DoubleSide });
+    for (const v of waiting.splice(0)) reskin(v);
+    markReady(true);
+  }).catch((err) => {
+    console.warn("[townfolk] villager parts did not load; keeping the code-built villagers", err);
+    markReady(false);
+  });
+}
+
+function partsFor(look) {
+  const hat = look.hat || "none";
+  const body = ["torso"];
+  if (hat === "long") body.push("hair_long");
+  else if (hat === "bun") body.push("hair_bun");
+  else if (hat !== "hood") body.push("hair_short");
+  if (hat === "cap" || hat === "brim" || hat === "hood" || hat === "kerchief") body.push("hat_" + hat);
+  if (look.dress) body.push("dress");
+  if (look.apron) body.push("apron");
+  if (look.beard) body.push("beard");
+  return body;
+}
+
+function lookPalette(look) {
+  const skin = new THREE.Color(look.skin);
+  const hex = {
+    tunic: look.tunic, tunicDark: shade(look.tunic, 0.7), trim: look.trim, skin: look.skin, hair: look.hair,
+    leather: 0x5a3a24, boots: 0x2e2420, eye: 0x1a1a1a, linen: 0xf4e7c8, apron: look.apron || 0xe7d7b4,
+    trousers: shade(look.tunic, 0.45), hat: 0x5a3a24, gold: 0xd4a03a,
+    lip: skin.clone().lerp(new THREE.Color(0x8e3a2e), 0.35).getHex(), skinShade: shade(look.skin, 0.88), white: 0xf4f0e8
+  };
+  return SLOTS.map((k) => new THREE.Color(hex[k]));
+}
+
+// Painted, non-indexed geometry for the named parts, shifted by (dx, dy).
+function paintParts(names, pal, dx, dy) {
+  let count = 0;
+  for (const n of names) if (library[n]) count += library[n].pos.length;
+  const pos = new Float32Array(count);
+  const col = new Float32Array(count);
+  let o = 0;
+  for (const n of names) {
+    const part = library[n];
+    if (!part) continue;
+    const vc = part.pos.length / 3;
+    for (let i = 0; i < vc; i++) {
+      pos[o + i * 3] = part.pos[i * 3] + dx;
+      pos[o + i * 3 + 1] = part.pos[i * 3 + 1] + dy;
+      pos[o + i * 3 + 2] = part.pos[i * 3 + 2];
+      const c = pal[Math.min(15, Math.max(0, Math.floor(part.code[i * 2] * 16)))];
+      const k = part.code[i * 2 + 1];
+      col[o + i * 3] = c.r * k;
+      col[o + i * 3 + 1] = c.g * k;
+      col[o + i * 3 + 2] = c.b * k;
+    }
+    o += vc * 3;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function swapGeometry(mesh, geo) {
+  const old = mesh.geometry;
+  mesh.geometry = geo;
+  mesh.material = partMat;
+  old.dispose();
+}
+
+function reskin(v) {
+  const pal = lookPalette(v.look);
+  swapGeometry(v.torso, paintParts(partsFor(v.look), pal, 0, 0));
+  const limbs = [["arm_l", v.leftArm], ["arm_r", v.rightArm], ["leg_l", v.leftLeg], ["leg_r", v.rightLeg]];
+  for (const [name, group] of limbs) {
+    const [px, py] = PIVOTS[name];
+    swapGeometry(group.children[0], paintParts([name], pal, -px, -py));
+  }
+  v.reskinned = true;
+}
 
 function part(list, geo, hex, x, y, z, rx, ry, rz, rand) {
   const g = paintFaces(geo, [hex], rand);
@@ -94,7 +225,13 @@ export function buildVillager(look, seed) {
   const leftArm = limb(armParts(), -0.4, 1.33);
   const rightArm = limb(armParts(), 0.4, 1.33);
   root.scale.setScalar(s);
-  return { root, body, leftLeg, rightLeg, leftArm, rightArm, torso };
+  const v = { root, body, leftLeg, rightLeg, leftArm, rightArm, torso, look, reskinned: false };
+  if (library) reskin(v);
+  else {
+    waiting.push(v);
+    requestLibrary();
+  }
+  return v;
 }
 
 // Pose one villager. phase: walk cycle; blend 0..1 walking; work: arm loop name.

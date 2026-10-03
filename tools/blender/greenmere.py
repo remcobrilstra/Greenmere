@@ -1192,3 +1192,4 @@ def show(bid, view="front", dist=None):
             r3.view_rotation = Euler((math.radians(pitch), 0, math.radians(yaw)), 'XYZ').to_quaternion()
 
 exec(compile(open(os.path.join(HERE, "furnish.py")).read(), os.path.join(HERE, "furnish.py"), "exec"), globals())
+exec(compile(open(os.path.join(HERE, "villagers.py")).read(), os.path.join(HERE, "villagers.py"), "exec"), globals())
