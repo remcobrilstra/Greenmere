@@ -37,6 +37,7 @@ import { attachDebugKeys } from "./ui/debugkeys.js";
 import { attachAbilityTips } from "./ui/abilitytips.js";
 import { attachQuestMarks } from "./play/questmarks.js";
 import { installSelfTest } from "./test/self-test.js";
+import { attachResolution } from "./play/resolution.js";
 import { parseSave, migrate, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY } from "./sim/save.js";
 
 const params = new URLSearchParams(location.search);
@@ -60,15 +61,18 @@ applyTownLight(scene, rt);
 
 const camera = createViewCamera();
 rt.camera = camera;
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+// MSAA only where pixels are big enough to need it; at 1.5x and up it costs more than it shows.
+const renderer = new THREE.WebGLRenderer({ antialias: (window.devicePixelRatio || 1) < 1.5, powerPreference: "high-performance" });
+// The self-test renders at a fixed ratio; everything else adapts (play/resolution.js).
+const tickResolution = attachResolution(rt, renderer, params.has("test") ? new URLSearchParams("res=pin") : params);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 // Building walls cut away around the hero indoors (per-material clipping planes).
 renderer.localClippingEnabled = true;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// three r183 maps PCFSoftShadowMap to PCFShadowMap (with a warning); ask for it directly.
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.prepend(renderer.domElement);
 rt.renderer = renderer;
 
@@ -315,7 +319,10 @@ function takeDt(now) {
   last = now;
   return dt;
 }
+let lastFrameAt = 0;
 function frame(now) {
+  if (lastFrameAt) tickResolution(now - lastFrameAt, now);
+  lastFrameAt = now;
   const dt = takeDt(now);
   rt.update(dt);
   rt.tickHud(dt);

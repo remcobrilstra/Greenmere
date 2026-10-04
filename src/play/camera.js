@@ -17,14 +17,44 @@ export function attachCamera(rt) {
   const _mapFwd = new THREE.Vector3();
   const _mapCam = new THREE.Vector3();
 
-  function groundY(x, z) {
+  // The terrain mesh's own surface (view/town meshHeight), not a raycast: it is called
+  // several times a frame and a ray tests all 20,000 terrain triangles.
+  function terrainY(x, z) {
+    const at = rt.terrain && rt.terrain.userData.heightAt;
+    if (at) return at(x, z);
     _rayOrigin.set(x, 48, z);
     _rayDir.set(0, -1, 0);
     _raycaster.set(_rayOrigin, _rayDir);
     _raycaster.near = 0;
     _raycaster.far = 90;
     const hits = _raycaster.intersectObject(rt.terrain, false);
-    const ground = hits.length ? hits[0].point.y : terrainHeight(x, z);
+    return hits.length ? hits[0].point.y : terrainHeight(x, z);
+  }
+  // Distance along a ray (unit dir) to where it first dips under the terrain, or -1.
+  // Marches in 0.5 m steps and refines the crossing by bisection.
+  function terrainRayHit(from, dir, far) {
+    const at = rt.terrain && rt.terrain.userData.heightAt;
+    if (!at) return -1;
+    const step = 0.5;
+    let prev = 0;
+    for (let t = step; ; t += step) {
+      const d = Math.min(t, far);
+      if (from.y + dir.y * d < at(from.x + dir.x * d, from.z + dir.z * d)) {
+        let lo = prev;
+        let hi = d;
+        for (let k = 0; k < 6; k++) {
+          const mid = (lo + hi) / 2;
+          if (from.y + dir.y * mid < at(from.x + dir.x * mid, from.z + dir.z * mid)) hi = mid;
+          else lo = mid;
+        }
+        return hi;
+      }
+      if (d >= far) return -1;
+      prev = d;
+    }
+  }
+  function groundY(x, z) {
+    const ground = terrainY(x, z);
     // Building floors sit above the flat town core.
     const floor = rt.floorAt ? rt.floorAt(x, z) : null;
     return floor != null && floor > ground ? floor : ground;
@@ -55,7 +85,9 @@ export function attachCamera(rt) {
         const occluders = rt.activeOccluders || [];
         if (occluders.length) hits = _raycaster.intersectObjects(occluders, false);
       } else {
-        hits = _raycaster.intersectObject(rt.terrain, false);
+        const t = terrainRayHit(_focus, _rayDir, len);
+        if (t >= 0) hits = [{ distance: t }];
+        else if (!(rt.terrain && rt.terrain.userData.heightAt)) hits = _raycaster.intersectObject(rt.terrain, false);
         const occluders = rt.townOccluders ? rt.townOccluders() : null;
         if (occluders && occluders.length) {
           const more = _raycaster.intersectObjects(occluders, false);

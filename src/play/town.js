@@ -198,6 +198,8 @@ export function attachTown(rt) {
     if (rt.tickAmbience) rt.tickAmbience(dt, time);
     if (rt.tickGuide) rt.tickGuide(dt);
     tickGate(time);
+    const cull = rt.townRoot && rt.townRoot.userData.cullScatter;
+    if (cull) cull(rt.camera.position);
   }
   rt.syncTownTier = syncTier;
 

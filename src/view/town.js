@@ -72,15 +72,41 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   const BUSH_COLS = [0x1f6a34, 0x2d8a3e, 0x3e9a36, 0x4eaf45, 0x173f22, 0x6aaa44];
   const ROCK_COLS = [0x4c545e, 0x5e6771, 0x6e7882, 0x3e4650, 0x7d868f, 0x2f363e];
 
-  const terrainGeo = new THREE.PlaneGeometry(WORLD, WORLD, 100, 100);
+  const TERRAIN_SEGS = 100;
+  const terrainGeo = new THREE.PlaneGeometry(WORLD, WORLD, TERRAIN_SEGS, TERRAIN_SEGS);
+  // Vertex heights by grid index (row = world z from -HALF), kept for meshHeight.
+  const gridH = new Float32Array((TERRAIN_SEGS + 1) * (TERRAIN_SEGS + 1));
   {
     const p = terrainGeo.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i);
       const y = p.getY(i);
-      p.setZ(i, terrainHeight(x, -y));
+      const h = terrainHeight(x, -y);
+      p.setZ(i, h);
+      gridH[i] = h;
     }
     p.needsUpdate = true;
+  }
+  // Height of the terrain mesh itself at (x, z): the triangle PlaneGeometry puts there,
+  // interpolated. Same answer as a downward raycast on the mesh, in O(1).
+  // PlaneGeometry row iy runs from local y = +HALF down, i.e. world z = iy * cell - HALF;
+  // each cell is split along its (ix, iy + 1)-(ix + 1, iy) diagonal.
+  const CELL = WORLD / TERRAIN_SEGS;
+  const ROW = TERRAIN_SEGS + 1;
+  function meshHeight(x, z) {
+    const gx = (x + HALF) / CELL;
+    const gz = (z + HALF) / CELL;
+    if (!(gx >= 0 && gz >= 0 && gx <= TERRAIN_SEGS && gz <= TERRAIN_SEGS)) return terrainHeight(x, z);
+    const ix = Math.min(TERRAIN_SEGS - 1, Math.floor(gx));
+    const iz = Math.min(TERRAIN_SEGS - 1, Math.floor(gz));
+    const u = gx - ix;
+    const v = gz - iz;
+    const a = gridH[iz * ROW + ix];
+    const b = gridH[(iz + 1) * ROW + ix];
+    const c = gridH[(iz + 1) * ROW + ix + 1];
+    const d = gridH[iz * ROW + ix + 1];
+    if (u + v <= 1) return a + (d - a) * u + (b - a) * v;
+    return c + (b - c) * (1 - u) + (d - c) * (1 - v);
   }
   const terrainPainted = paintTerrain(terrainGeo);
   const terrain = new THREE.Mesh(terrainPainted, lambert());
@@ -88,19 +114,13 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   terrain.receiveShadow = true;
   townRoot.add(terrain);
   terrain.updateMatrixWorld(true);
+  // play/camera groundY and its terrain occlusion read this instead of raycasting.
+  terrain.userData.heightAt = meshHeight;
+  townRoot.userData.cullScatter = (cam) => cullScatter(cam);
 
-  // Same downward ray as play/camera groundY, so station feet sit on the mesh.
-  const _groundRay = new THREE.Raycaster();
-  const _groundFrom = new THREE.Vector3();
-  const _groundDown = new THREE.Vector3(0, -1, 0);
+  // Same surface as play/camera groundY, so station feet sit on the mesh.
   function groundAt(x, z) {
-    _groundFrom.set(x, 48, z);
-    _groundRay.set(_groundFrom, _groundDown);
-    _groundRay.near = 0;
-    _groundRay.far = 90;
-    const hits = _groundRay.intersectObject(terrain, false);
-    if (hits.length) return hits[0].point.y;
-    return terrainHeight(x, z);
+    return meshHeight(x, z);
   }
 
   // Smooth value noise on a lattice of `cell` metres (bilinear over hash2).
@@ -242,27 +262,81 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     ]);
   })();
 
-  function stampInstances(geo, items, castShadow) {
-    const mesh = new THREE.InstancedMesh(geo, lambert(), items.length);
-    mesh.castShadow = castShadow;
-    mesh.receiveShadow = true;
-    mesh.frustumCulled = false;
+  // Instanced scatter, cut into SCATTER_CELL-metre cells: one InstancedMesh per cell with
+  // bounds of its own, so the view and the sun's shadow camera both skip what they
+  // cannot see (one forest-wide mesh was drawn whole, twice, every frame). `reach` is
+  // the draw distance; cullScatter hides cells past it (the fog has them by then).
+  // Returns a handle whose `geometry` swaps every cell at once (Blender models).
+  const SCATTER_CELL = 50;
+  const scatterCells = [];
+  function stampInstances(geo, items, castShadow, reach) {
+    const material = lambert();
+    const buckets = new Map();
+    for (const it of items) {
+      const k = Math.floor((it.x + HALF) / SCATTER_CELL) + "," + Math.floor((it.z + HALF) / SCATTER_CELL);
+      let list = buckets.get(k);
+      if (!list) buckets.set(k, list = []);
+      list.push(it);
+    }
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      dummy.position.set(it.x, it.y, it.z);
-      dummy.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
-      dummy.scale.set(it.sx, it.sy, it.sz);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      color.setRGB(it.cr, it.cg, it.cb);
-      mesh.setColorAt(i, color);
+    const meshes = [];
+    for (const list of buckets.values()) {
+      const mesh = new THREE.InstancedMesh(geo, material, list.length);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = true;
+      for (let i = 0; i < list.length; i++) {
+        const it = list[i];
+        dummy.position.set(it.x, it.y, it.z);
+        dummy.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
+        dummy.scale.set(it.sx, it.sy, it.sz);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        color.setRGB(it.cr, it.cg, it.cb);
+        mesh.setColorAt(i, color);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      mesh.userData.reach = reach || 175;
+      // Never moves: skip the per-frame matrix compose.
+      mesh.matrixAutoUpdate = false;
+      townRoot.add(mesh);
+      meshes.push(mesh);
+      scatterCells.push(mesh);
     }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    townRoot.add(mesh);
-    return mesh;
+    return {
+      meshes,
+      get geometry() { return geo; },
+      set geometry(g) {
+        geo = g;
+        for (const m of meshes) {
+          m.geometry = g;
+          m.computeBoundingSphere();
+        }
+        cullX = Infinity;
+      }
+    };
+  }
+  // Hide scatter cells whose nearest edge is past their reach from the camera. Only
+  // reruns once the camera has moved a couple of metres.
+  let cullX = Infinity;
+  let cullZ = Infinity;
+  function cullScatter(cam) {
+    const mx = cam.x - cullX;
+    const mz = cam.z - cullZ;
+    if (mx * mx + mz * mz < 4) return;
+    cullX = cam.x;
+    cullZ = cam.z;
+    for (let i = 0; i < scatterCells.length; i++) {
+      const m = scatterCells[i];
+      const b = m.boundingSphere;
+      const dx = b.center.x - cam.x;
+      const dz = b.center.z - cam.z;
+      const r = m.userData.reach + b.radius;
+      m.visible = dx * dx + dz * dz < r * r;
+    }
   }
   function tint() {
     return {
@@ -349,11 +423,11 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     pushTree(Math.cos(a) * rad, Math.sin(a) * rad, 1, false);
   }
 
+  // Trunk and canopy share every instance transform, so each tree is one merged
+  // geometry: half the draw calls of drawing them apart.
   const treeMeshes = {
-    pineTrunk: stampInstances(pineTrunk, pines, true),
-    pineCanopy: stampInstances(pineCanopy, pines, true),
-    decTrunk: stampInstances(decTrunk, decs, true),
-    decCanopy: stampInstances(decCanopy, decs, true)
+    pine: stampInstances(mergeParts([pineTrunk, pineCanopy]), pines, true, 175),
+    dec: stampInstances(mergeParts([decTrunk, decCanopy]), decs, true, 175)
   };
 
   function scatter(count, avoidR, minDist, makeItem) {
@@ -401,7 +475,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sz: s * (0.9 + rand() * 0.3)
     }, tint());
   });
-  const scatterMeshes = Object.assign({ bush: stampInstances(bushGeo, bushes, true) }, treeMeshes);
+  const scatterMeshes = { bush: stampInstances(bushGeo, bushes, true, 110) };
 
   const rocks = scatter(230, FOREST_CLEAR_R - 2, 2.2, (x, z) => {
     const s = rand() > 0.86 ? 1.4 + rand() * 1.1 : 0.35 + rand() * 0.85;
@@ -421,7 +495,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     return item;
   });
   for (let v = 0; v < rockGeos.length; v++) {
-    scatterMeshes["rock" + v] = stampInstances(rockGeos[v], rocks.filter((r) => r.geo === v), true);
+    scatterMeshes["rock" + v] = stampInstances(rockGeos[v], rocks.filter((r) => r.geo === v), true, 120);
   }
 
   const flowers = [];
@@ -459,7 +533,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   }
   for (let v = 0; v < flowerGeos.length; v++) {
     const subset = flowers.filter((f) => f.geo === v);
-    if (subset.length) scatterMeshes["flower" + v] = stampInstances(flowerGeos[v], subset, false);
+    if (subset.length) scatterMeshes["flower" + v] = stampInstances(flowerGeos[v], subset, false, 60);
   }
 
   const grasses = [];
@@ -492,7 +566,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sx: s, sy: 0.55 + rand() * 0.6, sz: s
     }, tint()));
   }
-  scatterMeshes.grass = stampInstances(grassGeo, grasses, false);
+  scatterMeshes.grass = stampInstances(grassGeo, grasses, false, 60);
 
   const mushrooms = scatter(80, FOREST_CLEAR_R - 4, 1.2, (x, z) => {
     const s = 0.7 + rand() * 0.8;
@@ -502,7 +576,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sx: s, sy: s * (0.8 + rand() * 0.4), sz: s
     }, tint());
   });
-  scatterMeshes.mushroom = stampInstances(mushroomGeo, mushrooms, false);
+  scatterMeshes.mushroom = stampInstances(mushroomGeo, mushrooms, false, 50);
 
   // Blender-built rocks, bush, flowers, grass and mushroom (assets/models/nature.glb)
   // take over the instanced geometry; instance placement and tints stay.
@@ -513,6 +587,12 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       if (!lib[k]) continue;
       const old = scatterMeshes[k].geometry;
       scatterMeshes[k].geometry = lib[k];
+      old.dispose();
+    }
+    for (const k of Object.keys(treeMeshes)) {
+      if (!lib[k + "Trunk"] || !lib[k + "Canopy"]) continue;
+      const old = treeMeshes[k].geometry;
+      treeMeshes[k].geometry = mergeParts([lib[k + "Trunk"], lib[k + "Canopy"]]);
       old.dispose();
     }
   }).catch((err) => console.warn("[town] nature models did not load; keeping the code-built scatter", err));

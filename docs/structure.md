@@ -37,9 +37,10 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/terrain.js` | PR-00 | `terrainHeight`, `smoothstep`. |
 | `src/view/materials.js` | PR-00 | `paintFaces`, `mergeParts`, `lambert`, `makeMat`. |
 | `src/view/hero.js` | PR-00 | The Warden. Local forward is −z. Built from code, then from the Blender piece library (`assets/models/hero.glb`, `tools/blender/hero.py`) once loaded: base and every gear tier painted from `gearLook`, same rig groups, buckets and materials; `nose` and `toe` stay code-built. `hero.ready` resolves after the switch. |
-| `src/view/town.js` | PR-00 | Terrain, 3,050 trees, scatter, camp, `townRoot`. Owns `mulberry32(0x6e11e5)`. |
+| `src/view/town.js` | PR-00 | Terrain, 3,050 trees, scatter, camp, `townRoot`. Owns `mulberry32(0x6e11e5)`. The terrain's exact surface is `terrain.userData.heightAt` (no raycasts). Instanced scatter is cut into 50 m cells with their own bounds and a draw distance per kind (`townRoot.userData.cullScatter`, run from the town tick); each tree is one merged trunk + canopy geometry. |
 | `src/view/lights.js` | PR-00 | Sun, hemisphere, ambient, fog, `applyTownLight`. |
 | `src/play/camera.js` | PR-00 | `placeCamera`, `cameraPlanarBasis`, town `groundY`. |
+| `src/play/resolution.js` | Frame budget | `attachResolution`: adaptive pixel ratio (cap 1.75x, steps of 0.125 down while frames run past ~49 fps, back up after a calm 5 s, a level that fails right after a raise is skipped for 30 s); `rt.renderScale`. Dev `&res=pin` or `&res=<ratio>`; the self-test pins it. |
 | `src/play/move.js` | PR-00 | Movement, `dampAngle`, collider resolve. |
 | `src/ui/hud.js` | PR-00 | Plaques, vitals, action bar, minimap, `say`. |
 | `src/test/self-test.js` | PR-00 | `selfTestControls`. Assigns `window.__selfTestControls`. |
@@ -113,5 +114,7 @@ Character and nature libraries: `g["build_villagers"]()`, `g["build_animals"]()`
 Foes: `g["build_foes"]()` (or `g["build_foes"](["crypt"])`) writes `assets/models/foes-<key>.glb`; `g["preview_foes"]("crypt")` and `g["look_foes"]("crypt")` to look. Parts are named `fo_<key>_<archetype>_<part>` with the node origin on the joint; the motion rules per part live in `src/view/foes.js`.
 
 Dungeon kits: `g["build_dungeon"]()` (or `g["build_dungeon"](["crypt"])`) writes `assets/models/dungeon-<key>.glb` per biome; `g["preview_dungeon"]("crypt")` builds without baking and `g["look_dungeon"]("crypt")` frames the laid-out pieces. Pieces: `wall0..3` (a 4 m face, rock at z < 0, room at +z; built biomes 3.6 m tall), `cornerOut`, `cornerIn`, prop variants per floorgen kind (`urn0`, `urn1`, `pillar0`), `scatter0..2`, and `<piece>Glow` for the emissive parts. Palettes mirror `DUNGEON_THEMES` in `src/view/lights.js`.
+
+Frame cost: `node tools/perf.mjs [views]` times update, HUD and render submit (CPU), the GPU per render (timer queries) and the paced frame on the real GPU (ANGLE/D3D11), with `--dpr=1.75`, `--cpu` (top functions), `--meshes` (heaviest meshes), `--ablate` (one feature off at a time) and `--own` (serve this checkout: run a copy in a `git worktree` for before/after).
 
 3. `node tools/shots.mjs` renders every building view headless and writes `shots/sheet.png`; `--ab` adds a before column (models blocked), `--test` runs the self-test, `--time=0.9` shoots at night. Dungeon views `d-cave`, `d-temple`, `d-root`, `d-crypt`, `d-forge` wait for the biome kit. Raw views take any dev query (`q:at=x,z&cam=yaw,pitch,dist`); `&hide=hero` hides the Warden for close looks; `&near=<name>` drops it beside a named town object (`hen-0-0`, `cat-moss`, a villager id). Needs Playwright (found in the npx cache, or `npx playwright install chromium`).
