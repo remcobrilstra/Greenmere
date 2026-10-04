@@ -1291,56 +1291,127 @@ def wd_gem(f, big=False, runes=False):
     f.from_kit(kit, ("rigid", "chest"))
 
 
+def hm_head_ring(S, y, push):
+    """Points round the head at height y (head units), the loops interpolated, each pushed
+    out from the head's axis by `push` (head units). Front centre first, then round."""
+    loops = HM_HEAD_LOOPS
+    for li in range(len(loops) - 1):
+        if loops[li][0] <= y <= loops[li + 1][0]:
+            break
+    y0, a = loops[li]
+    y1, b = loops[li + 1]
+    t = (y - y0) / max(1e-6, y1 - y0)
+    k = hm_loop_k(S, y)
+    row = [(((xa + (xb - xa) * t)) * k, za + (zb - za) * t) for (xa, za), (xb, zb) in zip(a, b)]
+    full = row + [(-x, z) for x, z in reversed(row[1:-1])]
+    out = []
+    for x, z in full:
+        r = (x * x + z * z) ** 0.5 or 1
+        out.append((x * (1 + push / r), z * (1 + push / r)))
+    return out
+
+
 def wd_helm(f):
-    """The heirloom helm: a steel cap with a gold brow band, nasal and crest."""
+    """The heirloom helm, shaped from the head's own loops: a cap from the brow up, down
+    behind the ears and to the nape at the back, a gold rim on its edge, a nasal and a crest."""
+    S = f.S
     U, h = hm_head_frame(f)
+    loops = HM_HEAD_LOOPS
+    T = 0.075                                   # standing off the skull (head units)
+    def covered(li, x, z):
+        if li >= 5:                             # brow and up, all round
+            return True
+        if li >= 3:                             # behind the ears, down past them
+            return z > 0.16
+        return li >= 2 and z > 0.22             # the nape
+    rows, cov = [], []
+    for li in range(1, len(loops)):
+        y = loops[li][0]
+        ring_pts = hm_head_ring(S, y, T + (0.012 if li == len(loops) - 1 else 0))
+        _, raw = loops[li]
+        raw_full = raw + [(-x, z) for x, z in reversed(raw[1:-1])]
+        rows.append([U(x, y, z) for x, z in ring_pts])
+        cov.append([covered(li, x, z) for x, z in raw_full])
+    top = U(0, 1.0 + T, 0.04)
+    w = len(rows[0])
+    verts = [p for r in rows for p in r] + [top]
+    faces, cols = [], []
+    edge_count = {}
+    def add_face(fc, col):
+        faces.append(fc)
+        cols.append(col)
+        for i in range(len(fc)):
+            e = tuple(sorted((fc[i], fc[(i + 1) % len(fc)])))
+            edge_count[e] = edge_count.get(e, 0) + 1
+    for r in range(len(rows) - 1):
+        for k in range(w):
+            q = (k + 1) % w
+            if cov[r][k] and cov[r][q] and cov[r + 1][k] and cov[r + 1][q]:
+                add_face((r * w + k, r * w + q, (r + 1) * w + q, (r + 1) * w + k), hm_tone(HM_STEEL, f.rnd))
+    tr = len(rows) - 1
+    for k in range(w):
+        add_face((tr * w + k, tr * w + (k + 1) % w, len(verts) - 1), hm_tone(HM_STEEL, f.rnd))
+    f.add(verts, faces, cols, ("rigid", "head"))
     kit = Kit(0)
     kit.r = f.rnd
-    c = U(0, 0.62, -0.01)
-    blob(kit, "helm", 1.0, lambda n, p: hm_tone(HM_STEEL, f.rnd) if n.y > -0.3 else shade(HM_STEEL[0], 0.75),
-         c.x, c.y, c.z, h * 0.5, h * 0.5, h * 0.52, noise=0.0, subdiv=2, seed=4)
-    R = kit.roles["helm"]
-    keep, keepc = [], []
-    for fc, col in zip(R["f"], R["c"]):
-        cen = sum((R["v"][i] for i in fc), Vector()) / 3
-        if cen.y < c.y - h * 0.08 and cen.z < c.z + h * 0.1:
-            continue          # open below the brow at the front and sides
-        if cen.y < c.y - h * 0.32:
+    # gold rim along every open edge of the cap
+    for (i, j), n in edge_count.items():
+        if n != 1:
             continue
-        keep.append(fc)
-        keepc.append(col)
-    R["f"], R["c"] = keep, keepc
-    b = U(0, 0.6, 0)
-    ring(kit, "helm", h * 0.47, 0.025, HM_TRIM, b.x, b.y, b.z + h * 0.02, rx=math.pi / 2, sz=1.05, segs=18, sides=4)
-    n = U(0, 0.5, -0.47)
-    kit.box("helm", h * 0.06, h * 0.26, h * 0.04, HM_STEEL, n.x, n.y, n.z)
-    t = U(0, 1.02, 0.02)
-    kit.box("helm", h * 0.05, h * 0.12, h * 0.7, HM_TRIM, t.x, t.y, t.z)
+        a_, b_ = verts[i], verts[j]
+        mid = (a_ + b_) / 2
+        out = Vector((mid.x - U(0, 0, 0).x, 0, mid.z - U(0, 0, 0).z)).normalized()
+        kit.frame = wd_frame(mid + out * 0.006, b_ - a_, out)
+        kit.box("rim", h * 0.045, (b_ - a_).length + h * 0.02, h * 0.035, HM_TRIM)
+        kit.frame = Matrix.Identity(4)
+    # nasal: down the bridge of the nose from the brow
+    # (it lies on the bridge: the brow and nose-bridge points of the head, a hair in front)
+    br = U(0, 0.62, loops[5][1][0][1] - 0.045)
+    nb = U(0, 0.47, -0.45 - 0.03)
+    mid = (br + nb) / 2
+    d = br - nb
+    kit.box("nasal", h * 0.07, d.length, h * 0.035, HM_STEEL, mid.x, mid.y, mid.z, rx=math.atan2(d.z, d.y))
+    # crest: a gold ridge along the centre line, front to back
+    line = [U(0, y, z) for y, z in ((0.78, loops[6][1][0][1] - T), (0.92, loops[7][1][0][1] - T), (1.0 + T, 0.04),
+                                   (0.92, loops[7][1][-1][1] + T), (0.78, loops[6][1][-1][1] + T))]
+    for p0, p1 in zip(line, line[1:]):
+        m = (p0 + p1) / 2
+        d = p1 - p0
+        kit.box("crest", h * 0.05, h * 0.09, d.length + h * 0.02, HM_TRIM, m.x, m.y + h * 0.035, m.z, rx=-math.atan2(d.y, d.z))
     f.from_kit(kit, ("rigid", "head"))
 
 
 def wd_circlet(f, hood=False, part="circlet"):
     U, h = hm_head_frame(f)
-    j = f.j
+    j, S = f.j, f.S
     kit = Kit(0)
     kit.r = f.rnd
     if hood:
         c = j["neckTop"].lerp(j["crown"], 0.52)
         at = c + Vector((0, h * 0.18, 0.0))
         rx, rz = h * 0.5, h * 0.53
+        band = [at + Vector((math.sin(a) * rx, 0, -math.cos(a) * rz)) for a in [i * math.pi * 2 / 16 for i in range(16)]]
     else:
-        at = U(0, 0.74, -0.01)
-        rx, rz = h * 0.44, h * 0.43
+        # traced round the head at the forehead, out past the hair
+        y = 0.74
+        band = [U(x, y, z) for x, z in hm_head_ring(S, y, 0.105)]
+    front = band[0]
+    n = len(band)
     if part == "circlet":
-        ring(kit, "c", rx, 0.02, HM_TRIM, at.x, at.y, at.z, rx=math.pi / 2, sy=rz / rx, segs=18, sides=4)
+        for i in range(n):
+            a_, b_ = band[i], band[(i + 1) % n]
+            m = (a_ + b_) / 2
+            d = b_ - a_
+            kit.box("c", h * 0.03, h * 0.06, d.length + h * 0.012, HM_TRIM, m.x, m.y, m.z, ry=math.atan2(d.x, d.z))
     elif part == "gem":
-        octa(kit, "c", h * 0.06, HM_STEEL, at.x, at.y + h * 0.02, at.z - rz - 0.01, 0.8, 1.2, 0.6)
+        octa(kit, "c", h * 0.055, HM_STEEL, front.x, front.y + h * 0.01, front.z - h * 0.03, 0.8, 1.2, 0.6)
     elif part == "crown":
-        for i in range(7):
-            a = (i / 7) * math.pi * 2
-            kit.cone("c", h * 0.045, h * 0.16, 4, HM_TRIM, at.x + math.sin(a) * rx, at.y + h * 0.09, at.z - math.cos(a) * rz)
+        for i in range(0, n, max(1, n // 7)):
+            p_ = band[i]
+            kit.cone("c", h * 0.045, h * 0.17, 4, HM_TRIM, p_.x, p_.y + h * 0.1, p_.z)
     elif part == "halo":
-        ring(kit, "c", h * 0.34, 0.016, HM_GLOW, at.x, at.y + h * 0.42, at.z + h * 0.05, rx=math.pi / 2 - 0.25, segs=20, sides=4)
+        top = U(0, 1.0, 0.04)
+        ring(kit, "c", h * 0.34, 0.016, HM_GLOW, top.x, top.y + h * 0.22, top.z + h * 0.05, rx=math.pi / 2 - 0.25, segs=20, sides=4)
     f.from_kit(kit, ("rigid", "head"))
 
 
@@ -2094,3 +2165,50 @@ def folk_clips(rig):
     for b in rig.pose.bones:
         b.rotation_quaternion = (1, 0, 0, 0)
     return [t.name for t in rig.animation_data.nla_tracks]
+
+
+def render_head(names, out_dir, tag="", yaws=(180, 215, 270, 0), look=None, w=420, h=420, dist=1.15):
+    """Close Workbench renders of the Warden's head with `names` shown, one per yaw
+    (180 = from the front), for checking head gear against the head."""
+    os.makedirs(out_dir, exist_ok=True)
+    scn = bpy.data.scenes["gm_warden"]
+    bpy.context.window.scene = scn
+    rig = scn.objects["wd_rig"]
+    rig.hide_render = True
+    if rig.animation_data:
+        rig.animation_data.use_nla = False
+        rig.animation_data.action = None
+    for b in rig.pose.bones:
+        b.rotation_quaternion = (1, 0, 0, 0)
+    bpy.context.view_layer.update()
+    wd_preview_paint(scn, names, look if look is not None else PREVIEW_OUTFITS[1][1])
+    scn.render.engine = 'BLENDER_WORKBENCH'
+    sh = scn.display.shading
+    sh.light = 'STUDIO'
+    sh.color_type = 'VERTEX'
+    sh.show_shadows = False
+    scn.render.resolution_x, scn.render.resolution_y = w, h
+    if scn.world is None:
+        scn.world = bpy.data.worlds.new("hm_world")
+    scn.world.color = (0.08, 0.09, 0.1)
+    cam = bpy.data.objects.get("wd_cam")
+    if cam is None:
+        cam = bpy.data.objects.new("wd_cam", bpy.data.cameras.new("wd_cam"))
+        scn.collection.objects.link(cam)
+    scn.camera = cam
+    hb = rig.data.bones["head"]
+    target = rig.matrix_world @ hb.head_local.lerp(hb.tail_local, 0.45)
+    files = []
+    for yaw in yaws:
+        yr = math.radians(yaw)
+        cam.location = target + Vector((-math.sin(yr) * dist, -math.cos(yr) * dist, 0.12))
+        cam.rotation_euler = (target - cam.location).normalized().to_track_quat('-Z', 'Y').to_euler()
+        cam.data.lens = 60
+        path = os.path.join(out_dir, "%s%03d.png" % (tag, yaw))
+        scn.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+        files.append(path)
+    for o in scn.objects:
+        if o.type == 'MESH' and "Col" in o.data.color_attributes:
+            o.data.color_attributes.active_color = o.data.color_attributes["Col"]
+    return files
