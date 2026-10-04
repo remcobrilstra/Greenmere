@@ -4,7 +4,7 @@
 |---|---|
 | Owner | Dungeon |
 | Date | 2026-10-04 |
-| Status | Design, not started |
+| Status | Phase 1 implemented |
 | Extends | `docs/greenmere-town-and-underwood.md`, `src/sim/floorgen.js`, `src/sim/balance.js` |
 
 Traps add a second layer to a floor: foes threaten the Warden directly, and traps decide where the fight can happen. The Warden has no dodge or jump: the verbs are walk, sprint, strike, ward, mend (a channel that moving breaks), and extract. So every trap is beaten by **position, timing, or a switch**, never by reflexes the controls do not have.
@@ -143,6 +143,14 @@ New pass in `generateFloor`, after chests and before props:
 | **2** | Alarm gong, dart corridor, trap budget per biome, minimap marks, Delver hooks. | Ambush and corridor play, plus progression. |
 | **3** | The rest of the biome traps, trap affixes on gear, the trapwise elite. | Variety. |
 | **4** | Trapped vaults, sealed rooms, gauntlets, mimics, boss trap phases. | Set pieces built on the systems that exist by then. |
+
+## 9a. Phase 1 notes
+
+- **Placement:** step 8 of `generateFloor` uses its own stream (`mixSeed(runSeed ^ 0x7a9b5, floor)`), so floors that existed before traps keep exactly the same layout, foes, chests, and props. Spike plates go on room cells with floor on all four sides. Flame jets and fire walls go on straight one-wide corridor cells. Spike plates are capped at 60% of the budget, and fire walls at 2 per floor. No two traps, or a trap and a valve, sit on touching cells. Traps also avoid prop, chest, and spawn cells.
+- **Valve:** stands on the corridor cell on the entrance side of its fire wall, against a side wall, with a feed pipe along the wall to the trap. F starts a 1.2 s turn. Moving 0.6 m or taking any damage breaks it. `rt.castInfo` reports it as kind `"valve"`.
+- **Foes:** brutes, elites, and bosses spring plates. Every foe takes damage from a hot trap, using a foot circle at 60% of its hurt radius. Trap kills go through `rt.woundFoe`, the same path as a sword kill (XP, loot, `run.killed`).
+- **Numbers:** spike plate 1.2× a skirmisher hit, with a 0.38 s wind-up (walking across takes ~0.47 s, sprinting ~0.26 s). Flame jet 0.6× per 0.5 s on a 4.4 s cycle (0.9 s glow, 1.4 s fire, 2.1 s off). Fire wall 1.4× per 0.4 s. All damage goes through guard and ward.
+- **Not in phase 1:** the material reward for switching off a trap, minimap marks, and Delver or gear hooks (phase 2).
 
 ## 10. Open points
 

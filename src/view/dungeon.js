@@ -5,6 +5,7 @@ import { lambert } from "./materials.js";
 import { dungeonTheme } from "./lights.js";
 import { makeBuilder, writeProp, pick, preloadDungeonKits, loadDungeonKit, dungeonKit, kitVariants, stampPiece } from "./dungeonkit.js";
 
+import { buildTraps } from "./traps.js";
 import { FOE_DEFAULT, preloadFoeSets, loadFoeSet, foeSet, riggedFoeGeometry, codeFoeGeometry, foeMaterials, addAnimBuffer, makeFoeAnimator } from "./foes.js";
 
 // The biome kits and foe sets load in the background from the start, so the first
@@ -616,6 +617,10 @@ export function buildFloorMesh(plan) {
     chests.push({ id: c.id, x, z, group: chest, lid: chest.userData.lid, gem: chest.userData.gem, hoard: chest.userData.hoard, open: 0, opened: false });
   }
 
+  // ---------- Traps (docs/traps.md) ----------
+  const trapView = buildTraps(plan, theme, propColliders);
+  root.add(trapView.group);
+
   // ---------- Arrival landing ----------
   const ent = tileToWorld(plan.entrance.col, plan.entrance.row, cols, rows);
   db.at(0, 0, 0, 0, 1);
@@ -1088,6 +1093,7 @@ export function buildFloorMesh(plan) {
   root.userData.occluders = wallMesh ? [wallMesh] : [];
   root.userData.propColliders = propColliders;
   root.userData.chests = chests;
+  root.userData.traps = trapView.items;
   root.userData.actors = actors;
   root.userData.enemyMesh = enemyMesh;
   root.userData.telegraphMesh = telegraphMesh;

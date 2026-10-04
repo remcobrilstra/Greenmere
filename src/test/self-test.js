@@ -42,6 +42,8 @@ import {
 import { generateFloor, setSealedThrows, tileToWorld, SAFE_RADIUS } from "../sim/floorgen.js";
 import { mendCastSeconds, MEND_PUSHBACK, mendPushback, DEATH_LOCK_S } from "../sim/balance.js";
 import { biomeIndex } from "../sim/biomes.js";
+import { TRAP_BASE, trapDef, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches } from "../sim/traps.js";
+import { trapBudget, trapDamage } from "../sim/balance.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
 import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
@@ -3251,6 +3253,113 @@ export function installSelfTest(rt) {
     rt.applySaveDoc(chestDoc);
     const reChest = rt.dungeonRoot.userData.chests[0];
     check(reChest.opened && rt.groundDrops.length === chestDrops.length && rt.groundDrops.every((d) => !d.fly), "a resumed floor shows the chest open with its loot already on the ground");
+
+    // ---- Traps (docs/traps.md) ----
+    let trapEarly = 0;
+    let trapNearEntrance = 0;
+    let trapRouteBad = 0;
+    let trapTotal = 0;
+    let trapOnThing = 0;
+    let fireSeed = 0;
+    let fireFloor = 0;
+    let plateSeed = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const floor of [1, 2, 3, 6, 9, 14, 25, 33, 45, 58]) {
+        const plan = generateFloor(seed, floor);
+        if (floor < 3) trapEarly += plan.traps.length;
+        trapTotal += plan.traps.length;
+        trapRouteBad += unreachableSwitches(plan).length;
+        const ent = tileToWorld(plan.entrance.col, plan.entrance.row, plan.cols, plan.rows);
+        for (const t of plan.traps) {
+          const w = tileToWorld(t.col, t.row, plan.cols, plan.rows);
+          if (Math.hypot(w.x - ent.x, w.z - ent.z) < SAFE_RADIUS) trapNearEntrance++;
+          if ((t.col === plan.stairs.col && t.row === plan.stairs.row) || plan.chests.some((c) => c.col === t.col && c.row === t.row) || plan.spawns.some((s) => s.col === t.col && s.row === t.row)) trapOnThing++;
+          if (t.kind === "fireWall" && !fireSeed && floor >= 3 && floor <= 9) {
+            fireSeed = seed;
+            fireFloor = floor;
+          }
+          if (t.kind === "spikes" && !plateSeed && floor === 3) plateSeed = seed;
+        }
+      }
+    }
+    check(trapEarly === 0 && trapBudget(1) === 0 && trapBudget(2) === 0 && trapBudget(3) === 1, "floors 1 and 2 hold no traps; floor 3 has a budget of one");
+    check(trapTotal > 200, "deeper floors hold traps (" + trapTotal + " over 400 plans)");
+    check(trapNearEntrance === 0, "no trap within the entrance keep-out");
+    check(trapOnThing === 0, "no trap on the stairs, a chest, or a foe's spawn cell");
+    check(trapRouteBad === 0, "every fire wall's valve is reachable from the entrance with all fire walls standing");
+    check(JSON.stringify(generateFloor(7, 30).traps) === JSON.stringify(generateFloor(7, 30).traps), "trap placement is deterministic");
+
+    const jetDef = trapDef("flameJet");
+    const jet = makeTrapState({ id: 0, kind: "flameJet", x: 0, z: 0, axis: "x", phase: 0 });
+    stepTrap(jet, 0.01, jetDef.glow + jetDef.fire + 0.2, false);
+    check(!jet.hot && trapHits(jet, 0, 0) && !trapStrikes(jet, "hero", 0), "a flame jet in its off window does not burn");
+    stepTrap(jet, 0.01, jetDef.glow + 0.1, false);
+    check(jet.hot && trapStrikes(jet, "hero", 1) && !trapStrikes(jet, "hero", 1 + jetDef.tick * 0.5) && trapStrikes(jet, "hero", 1 + jetDef.tick), "a firing jet burns on contact, then once per tick");
+    check(!trapHits(jet, 0, jetDef.across + 0.5) && !trapHits(jet, jetDef.along + 0.5, 0), "the jet's footprint ends at its grate");
+    const plate = makeTrapState({ id: 1, kind: "spikes", x: 0, z: 0 });
+    stepTrap(plate, 0.016, 0, true);
+    check(plate.state === "arming" && !plate.hot, "stepping on a plate arms it without hurting yet");
+    stepTrap(plate, trapDef("spikes").arm + 0.01, 0, false);
+    check(plate.hot && trapStrikes(plate, "hero", 0) && !trapStrikes(plate, "hero", 0.3), "the spikes hit each target once per firing");
+
+    check(fireSeed > 0, "an early floor holds a fire wall (seed " + fireSeed + ", floor " + fireFloor + ")");
+    rt.startRun(fireSeed || 1, fireFloor || 3);
+    rt.fillPools();
+    const fireStates = rt.trapStates();
+    const fireIdx = fireStates.findIndex((t) => t.kind === "fireWall");
+    const fireView = rt.dungeonRoot.userData.traps[fireIdx];
+    const fire = fireStates[fireIdx];
+    check(!!fireView && !!fireView.sw && fireView.tongues.children.length > 0, "a fire wall is built with flames and a valve");
+    const fireGuard = rt.session.guard;
+    rt.session.wardAbsorb = 0;
+    const hpBefore = rt.vitals.hp;
+    player.position.set(fire.x, 0, fire.z);
+    rt.tickTraps(0.016, true);
+    check(rt.vitals.hp < hpBefore && hpBefore - rt.vitals.hp === incomingDamage(trapDamage(rt.session.run.floorIndex, trapDef("fireWall").dmgMul), fireGuard, 0).hpLoss, "walking into a fire wall burns for the trap's damage after guard (" + (hpBefore - rt.vitals.hp) + ")");
+    const foe = (rt.enemies || []).find((e) => e && e.hp > 0);
+    const foeHp = foe ? foe.hp : 0;
+    if (foe) {
+      foe.x = fire.x;
+      foe.z = fire.z;
+    }
+    player.position.set(fireView.sw.x, 0, fireView.sw.z);
+    rt.tickTraps(0.5, true);
+    check(!!foe && foe.hp < foeHp, "a foe standing in the fire wall burns too");
+    if (foe) {
+      foe.x = foe.spawnX;
+      foe.z = foe.spawnZ;
+    }
+    rt.fillPools();
+    check(!!rt.valveNear() && rt.valveNear().trap === fire, "standing by the valve offers it to F");
+    check(rt.tryUseValve() && rt.castInfo() && rt.castInfo().kind === "valve", "F starts turning the valve");
+    for (let i = 0; i < 40; i++) rt.tickTraps(0.033, false);
+    check(fire.disabled && !fire.hot && !fireView.tongues.visible && rt.session.run.killed.indexOf(TRAP_BASE + fire.id) >= 0, "the turned valve puts the fire wall out and the run remembers it");
+    check(!rt.valveNear(), "a shut valve is not offered again");
+    const trapDoc = JSON.parse(JSON.stringify(rt.captureSaveDoc()));
+    rt.applySaveDoc(trapDoc);
+    check(rt.trapStates()[fireIdx].disabled, "a resumed floor keeps the fire wall out");
+    rt.trapStates()[fireIdx].disabled = false;
+    rt.fillPools();
+    const valveAgain = rt.dungeonRoot.userData.traps[fireIdx].sw;
+    player.position.set(valveAgain.x, 0, valveAgain.z);
+    rt.tryUseValve();
+    player.position.set(valveAgain.x + 2, 0, valveAgain.z);
+    rt.tickTraps(0.033, false);
+    check(!rt.castInfo() || rt.castInfo().kind !== "valve", "stepping away lets the valve spin back");
+
+    check(plateSeed > 0, "a floor 3 plan holds a spike plate");
+    rt.startRun(plateSeed || 1, 3);
+    rt.fillPools();
+    const plates = rt.trapStates();
+    const plateLive = plates.find((t) => t.kind === "spikes");
+    const plateHp = rt.vitals.hp;
+    player.position.set(plateLive.x, 0, plateLive.z);
+    for (let i = 0; i < 20; i++) rt.tickTraps(0.033, true);
+    check(rt.vitals.hp < plateHp, "standing on a spike plate gets the Warden spiked");
+    const afterSpike = rt.vitals.hp;
+    for (let i = 0; i < 10; i++) rt.tickTraps(0.033, true);
+    check(rt.vitals.hp === afterSpike, "one firing spikes only once");
+    rt.fillPools();
     rt.startRun(1, 41);
     let brazierLights = 0;
     let brazierShadow = false;

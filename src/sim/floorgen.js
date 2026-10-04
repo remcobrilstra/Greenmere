@@ -1,6 +1,7 @@
 import { mulberry32 } from "./rng.js";
-import { floorSpan, enemyBudget, eliteCount } from "./balance.js";
+import { floorSpan, enemyBudget, eliteCount, trapBudget } from "./balance.js";
 import { biomeFor } from "./biomes.js";
+import { unreachableSwitches } from "./traps.js";
 
 export const TILE = 4;
 // Nothing spawns within SAFE_RADIUS metres or SAFE_STEPS walking tiles of the
@@ -656,6 +657,140 @@ export function generateFloor(runSeed, floorIndex) {
     }
   }
 
+  // 8. Traps (docs/traps.md). Their own stream, so the layout, foes, chests and
+  // props above stay exactly as they were before traps existed.
+  const traps = placeTraps();
+
+  function placeTraps() {
+    const budget = bossFloor ? trapBudget(floorIndex) >> 1 : trapBudget(floorIndex);
+    if (budget <= 0) return [];
+    const trng = mulberry32(mixSeed(runSeed ^ 0x7a9b5, floorIndex));
+    const stairsRoomRef = rooms[stairsRoomId];
+    const propCell = new Set();
+    for (let i = 0; i < props.length; i++) if (props[i].kind !== "pillar") propCell.add(props[i].row * cols + props[i].col);
+    const floorAt = (c, r) => c >= 0 && r >= 0 && c < cols && r < rows && tiles[r * cols + c] === 1;
+    const inAnyRoom = (c, r) => {
+      for (let i = 0; i < rooms.length; i++) if (inRect(rooms[i], c, r)) return true;
+      return false;
+    };
+    function open(c, r) {
+      const i = r * cols + c;
+      if (!safe(c, r) || occupied[i] || chestCell.has(i) || propCell.has(i)) return false;
+      if (c === stairs.col && r === stairs.row) return false;
+      if (bossFloor && inRect(stairsRoomRef, c, r)) return false;
+      return true;
+    }
+    const roomCells = [];
+    const corridorCells = [];
+    for (let r = lo; r <= hiR; r++) {
+      for (let c = lo; c <= hiC; c++) {
+        if (!floorAt(c, r) || !open(c, r)) continue;
+        const e = floorAt(c + 1, r);
+        const w = floorAt(c - 1, r);
+        const s = floorAt(c, r + 1);
+        const n = floorAt(c, r - 1);
+        if (inAnyRoom(c, r)) {
+          // A plate needs floor on every side, so it can always be stepped around.
+          if (e && w && s && n) roomCells.push({ col: c, row: r });
+        } else if (e && w && !s && !n) {
+          corridorCells.push({ col: c, row: r, axis: "x" });
+        } else if (s && n && !e && !w) {
+          corridorCells.push({ col: c, row: r, axis: "z" });
+        }
+      }
+    }
+    function shuffle(list) {
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(trng() * (i + 1));
+        const t = list[i];
+        list[i] = list[j];
+        list[j] = t;
+      }
+    }
+    shuffle(roomCells);
+    shuffle(corridorCells);
+    // No two traps (or a trap and a switch) on touching cells.
+    const busy = new Set();
+    function free(c, r) {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) if (busy.has((r + dr) * cols + c + dc)) return false;
+      }
+      return true;
+    }
+    // A fire wall's valve sits on the corridor cell before it (nearer the entrance),
+    // against a side wall of that cell.
+    function switchFor(cell) {
+      const ax = cell.axis === "x";
+      const a = ax ? { c: cell.col - 1, r: cell.row } : { c: cell.col, r: cell.row - 1 };
+      const b = ax ? { c: cell.col + 1, r: cell.row } : { c: cell.col, r: cell.row + 1 };
+      const da = dist[a.r * cols + a.c];
+      const db = dist[b.r * cols + b.c];
+      const near = da >= 0 && (db < 0 || da <= db) ? a : b;
+      if (!floorAt(near.c, near.r) || chestCell.has(near.r * cols + near.c)) return null;
+      if (near.c === stairs.col && near.r === stairs.row) return null;
+      const sides = ax ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+      for (let k = 0; k < sides.length; k++) {
+        const sc = sides[k][0];
+        const sr = sides[k][1];
+        if (floorAt(near.c + sc, near.r + sr)) continue;
+        return { col: near.c, row: near.r, ox: sc * 1.55, oz: sr * 1.55, yaw: Math.atan2(sc, sr) };
+      }
+      return null;
+    }
+    const WEIGHT = { spikes: 3, flameJet: 3, fireWall: 2 };
+    const out = [];
+    let walls = 0;
+    let plates = 0;
+    const plateCap = Math.ceil(budget * 0.6);
+    for (let n = 0; n < budget; n++) {
+      const kinds = [];
+      let sum = 0;
+      for (const k in WEIGHT) {
+        if (k === "fireWall" && walls >= 2) continue;
+        if (k === "spikes" && plates >= plateCap) continue;
+        if (k === "spikes" ? !roomCells.length : !corridorCells.length) continue;
+        kinds.push(k);
+        sum += WEIGHT[k];
+      }
+      if (!kinds.length) break;
+      let roll = trng() * sum;
+      let kind = kinds[kinds.length - 1];
+      for (let i = 0; i < kinds.length; i++) {
+        roll -= WEIGHT[kinds[i]];
+        if (roll < 0) {
+          kind = kinds[i];
+          break;
+        }
+      }
+      const pool = kind === "spikes" ? roomCells : corridorCells;
+      const phase = trng();
+      while (pool.length) {
+        const cell = pool.pop();
+        if (!free(cell.col, cell.row)) continue;
+        let sw = null;
+        if (kind === "fireWall") {
+          sw = switchFor(cell);
+          if (!sw || !free(sw.col, sw.row)) continue;
+          busy.add(sw.row * cols + sw.col);
+          walls++;
+        }
+        if (kind === "spikes") plates++;
+        busy.add(cell.row * cols + cell.col);
+        out.push({ id: out.length, kind, col: cell.col, row: cell.row, axis: cell.axis || "x", phase, sw });
+        break;
+      }
+    }
+    // Route check: with every fire wall standing, each valve must still be reachable
+    // from the entrance. A wall that fails is dropped and the check runs again.
+    for (let guard = 0; guard < 4; guard++) {
+      const bad = unreachableSwitches({ cols, rows, tiles, entrance, traps: out });
+      if (!bad.length) break;
+      for (let i = out.length - 1; i >= 0; i--) if (bad.indexOf(out[i]) >= 0) out.splice(i, 1);
+    }
+    for (let i = 0; i < out.length; i++) out[i].id = i;
+    return out;
+  }
+
   return {
     runSeed: runSeed >>> 0,
     floorIndex,
@@ -674,6 +809,7 @@ export function generateFloor(runSeed, floorIndex) {
     spawns,
     props,
     chests,
+    traps,
     enemyBudget: enemyBudget(floorIndex)
   };
 }

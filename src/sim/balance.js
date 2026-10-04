@@ -21,6 +21,18 @@ export function eliteCount(n) {
   return Math.min(3, 1 + Math.floor((n - 3) / 12));
 }
 
+// Traps per floor (docs/traps.md §6): none on floors 1-2, then one more every third floor.
+export function trapBudget(n) {
+  const f = Math.max(1, Math.floor(n));
+  if (f < 3) return 0;
+  return Math.min(12, 1 + Math.floor((f - 2) / 3));
+}
+
+// One trap hit before mitigation: the trap's multiple of a skirmisher hit.
+export function trapDamage(n, dmgMul) {
+  return Math.max(1, Math.round(skirmisherDmg(n) * (dmgMul > 0 ? dmgMul : 1)));
+}
+
 export function enemyLevel(n) {
   return n;
 }

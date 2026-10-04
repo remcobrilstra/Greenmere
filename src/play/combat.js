@@ -451,36 +451,46 @@ export function attachCombat(rt) {
       const t = hits[i].t;
       let dealt = dmg;
       if (t.sunder > 0) dealt = Math.round(dmg * 1.08);
-      applyFoeDamage(t, dealt);
       if (edge >= 5) t.sunder = 5;
       applied.push(t);
-      if (rt.pushFloater) rt.pushFloater(String(dealt), t.x, 1.45, t.z, "#f4e7c8");
       if (t.eliteAffix === "thick" && dealt > 0) {
         const raw = Math.round(dealt * 0.1);
         if (raw > 0) applyIncoming(raw);
       }
-      if (t.boss) checkBossSummons(t);
-      if (t.hp === 0 && !t.killed) {
-        t.killed = true;
-        t.state = "dead";
-        t.telegraph = 0;
-        if (s.run) {
-          if (s.run.killed.indexOf(t.id) < 0) s.run.killed.push(t.id);
-          if (s.run.enemyHp) delete s.run.enemyHp[t.id];
-          if (t.summon && Array.isArray(s.run.summons)) {
-            s.run.summons = s.run.summons.filter((entry) => entry && entry.id !== t.id);
-          }
-          noteRunDirty();
-        }
-        if (t.spawnX != null || t.spawnZ != null) spawnKillLoot(t, s.run, true);
-        grantKill(t);
-      } else if (s.run && s.run.enemyHp && t.id != null) {
-        s.run.enemyHp[t.id] = t.hp;
-        noteRunDirty();
-      }
+      woundFoe(t, dealt, "#f4e7c8");
     }
     s.outOfCombat = 0;
     return { damage: dmg, hit: applied, considered: hits.length };
+  }
+
+  // Damage one foe and keep the books: boss summons, the kill (XP, loot, run.killed),
+  // or its saved hp. Shared by the strike and by traps (src/play/traps.js).
+  function woundFoe(t, dealt, color) {
+    const s = session();
+    if (!t || !(t.hp > 0)) return 0;
+    applyFoeDamage(t, dealt);
+    if (rt.pushFloater) rt.pushFloater(String(dealt), t.x, 1.45, t.z, color || "#f4e7c8");
+    if (t.boss) checkBossSummons(t);
+    const run = s && s.run;
+    if (t.hp === 0 && !t.killed) {
+      t.killed = true;
+      t.state = "dead";
+      t.telegraph = 0;
+      if (run) {
+        if (run.killed.indexOf(t.id) < 0) run.killed.push(t.id);
+        if (run.enemyHp) delete run.enemyHp[t.id];
+        if (t.summon && Array.isArray(run.summons)) {
+          run.summons = run.summons.filter((entry) => entry && entry.id !== t.id);
+        }
+        noteRunDirty();
+      }
+      if (t.spawnX != null || t.spawnZ != null) spawnKillLoot(t, run, true);
+      grantKill(t);
+    } else if (run && run.enemyHp && t.id != null) {
+      run.enemyHp[t.id] = t.hp;
+      noteRunDirty();
+    }
+    return dealt;
   }
 
   function applyOil(s, dmg) {
@@ -903,6 +913,7 @@ export function attachCombat(rt) {
     regen(dt);
     tickMendHot(dt);
     if (rt.space !== "dungeon" || rt.suspendCombat || rt.vitals.deathLock) {
+      if (rt.space === "dungeon" && rt.tickTraps) rt.tickTraps(dt, false);
       if (rt.dungeonRoot && rt.dungeonRoot.userData.syncActors) {
         rt.dungeonRoot.userData.syncActors(rt.enemies);
       }
@@ -919,6 +930,7 @@ export function attachCombat(rt) {
       if (e.hp > 0) stepEnemy(e, dt);
     }
     stepOrbs(dt);
+    if (rt.tickTraps) rt.tickTraps(dt, true);
     separateSkirmishers(enemies);
     if (rt.dungeonRoot && rt.dungeonRoot.userData.syncActors) {
       rt.dungeonRoot.userData.syncActors(rt.enemies);
@@ -1237,6 +1249,8 @@ export function attachCombat(rt) {
   rt.clearCombatMotion = clearCombatMotion;
   rt.noteExtractMove = noteExtractMove;
   rt.hurtHero = hurtHero;
+  rt.applyIncoming = applyIncoming;
+  rt.woundFoe = woundFoe;
   rt.grantWard = grantWard;
   rt.resolveDungeon = resolveDungeon;
   rt.resolveStrikeAt = resolveStrikeAt;
