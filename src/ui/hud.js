@@ -548,23 +548,23 @@ export function attachHud(rt) {
 
     ctx.save();
     ctx.translate(c, c);
+    // The Warden: a broad arrowhead pointing where the hero faces, outlined dark.
     ctx.rotate(playerMapAngle());
-    ctx.fillStyle = "#2a1c12";
     ctx.beginPath();
-    ctx.moveTo(0, -13);
-    ctx.lineTo(8, 9);
-    ctx.lineTo(0, 4);
-    ctx.lineTo(-8, 9);
+    ctx.moveTo(0, -22);
+    ctx.lineTo(14, 15);
+    ctx.lineTo(0, 7);
+    ctx.lineTo(-14, 15);
     ctx.closePath();
-    ctx.fill();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "#1a120c";
+    ctx.stroke();
     ctx.fillStyle = "#f4e7c8";
-    ctx.beginPath();
-    ctx.moveTo(0, -10);
-    ctx.lineTo(6, 7);
-    ctx.lineTo(0, 3);
-    ctx.lineTo(-6, 7);
-    ctx.closePath();
     ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#d2a54f";
+    ctx.stroke();
     ctx.restore();
   }
   function tickHud(dt) {
