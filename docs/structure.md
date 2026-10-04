@@ -93,6 +93,7 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 - Collider records are plain data: circles `{x, z, r}` and oriented boxes `{kind: "box", x, z, hx, hz, yaw}` (building walls, furniture). Town colliders may carry `level` (0 ground, 1 upstairs; only the hero's level collides) and `tier` (off until the town reaches that tier). The same records drive resolution. Decorative meshes with no collider stay on an explicit list.
 - Town coordinates come from `src/sim/townplan.js`. Do not repeat a building or station position anywhere else, tests included.
 - Do not add a file that this table does not name.
+- UI style is Hearthwood: fonts (`assets/fonts`, Cinzel for titles and labels, Alegreya for text) and tokens (`--wood-*`, `--brass*`, `--ink`, `--frame-bg`, `--frame-shadow`, `--tip-shadow`) sit at the top of the `<style>` in `index.html`; the theme layer at its end sets only fonts, colour, borders and shadows. New UI uses the tokens, not literal colours.
 - Art direction stays the locked Outer Wood style: flat shading, Lambert world, standard-material hero, no tone mapping, no downloaded models.
 
 ## Pull-request order

@@ -2407,7 +2407,7 @@ export function installSelfTest(rt) {
     check(panelBox.top >= vitalsBox.bottom - 1 && panelBox.top <= vitalsBox.bottom + 24, "panel sits under the vitals plaque");
     check(panelStyle.transform === "none", "panel is not transformed onto the viewport");
     check(panelStyle.backgroundImage.indexOf("gradient") >= 0, "panel uses the plaque gradient");
-    check(panelStyle.borderTopColor.indexOf("226") >= 0 && panelStyle.borderTopColor.indexOf("186") >= 0, "panel hairline is gold (" + panelStyle.borderTopColor + ")");
+    check(panelStyle.boxShadow.indexOf("122, 90, 38") >= 0, "panel frame carries the brass line (" + panelStyle.boxShadow.slice(0, 60) + ")");
     const panelFont = panelStyle.fontFamily.toLowerCase();
     check(panelFont.indexOf("sans-serif") < 0 && (panelFont.indexOf("palatino") >= 0 || panelFont.indexOf("antiqua") >= 0 || panelFont.indexOf("serif") >= 0), "panel stays in the serif plaque stack (" + panelFont + ")");
     check(panel.querySelector(".eyebrow") && panel.querySelector(".eyebrow").textContent === "Bramble & Board", "the plaque names Bramble & Board");

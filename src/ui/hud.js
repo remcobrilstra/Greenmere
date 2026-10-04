@@ -142,6 +142,10 @@ export function attachHud(rt) {
       const p = total > 0 ? cdLeft[i] / total : 0;
       slots[i].style.setProperty("--p", (Math.max(0, Math.min(1, p)) * 100).toFixed(2));
       slots[i].classList.toggle("cooling", p > 0.004);
+      // Seconds left on longer cooldowns, drawn over the sweep.
+      const secs = total >= 2 && cdLeft[i] > 0.05 ? String(Math.ceil(cdLeft[i])) : "";
+      if (secs) slots[i].setAttribute("data-cd", secs);
+      else slots[i].removeAttribute("data-cd");
     }
   }
   function say(text) {

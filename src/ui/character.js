@@ -147,6 +147,7 @@ export function attachCharacter(rt) {
     tipKey = key;
     tipAnchor = anchor;
     while (tip.firstChild) tip.removeChild(tip.firstChild);
+    tip.style.removeProperty("--rc");
     build();
     tip.hidden = false;
     placeTip();
@@ -207,9 +208,8 @@ export function attachCharacter(rt) {
         return;
       }
       const r = rarityOf(it);
-      const title = el("p", "tip-line tip-title", itemName(it));
-      title.style.color = RARITY_EDGE[r];
-      tip.appendChild(title);
+      tip.style.setProperty("--rc", RARITY_EDGE[r]);
+      tip.appendChild(el("p", "tip-line tip-title", itemName(it)));
       tipLine(RARITY_NAME[r] + " " + (SLOT_NAME[it.slot] || "gear").toLowerCase() + "  ·  ilvl " + int(it.ilvl), "muted");
       const lines = affixLines(it);
       if (lines.length) {
@@ -243,7 +243,7 @@ export function attachCharacter(rt) {
     if (kind) cell.appendChild(glyph(kind, it ? RARITY_EDGE[r] : "rgba(226,186,96,0.35)"));
     if (it) {
       cell.style.borderColor = RARITY_EDGE[r];
-      if (r) cell.style.boxShadow = "inset 0 0 14px " + RARITY_EDGE[r] + "40";
+      cell.style.setProperty("--rc", RARITY_EDGE[r]);
       if (it.kind === "consumable") {
         if (int(it.stack) > 1) cell.appendChild(el("span", "badge", "×" + int(it.stack)));
       } else cell.appendChild(el("span", "badge", "ilvl " + int(it.ilvl)));

@@ -1,0 +1,3 @@
+Cinzel (Natanael Gama) and Alegreya (Juan Pablo del Peral, Huerta Tipográfica)
+are licensed under the SIL Open Font License 1.1: https://openfontlicense.org
+Files are the Google Fonts latin subsets (woff2, variable weight).

@@ -14,6 +14,50 @@
   <link rel="icon" href="./icons/icon-192.png" type="image/png" sizes="192x192" />
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
   <style>
+    /* ---- Hearthwood: fonts and tokens. Theme rules are at the end of this sheet. ---- */
+    @font-face { font-family: "Cinzel"; src: url("./assets/fonts/cinzel.woff2") format("woff2"); font-weight: 400 900; font-display: swap; }
+    @font-face { font-family: "Alegreya"; src: url("./assets/fonts/alegreya.woff2") format("woff2"); font-weight: 400 900; font-display: swap; }
+    @font-face { font-family: "Alegreya"; src: url("./assets/fonts/alegreya-italic.woff2") format("woff2"); font-weight: 400 900; font-style: italic; font-display: swap; }
+    :root {
+      --f-display: "Cinzel", "Trajan Pro", "Palatino Linotype", Palatino, serif;
+      --f-body: "Alegreya", Palatino, "Palatino Linotype", "Book Antiqua", serif;
+      --wood-1: #2b1d12;
+      --wood-2: #1a110b;
+      --wood-3: #0e0906;
+      --brass: #d2a54f;
+      --brass-hi: #f3d79a;
+      --brass-lo: #7a5a26;
+      --ink: #f2e5c8;
+      --ink-2: #e7d7b4;
+      --mute: #b3a080;
+      --good: #9ad86a;
+      --bad: #ef8f6f;
+      --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='60'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .35' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+      --corner: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cg fill='none' stroke='%23d2a54f' stroke-width='1.4'%3E%3Cpath d='M2 26V10Q2 2 10 2H26'/%3E%3Cpath d='M6 26V12Q6 6 12 6H26' opacity='.55'/%3E%3C/g%3E%3Cpath d='M4 1.2L6.8 4 4 6.8 1.2 4z' fill='%23f3d79a'/%3E%3C/svg%3E");
+      --corner-tr: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cg transform='matrix(-1 0 0 1 28 0)'%3E%3Cg fill='none' stroke='%23d2a54f' stroke-width='1.4'%3E%3Cpath d='M2 26V10Q2 2 10 2H26'/%3E%3Cpath d='M6 26V12Q6 6 12 6H26' opacity='.55'/%3E%3C/g%3E%3Cpath d='M4 1.2L6.8 4 4 6.8 1.2 4z' fill='%23f3d79a'/%3E%3C/g%3E%3C/svg%3E");
+      --corner-bl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cg transform='matrix(1 0 0 -1 0 28)'%3E%3Cg fill='none' stroke='%23d2a54f' stroke-width='1.4'%3E%3Cpath d='M2 26V10Q2 2 10 2H26'/%3E%3Cpath d='M6 26V12Q6 6 12 6H26' opacity='.55'/%3E%3C/g%3E%3Cpath d='M4 1.2L6.8 4 4 6.8 1.2 4z' fill='%23f3d79a'/%3E%3C/g%3E%3C/svg%3E");
+      --corner-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cg transform='matrix(-1 0 0 -1 28 28)'%3E%3Cg fill='none' stroke='%23d2a54f' stroke-width='1.4'%3E%3Cpath d='M2 26V10Q2 2 10 2H26'/%3E%3Cpath d='M6 26V12Q6 6 12 6H26' opacity='.55'/%3E%3C/g%3E%3Cpath d='M4 1.2L6.8 4 4 6.8 1.2 4z' fill='%23f3d79a'/%3E%3C/g%3E%3C/svg%3E");
+      /* The plaque frame: four brass corners over grained, stained wood. */
+      --frame-bg:
+        var(--corner) left 4px top 4px / 20px 20px no-repeat,
+        var(--corner-tr) right 4px top 4px / 20px 20px no-repeat,
+        var(--corner-bl) left 4px bottom 4px / 20px 20px no-repeat,
+        var(--corner-br) right 4px bottom 4px / 20px 20px no-repeat,
+        var(--grain),
+        linear-gradient(180deg, rgba(43, 29, 18, 0.95), rgba(26, 17, 11, 0.94) 70%, rgba(14, 9, 6, 0.94));
+      --frame-shadow:
+        inset 0 0 0 1px var(--brass-lo),
+        inset 0 0 0 3px rgba(14, 9, 6, 0.9),
+        inset 0 0 0 4px rgba(210, 165, 79, 0.32),
+        inset 0 1px 18px rgba(255, 214, 150, 0.05),
+        0 12px 32px rgba(0, 0, 0, 0.45);
+      --tip-shadow:
+        0 0 0 1px #000,
+        0 0 0 5px rgba(0, 0, 0, 0.28),
+        0 22px 44px rgba(0, 0, 0, 0.85),
+        0 8px 14px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 225, 170, 0.1);
+    }
     html, body {
       margin: 0;
       height: 100%;
@@ -889,6 +933,165 @@
       #minimap { width: 118px; }
       #minimap .eyebrow { letter-spacing: 0.08em; font-size: 9px; }
       .map-meta { flex-direction: column; align-items: center; gap: 0; }
+    }
+    /* ==== Hearthwood theme ====
+       Visual layer only (fonts, colour, borders, shadows); sizes stay with the rules above
+       so the narrow-screen media queries keep working. Tokens are at the top of this sheet. */
+    html, body { font-family: var(--f-body); }
+    #hud { font-variant-numeric: lining-nums; }
+
+    /* Frames */
+    .plaque, #actionbar, #key-prompt, #barks .bark {
+      background: var(--frame-bg);
+      border: 1px solid #000;
+      box-shadow: var(--frame-shadow);
+    }
+    #guide, #quest-log, #castbar {
+      /* Small plaques: same wood and brass, no corner pieces. */
+      background: var(--grain), linear-gradient(180deg, rgba(43, 29, 18, 0.93), rgba(20, 13, 8, 0.92));
+    }
+    #barks .bark { border-radius: 0; background: var(--grain), linear-gradient(180deg, rgba(48, 32, 20, 0.96), rgba(26, 17, 11, 0.96)); }
+    #barks .bark::after { background: #1d140c; border-color: var(--brass-lo); }
+    #sheet {
+      background:
+        var(--corner) left 5px top 5px / 26px 26px no-repeat,
+        var(--corner-tr) right 5px top 5px / 26px 26px no-repeat,
+        var(--corner-bl) left 5px bottom 5px / 26px 26px no-repeat,
+        var(--corner-br) right 5px bottom 5px / 26px 26px no-repeat,
+        var(--grain),
+        linear-gradient(180deg, #2b1d12, #1a110b 70%, #0e0906);
+      box-shadow: 0 0 0 100vmax rgba(10, 7, 4, 0.5), var(--frame-shadow);
+    }
+
+    /* Type: carved capitals for titles and labels */
+    h1, .eyebrow, .section-label, #sheet .section-label, #panel .section-label, .north,
+    #barks .who, #foebars .foebar-name, #castbar .cast-label, #levelup-banner, #deathfx .death-words,
+    #sheet .slot-cap, #sheet .sheet-name, #ability-tip .tip-name, #sheet-tip .tip-title, .slot .key, #key-prompt .key {
+      font-family: var(--f-display);
+    }
+    h1 { font-weight: 700; color: var(--brass-hi); text-shadow: 0 1px 0 #000; }
+    .eyebrow, .section-label { font-weight: 600; color: var(--brass); }
+    #sheet .section-label, #panel .section-label { display: flex; align-items: center; gap: 10px; }
+    #sheet .section-label::after, #panel .section-label::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(210, 165, 79, 0.45), transparent);
+    }
+    #sheet .sheet-name { font-weight: 600; letter-spacing: 0.08em; }
+
+    /* Portrait and minimap frames */
+    .portrait {
+      border-color: var(--brass);
+      box-shadow: 0 0 0 2px var(--wood-3), 0 0 0 3px var(--brass-lo), inset 0 0 12px rgba(0, 0, 0, 0.7);
+    }
+    #map-canvas { box-shadow: 0 0 0 1px var(--brass-lo), 0 0 0 3px var(--wood-3); }
+
+    /* Bars: recessed track, glossy fill */
+    .bar {
+      background: linear-gradient(180deg, #0b0705, #1d140d);
+      border: 1px solid rgba(0, 0, 0, 0.8);
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(210, 165, 79, 0.32);
+    }
+    .bar > span:not(.ward-overlay):not(.ward-timer) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 -3px 5px rgba(0, 0, 0, 0.35); }
+    .bar.health > span:not(.ward-overlay) { background: linear-gradient(180deg, #e2665a, #c8423a 55%, #8d2520); }
+    .bar.mana > span { background: linear-gradient(180deg, #6f9bf0, #3b6fd0 55%, #22458d); }
+    .bar.xp > span { background: linear-gradient(180deg, var(--brass-hi), var(--brass) 60%, var(--brass-lo)); }
+    .bar em { font-weight: 500; color: #fff6e2; text-shadow: 0 1px 2px #000; }
+    #castbar .cast-track { background: linear-gradient(180deg, #0b0705, #1d140d); border-color: rgba(0, 0, 0, 0.8); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(210, 165, 79, 0.32); }
+
+    /* Buttons and slots: bevelled wood, brass glow on hover, sink on press */
+    .slot {
+      background: linear-gradient(180deg, #3a2818, #1c130c);
+      border: 1px solid var(--brass-lo);
+      box-shadow: inset 0 1px 0 rgba(255, 225, 170, 0.14), 0 2px 0 rgba(0, 0, 0, 0.7);
+      color: var(--ink);
+      transition: border-color 0.12s, box-shadow 0.12s, color 0.12s;
+    }
+    .slot:hover { border-color: var(--brass); color: var(--brass-hi); box-shadow: inset 0 1px 0 rgba(255, 225, 170, 0.2), 0 2px 0 rgba(0, 0, 0, 0.7), 0 0 12px rgba(243, 215, 154, 0.22); }
+    .slot:active { transform: translateY(1px); background: linear-gradient(0deg, #3a2818, #1c130c); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6); }
+    .slot:focus-visible { outline: 2px solid var(--brass-hi); }
+    .slot:disabled, .slot.empty { box-shadow: none; }
+    .slot.empty::after { border-color: rgba(210, 165, 79, 0.3); }
+    .slot.lit { border-color: var(--brass); background: linear-gradient(180deg, #4a331d, #2a1c10); box-shadow: 0 0 0 1px var(--brass), 0 0 14px rgba(243, 215, 154, 0.35); }
+    .slot .key { font-weight: 700; color: var(--brass); text-shadow: 0 1px 0 #000; }
+    .slot .name { color: var(--ink-2); }
+
+    /* Action bar: lighter faces so the cooldown sweep reads; sweep has a bright leading edge and a countdown */
+    #actionbar .slot { background: radial-gradient(circle at 50% 35%, #4a3523, #22170e 80%); }
+    #actionbar .slot:active { background: radial-gradient(circle at 50% 35%, #3a2a1c, #160f09 80%); }
+    .slot .sweep {
+      background: conic-gradient(from -90deg,
+        rgba(0, 0, 0, 0.8) calc(var(--p) * 1%),
+        var(--brass-hi) calc(var(--p) * 1%) calc(var(--p) * 1% + 1.2%),
+        transparent 0);
+    }
+    .slot.cooling svg { filter: grayscale(1) brightness(0.6); }
+    .slot[data-cd]::before {
+      content: attr(data-cd);
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding-bottom: 8px;
+      font: 700 20px/1 var(--f-display);
+      color: #fff3d6;
+      text-shadow: 0 0 3px #000, 0 1px 2px #000, 0 0 10px rgba(0, 0, 0, 0.9);
+      pointer-events: none;
+    }
+
+    /* Key prompt */
+    @keyframes key-prompt-pulse {
+      0%, 100% { box-shadow: var(--frame-shadow), 0 0 12px rgba(243, 215, 154, 0.18); }
+      50% { box-shadow: var(--frame-shadow), 0 0 28px rgba(243, 215, 154, 0.5); }
+    }
+    #key-prompt.barred { box-shadow: var(--frame-shadow), 0 0 22px rgba(182, 64, 52, 0.4); }
+    #key-prompt .key { font-weight: 700; border-radius: 0; background: linear-gradient(180deg, #e7c47a, #b8862f 60%, #8a6222); border-color: var(--brass-hi); }
+
+    /* Tooltips: lifted cards with a rarity-tinted header (--rc is set per item) */
+    #sheet-tip, #ability-tip {
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--rc, var(--brass)) 24%, transparent), transparent 46px),
+        var(--grain),
+        linear-gradient(180deg, #33231a, #1b120c 60%, #140d08);
+      border: 1px solid var(--rc, var(--brass));
+      box-shadow: var(--tip-shadow), 0 0 26px color-mix(in srgb, var(--rc, var(--brass)) 22%, transparent);
+    }
+    #sheet-tip .tip-title, #ability-tip .tip-name { font-weight: 600; letter-spacing: 0.03em; }
+    #sheet-tip .tip-title { color: var(--rc, var(--ink)); }
+    #ability-tip .tip-name { color: var(--brass-hi); }
+    #sheet-tip hr { border-top-color: rgba(210, 165, 79, 0.25); }
+
+    /* Character sheet details */
+    #sheet .sheet-head { border-bottom-color: rgba(210, 165, 79, 0.28); }
+    #sheet .sheet-tab {
+      min-height: 0;
+      padding: 8px 14px 9px;
+      background: transparent;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      box-shadow: none;
+      color: var(--mute);
+      font: 600 12px/1 var(--f-display);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    #sheet .sheet-tab:hover { color: var(--ink); box-shadow: none; }
+    #sheet .sheet-tab.on { color: var(--brass-hi); border-bottom-color: var(--brass); background: linear-gradient(0deg, rgba(210, 165, 79, 0.14), transparent); }
+    #sheet .gear-cell { background: radial-gradient(circle at 50% 40%, #2a1e14, #0f0a07 75%); border-color: var(--brass-lo); box-shadow: inset 0 -10px 16px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(0, 0, 0, 0.6); }
+    #sheet .gear-cell:not(.empty) { box-shadow: inset 0 0 18px color-mix(in srgb, var(--rc, transparent) 30%, transparent), inset 0 -10px 16px rgba(0, 0, 0, 0.5), 0 0 10px color-mix(in srgb, var(--rc, transparent) 22%, transparent); }
+    #sheet .doll-frame { border-color: var(--brass-lo); box-shadow: 0 0 0 3px var(--wood-3), 0 0 0 4px rgba(210, 165, 79, 0.3), inset 0 0 40px rgba(0, 0, 0, 0.6); }
+    #sheet .stat-row { border-bottom-color: rgba(210, 165, 79, 0.09); }
+    #sheet .stat-row .k { color: var(--mute); }
+    #sheet .pips i { border-color: var(--brass); }
+    #sheet .pips i.on { background: linear-gradient(135deg, var(--brass-hi), var(--brass)); box-shadow: 0 0 6px rgba(243, 215, 154, 0.5); }
+    #sheet .tile { background: rgba(10, 6, 4, 0.45); border-color: rgba(210, 165, 79, 0.22); box-shadow: inset 0 1px 0 rgba(255, 225, 170, 0.05); }
+    #sheet .tile .tv { font-family: var(--f-display); font-weight: 600; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .slot { transition: none; }
+      .slot:active { transform: none; }
     }
   </style>
 </head>
