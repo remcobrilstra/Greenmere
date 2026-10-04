@@ -41,6 +41,18 @@ export function loadModel(id) {
   });
 }
 
+// A library of loose pieces, "<prefix><name>" -> { [name]: BufferGeometry } (local space).
+export function loadLibrary(id, prefix) {
+  if (!loader) loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  return loader.loadAsync("./assets/models/" + id + ".glb").then((gltf) => {
+    const out = {};
+    gltf.scene.traverse((o) => {
+      if (o.isMesh && o.name.startsWith(prefix)) out[o.name.slice(prefix.length)] = plainGeometry(o.geometry, new THREE.Matrix4());
+    });
+    return out;
+  });
+}
+
 // Every building's file plus town.glb; rejects if any one fails.
 export function loadTownModels(ids) {
   const all = ids.concat(["town"]);

@@ -1194,3 +1194,4 @@ def show(bid, view="front", dist=None):
 exec(compile(open(os.path.join(HERE, "furnish.py")).read(), os.path.join(HERE, "furnish.py"), "exec"), globals())
 exec(compile(open(os.path.join(HERE, "villagers.py")).read(), os.path.join(HERE, "villagers.py"), "exec"), globals())
 exec(compile(open(os.path.join(HERE, "animals.py")).read(), os.path.join(HERE, "animals.py"), "exec"), globals())
+exec(compile(open(os.path.join(HERE, "nature.py")).read(), os.path.join(HERE, "nature.py"), "exec"), globals())

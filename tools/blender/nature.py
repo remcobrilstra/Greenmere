@@ -1,0 +1,145 @@
+# Nature library for view/town.js, exec'd into greenmere.py's namespace.
+#
+#   g["build_nature"]()      -> assets/models/nature.glb
+#
+# Each object "nat_<name>" replaces one instanced geometry of the town's scatter
+# (instance tints still multiply its vertex colours). Pieces are centred like
+# the code-built geometry they replace, so placement, scale and colliders hold:
+#   rock0..2  boulders about 0.8 across, upright (mossy tops)
+#   bush      a leafy clump about 1.8 x 0.9 x 1.7, centred on the origin
+#   flower0..4, grass, mushroom    stand on y = 0
+
+MOSS = [0x4f6b38, 0x5c7a3e, 0x46602f]
+ROCK = [0x7d8288, 0x8a8f93, 0x72777c, 0x868a84, 0x6e7377]
+LEAVES = [0x3f7a32, 0x4a8a38, 0x36692b, 0x548f3c, 0x2f5f28]
+
+def icosphere(subdiv):
+    t = (1 + 5 ** 0.5) / 2
+    v = [Vector(p).normalized() for p in [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t),
+                                           (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]]
+    f = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6), (7, 1, 8),
+         (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7), (9, 8, 1)]
+    for _ in range(subdiv):
+        cache = {}
+        def mid(a, b):
+            key = (min(a, b), max(a, b))
+            if key not in cache:
+                v.append(((v[a] + v[b]) / 2).normalized())
+                cache[key] = len(v) - 1
+            return cache[key]
+        nf = []
+        for a, b, c in f:
+            ab, bc, ca = mid(a, b), mid(b, c), mid(c, a)
+            nf += [(a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)]
+        f = nf
+    return v, f
+
+def blob(kit, role, r, colfn, x, y, z, sx=1, sy=1, sz=1, noise=0.25, subdiv=1, flat=None, seed=0):
+    """Closed, noisy icosphere. colfn(normal, pos) -> hex per face. flat: clamp y below this (local units)."""
+    rr = random.Random(seed)
+    v, f = icosphere(subdiv)
+    pts = []
+    for p in v:
+        k = 1 + rr.uniform(-noise, noise)
+        q = Vector((p.x * k * sx, p.y * k * sy, p.z * k * sz)) * r
+        if flat is not None and q.y < flat * r * sy:
+            q.y = flat * r * sy + (q.y - flat * r * sy) * 0.15
+        pts.append(kit.frame @ Vector((q.x + x, q.y + y, q.z + z)))
+    R = kit.role(role)
+    base = len(R["v"])
+    R["v"].extend(pts)
+    for a, b, c in f:
+        n = (pts[b] - pts[a]).cross(pts[c] - pts[a]).normalized()
+        cen = (pts[a] + pts[b] + pts[c]) / 3
+        R["f"].append((base + a, base + b, base + c))
+        R["c"].append(hexc(colfn(n, cen)))
+
+def rock_col(kit, moss_from=0.55):
+    def fn(n, p):
+        if n.y > moss_from and kit.r.random() < 0.85:
+            return kit.pick(MOSS)
+        return kit.pick(ROCK)
+    return fn
+
+def build_nature_parts(kit):
+    # rock0: a rounded boulder
+    blob(kit, "rock0", 0.8, rock_col(kit), 0, 0, 0, 1.0, 0.82, 0.95, noise=0.22, flat=-0.55, seed=1)
+    # rock1: a split slab leaning on a smaller stone
+    blob(kit, "rock1", 0.62, rock_col(kit, 0.6), -0.1, 0.05, 0, 1.15, 1.0, 0.75, noise=0.18, flat=-0.6, seed=2)
+    blob(kit, "rock1", 0.36, rock_col(kit), 0.5, -0.12, 0.2, 1, 0.8, 1, noise=0.25, flat=-0.5, seed=3)
+    # rock2: a low cluster of three
+    for k, (x, z, r) in enumerate([(-0.3, -0.1, 0.5), (0.35, 0.05, 0.42), (0.0, 0.42, 0.3)]):
+        blob(kit, "rock2", r, rock_col(kit), x, -0.15 + r * 0.3, z, 1, 0.75, 1, noise=0.28, flat=-0.45, seed=10 + k)
+    # bush: leafy blobs, darker underneath, a few berries
+    def leaf(n, p):
+        c = kit.pick(LEAVES)
+        return shade(c, 0.78) if n.y < -0.3 else c
+    for k in range(7):
+        a = k / 7 * math.pi * 2
+        rr = 0.38 + (k % 3) * 0.06
+        blob(kit, "bush", rr, leaf, math.cos(a) * 0.48, 0.02 + (k % 2) * 0.08, math.sin(a) * 0.42, 1.1, 0.8, 1.1, noise=0.3, seed=20 + k)
+    blob(kit, "bush", 0.5, leaf, 0, 0.18, 0, 1.2, 0.85, 1.15, noise=0.3, seed=30)
+    for k in range(9):
+        a = kit.r.uniform(0, math.pi * 2)
+        kit.ball("bush", 0.05, [0xc4473a, 0xe15a48, 0x7a4a8c], math.cos(a) * 0.62, kit.r.uniform(0.0, 0.32), math.sin(a) * 0.56)
+    # flowers: stem, two leaves, five petals and a heart
+    for i, hx in enumerate([0xffe14a, 0xfff6e4, 0xf2a3c2, 0xc7b0f0, 0xff8d6a]):
+        role = "flower%d" % i
+        kit.cylr(role, 0.018, 0.026, 0.3, 5, [0x2f7a32, 0x3d8f3a], 0, 0.15, 0)
+        for s in (-1, 1):
+            kit.box(role, 0.1, 0.012, 0.04, [0x3d8f3a], s * 0.05, 0.1 + (s > 0) * 0.05, 0, ry=s * 0.5, rz=s * 0.35)
+        for k in range(5):
+            a = k / 5 * math.pi * 2
+            kit.box(role, 0.09, 0.02, 0.06, [hx, shade(hx, 0.92)], math.cos(a) * 0.06, 0.31, math.sin(a) * 0.06, ry=-a, rz=0.25)
+        kit.cylr(role, 0.035, 0.035, 0.03, 6, [0xd4a03a if hx != 0xffe14a else 0xb87333], 0, 0.325, 0)
+    # grass: nine tapered blades in a tuft
+    for k in range(9):
+        a = k / 9 * math.pi * 2 + kit.r.uniform(-0.2, 0.2)
+        h = kit.r.uniform(0.3, 0.55)
+        lean = kit.r.uniform(0.12, 0.35)
+        kit.cone("grass", 0.04, h, 3, [0x67b84a, 0x8bc85a, 0x3e9a34, 0x7aa848],
+                 math.cos(a) * 0.08, h / 2, math.sin(a) * 0.08, ry=-a, rz=lean)
+    # mushroom: stem with a ring, a spotted cap
+    kit.cylr("mushroom", 0.05, 0.07, 0.22, 6, [0xefe6d4], 0, 0.11, 0)
+    kit.cylr("mushroom", 0.075, 0.075, 0.02, 6, [0xd9d0be], 0, 0.17, 0)
+    kit.cylr("mushroom", 0.05, 0.19, 0.12, 8, [0xc4473a, 0xb63f33], 0, 0.27, 0)
+    kit.cylr("mushroom", 0.19, 0.17, 0.03, 8, [0xefe6d4], 0, 0.205, 0)
+    for k in range(5):
+        a = k / 5 * math.pi * 2
+        kit.box("mushroom", 0.035, 0.012, 0.035, [0xf4efe4], math.cos(a) * 0.1, 0.3, math.sin(a) * 0.1, rz=math.cos(a) * 0.5, rx=-math.sin(a) * 0.5)
+
+def build_nature(export=True, bake=True, samples=128):
+    kit = Kit(0)
+    kit.r = random.Random(0x7a7)
+    build_nature_parts(kit)
+    scn = scene_for("nature")
+    objs = []
+    x = 0.0
+    for role, R in kit.roles.items():
+        if not R["f"]:
+            continue
+        o = to_object("nat_" + role, R, scn.collection)
+        objs.append(o)
+    if bake:
+        # each piece alone on a ground plane, so it shades itself
+        for o in objs:
+            for o2 in objs:
+                o2.hide_render = o2 is not o
+            bake_ao(scn, o, None, strength=0.45, gamma=0.8, distance=0.6, samples=samples)
+        for o in objs:
+            o.hide_render = False
+    else:
+        for o in objs:
+            o.data.color_attributes.active_color = o.data.color_attributes["base"]
+    # lay them out for a look in the viewport (export uses object-local geometry)
+    for i, o in enumerate(objs):
+        o.location = ((i % 6) * 2.2 - 5.5, (i // 6) * 2.2, 0)
+    line = {"id": "nature", "parts": len(objs), "faces": sum(len(o.data.polygons) for o in objs)}
+    if export:
+        for o in objs:
+            o.location = (0, 0, 0)
+        p, size = write_glb(scn, objs, "nature")
+        line["kb"] = round(size / 1024)
+        for i, o in enumerate(objs):
+            o.location = ((i % 6) * 2.2 - 5.5, (i // 6) * 2.2, 0)
+    return line

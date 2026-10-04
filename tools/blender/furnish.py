@@ -1116,6 +1116,15 @@ def build_hearth(kit):
         else:
             kit.box("hearth", s * 0.9, 0.42, s * 0.62, QUOIN, x, 0.21, z, ry=-a + math.pi / 2)
             kit.box("hearth", s * 0.95, 0.06, s * 0.66, ASHLAR, x, 0.44, z, ry=-a + math.pi / 2)
+    # the fire itself: four logs leaning into a cone over a bed of embers (the flame stays code-built)
+    for i in range(14):
+        kit.ball("hearth", kit.r.uniform(0.05, 0.09), [0xff7a2a, 0xe0601e, 0x9a3a1a, 0x2a2624], kit.r.uniform(-0.3, 0.3), 0.06,
+                 kit.r.uniform(-0.3, 0.3), 1, 0.6, 1)
+    for k in range(4):
+        a = k / 4 * math.pi * 2 + 0.4
+        kit.cylr("hearth", 0.07, 0.095, 0.9, 7, [0x5a3a24, 0x4a3020, 0x6b4428], math.cos(a) * 0.2, 0.3, math.sin(a) * 0.2,
+                 ry=-a, rz=0.85)
+        kit.cylr("hearth", 0.06, 0.06, 0.012, 7, [0x2a2220], math.cos(a) * 0.02, 0.62, math.sin(a) * 0.02, ry=-a, rz=0.85)
     # a log pile and kindling
     for k in range(5):
         kit.cylr("hearth", 0.09, 0.09, 0.8, 7, [0x5a3a24, 0x6b4428], 1.05 + (k % 3) * 0.19, 0.09 + (k // 3) * 0.16, -1.3, ry=0.6, rz=math.pi / 2)

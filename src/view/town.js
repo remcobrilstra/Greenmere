@@ -3,6 +3,7 @@ import { mulberry32, hash2 } from "../sim/rng.js";
 import { terrainHeight, WORLD, HALF } from "../sim/terrain.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
 import { buildTownBuildings } from "./buildings.js";
+import { loadLibrary } from "./townmodels.js";
 import { buildGatePortal } from "./gateportal.js";
 import { FOREST_CLEAR_R, GATE, HEARTH, INTERACT_R, townBlocked } from "../sim/townplan.js";
 
@@ -369,7 +370,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sz: s * (0.9 + rand() * 0.3)
     }, tint());
   });
-  stampInstances(bushGeo, bushes, true);
+  const scatterMeshes = { bush: stampInstances(bushGeo, bushes, true) };
 
   const rocks = scatter(230, FOREST_CLEAR_R - 2, 2.2, (x, z) => {
     const s = rand() > 0.86 ? 1.4 + rand() * 1.1 : 0.35 + rand() * 0.85;
@@ -377,9 +378,9 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       x,
       y: terrainHeight(x, z) + s * 0.18,
       z,
-      rx: rand() * Math.PI,
-      ry: rand() * Math.PI,
-      rz: rand() * 0.6,
+      rx: rand() * 0.25,
+      ry: rand() * Math.PI * 2,
+      rz: rand() * 0.25,
       sx: s * (0.8 + rand() * 0.5),
       sy: s * (0.55 + rand() * 0.5),
       sz: s * (0.8 + rand() * 0.5),
@@ -389,7 +390,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     return item;
   });
   for (let v = 0; v < rockGeos.length; v++) {
-    stampInstances(rockGeos[v], rocks.filter((r) => r.geo === v), true);
+    scatterMeshes["rock" + v] = stampInstances(rockGeos[v], rocks.filter((r) => r.geo === v), true);
   }
 
   const flowers = [];
@@ -427,7 +428,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   }
   for (let v = 0; v < flowerGeos.length; v++) {
     const subset = flowers.filter((f) => f.geo === v);
-    if (subset.length) stampInstances(flowerGeos[v], subset, false);
+    if (subset.length) scatterMeshes["flower" + v] = stampInstances(flowerGeos[v], subset, false);
   }
 
   const grasses = [];
@@ -460,7 +461,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sx: s, sy: 0.55 + rand() * 0.6, sz: s
     }, tint()));
   }
-  stampInstances(grassGeo, grasses, false);
+  scatterMeshes.grass = stampInstances(grassGeo, grasses, false);
 
   const mushrooms = scatter(80, FOREST_CLEAR_R - 4, 1.2, (x, z) => {
     const s = 0.7 + rand() * 0.8;
@@ -470,7 +471,18 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sx: s, sy: s * (0.8 + rand() * 0.4), sz: s
     }, tint());
   });
-  stampInstances(mushroomGeo, mushrooms, false);
+  scatterMeshes.mushroom = stampInstances(mushroomGeo, mushrooms, false);
+
+  // Blender-built rocks, bush, flowers, grass and mushroom (assets/models/nature.glb)
+  // take over the instanced geometry; instance placement and tints stay.
+  const natureReady = loadLibrary("nature", "nat_").then((lib) => {
+    for (const k of Object.keys(scatterMeshes)) {
+      if (!lib[k]) continue;
+      const old = scatterMeshes[k].geometry;
+      scatterMeshes[k].geometry = lib[k];
+      old.dispose();
+    }
+  }).catch((err) => console.warn("[town] nature models did not load; keeping the code-built scatter", err));
 
   const INTERACT = INTERACT_R;
   const camp = { x: HEARTH.x, z: HEARTH.z };
@@ -484,6 +496,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   const hearthColliders = [];
   const hearthDecor = [];
   const hearthRocks = [];
+  const hearthLogs = [];
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     const x = camp.x + Math.cos(a) * 2.15;
@@ -509,6 +522,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     log.castShadow = true;
     hearthGroup.add(log);
     hearthDecor.push(log);
+    hearthLogs.push(log);
     if (!footLog) footLog = log;
   }
   hearthGroup.updateMatrixWorld(true);
@@ -672,6 +686,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   town.modelsReady.then((parts) => {
     if (!parts || !parts.hearth) return;
     for (const r of hearthRocks) r.visible = false;
+    for (const l of hearthLogs) l.visible = false;
     const pit = new THREE.Mesh(parts.hearth, campRockMat);
     pit.name = "hearthPit";
     pit.castShadow = true;
@@ -720,7 +735,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     townRoot,
     stations,
     buildings: town.buildings,
-    modelsReady: town.modelsReady,
+    modelsReady: Promise.all([town.modelsReady, natureReady]),
     setTier: town.setTier,
     getTier: town.getTier,
     tierMeshes: town.tierMeshes,
