@@ -176,8 +176,16 @@ def hm_paint(fig, verts, faces, fn):
     return cols
 
 
-def hm_body(fig):
-    S, j, rnd = fig.S, fig.j, fig.rnd
+_HM_BODY_CACHE = {}
+
+
+def hm_body_shell(fig):
+    """The body mesh (verts, faces) in game space; built once per style and reused, so
+    garments wrapped from it (hm_wrap) match it vertex for vertex."""
+    key = tuple(sorted((k, v) for k, v in fig.S.items() if isinstance(v, (int, float, str, bool))))
+    if key in _HM_BODY_CACHE:
+        return _HM_BODY_CACHE[key]
+    S, j = fig.S, fig.j
     b = S["build"]
     J = {n: j[n] for n in ("pelvis", "belly", "chest", "neck")}
     J["neckTop"] = j["neckTop"] + Vector((0, 0.04, 0))
@@ -199,7 +207,76 @@ def hm_body(fig):
         E += [("chest", "sh" + t), ("sh" + t, "ua" + t), ("ua" + t, "el" + t), ("el" + t, "fa" + t), ("fa" + t, "wr" + t), ("wr" + t, "hd" + t),
               ("pelvis", "hip" + t), ("hip" + t, "th" + t), ("th" + t, "kn" + t), ("kn" + t, "ca" + t), ("ca" + t, "an" + t)]
     v, f = hm_skin_shell("body", J, E, R, "pelvis", levels=S["facet"])
-    fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(HM_SKIN, rnd)), ("auto", None))
+    _HM_BODY_CACHE[key] = (v, f)
+    return v, f
+
+
+def hm_body(fig):
+    v, f = hm_body_shell(fig)
+    fig.add(list(v), list(f), hm_paint(fig, v, f, lambda c, n: hm_tone(HM_SKIN, fig.rnd)), ("auto", None))
+
+
+def hm_vertex_normals(v, f):
+    n = [Vector() for _ in v]
+    for face in f:
+        a, b2, c = v[face[0]], v[face[1]], v[face[2]]
+        fn = (b2 - a).cross(c - a)          # area-weighted
+        if len(face) == 4:
+            fn += (c - a).cross(v[face[3]] - a)
+        for i in face:
+            n[i] += fn
+    return [x.normalized() if x.length > 1e-12 else Vector((0, 1, 0)) for x in n]
+
+
+HM_CLASS_BONES = None
+
+
+def hm_bone_of(fig, p):
+    """(bone, t along it) of the nearest limb or torso bone, as the weights see it."""
+    best, bt, bd = None, 0.0, 1e9
+    for name, h, t, par in HM_BONES:
+        if name.startswith("cape") or name.startswith("shoulder"):
+            continue
+        d, tt = hm_seg(p, fig.j[h], fig.j[t])
+        if d < bd:
+            best, bt, bd = name, tt, d
+    return best, bt
+
+
+def hm_wrap(fig, keep, offset, colfn, rule=("auto", None)):
+    """A garment cut from the body: the faces whose centre `keep(centre, bone, t)` accepts,
+    pushed out along the body's vertex normals by `offset`. Same shape, same weights as
+    the skin under it, so it bends with it and nothing shows through."""
+    v, f = hm_body_shell(fig)
+    nrm = hm_vertex_normals(v, f)
+    used = {}
+    out_v, out_f = [], []
+    for face in f:
+        c = sum((v[i] for i in face), Vector()) / len(face)
+        bone, t = hm_bone_of(fig, c)
+        if not keep(c, bone, t):
+            continue
+        nf = []
+        for i in face:
+            if i not in used:
+                used[i] = len(out_v)
+                out_v.append(v[i] + nrm[i] * offset)
+            nf.append(used[i])
+        out_f.append(tuple(nf))
+    fig.add(out_v, out_f, hm_paint(fig, out_v, out_f, colfn), rule)
+
+
+def hm_torso_keep(fig, sleeve_bones, collar=0.035, low=0.06):
+    """keep() for a shirt: the torso from just below the waist to the collar, plus sleeves
+    as {bone: reach along it (0..1)}."""
+    j = fig.j
+    def keep(c, bone, t):
+        if bone in ("hips", "spine", "chest"):
+            return j["pelvis"].y - low < c.y < j["neck"].y - collar
+        if bone in sleeve_bones:
+            return t <= sleeve_bones[bone]
+        return False
+    return keep
 
 
 # A head as cross-section loops, chin (y = 0) to crown (y = 1), head height 1. Each loop
@@ -1058,77 +1135,69 @@ def wd_gloves(f):
 
 
 def hm_clothes_part(fig, part):
-    """One part of the linen outfit: "tunic" (with belt) or "trousers"."""
+    """One part of the linen outfit: "tunic" (shirt from the body, a skirt below the belt,
+    belt) or "trousers" (from the body)."""
     S, j, rnd = fig.S, fig.j, fig.rnd
     b = S["build"] * 1.2
     k = (S["height"] - S["head"]) / (1.98 - 0.36)
     if part == "tunic":
-        J = {"pelvis": j["pelvis"], "belly": j["belly"], "chest": j["chest"], "collar": j["neck"] + Vector((0, -0.02, 0)),
-             "skirt": j["pelvis"] + Vector((0, -0.16 * k, 0)), "hem": j["pelvis"] + Vector((0, -0.3 * k, 0.005))}
-        R = {"pelvis": (0.185 * b, 0.135 * b), "belly": (0.17 * b, 0.128 * b), "chest": (0.198 * b, 0.143 * b), "collar": 0.085 * b,
-             "skirt": (0.215 * b, 0.165 * b), "hem": (0.235 * b, 0.19 * b)}
-        E = [("pelvis", "belly"), ("belly", "chest"), ("chest", "collar"), ("pelvis", "skirt"), ("skirt", "hem")]
-        opens = [(J["hem"], Vector((0, -1, 0)), 0.3), (J["collar"], Vector((0, 1, 0)), 0.12)]
-        for t in "LR":
-            J["sh" + t] = j["sh" + t]
-            J["sl" + t] = j["sh" + t].lerp(j["el" + t], 0.55)
-            R["sh" + t] = 0.088 * b
-            R["sl" + t] = 0.075 * b
-            E += [("chest", "sh" + t), ("sh" + t, "sl" + t)]
-            opens.append((J["sl" + t], (j["el" + t] - j["sh" + t]).normalized(), 0.1))
-        v, f = hm_skin_shell("tunic", J, E, R, "pelvis", levels=1, open_ends=opens)
-        fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(HM_LINEN if c.y > j["pelvis"].y - 0.25 * k else HM_LINEN_D, rnd)), ("skirt", None))
+        sleeves = {"upperArm.L": 0.55, "upperArm.R": 0.55}
+        hm_wrap(fig, hm_torso_keep(fig, sleeves), 0.018, lambda c, n: hm_tone(HM_LINEN, rnd))
+        # skirt: hangs from the belt over the hips, open at the hem
+        J = {"waist": j["pelvis"] + Vector((0, 0.05, 0)), "skirt": j["pelvis"] + Vector((0, -0.12 * k, 0)),
+             "hem": j["pelvis"] + Vector((0, -0.28 * k, 0.005))}
+        R = {"waist": (0.165 * b, 0.122 * b), "skirt": (0.2 * b, 0.155 * b), "hem": (0.225 * b, 0.18 * b)}
+        v, f = hm_skin_shell("skirt", J, [("waist", "skirt"), ("skirt", "hem")], R, "waist", levels=1,
+                             open_ends=[(J["hem"], Vector((0, -1, 0)), 0.32), (J["waist"], Vector((0, 1, 0)), 0.3)])
+        fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(HM_LINEN if c.y > J["hem"].y + 0.05 else HM_LINEN_D, rnd)), ("skirt", None))
         kit = Kit(0)
         kit.r = rnd
-        dk_lathe(kit, "belt", [(0.19 * b, j["pelvis"].y + 0.02), (0.195 * b, j["pelvis"].y + 0.075)], 12, HM_WRAPS, 0, 0, cap=False)
-        kit.box("belt", 0.07, 0.06, 0.02, HM_TRIM, 0, j["pelvis"].y + 0.048, -0.145 * b)
+        dk_lathe(kit, "belt", [(0.168 * b, j["pelvis"].y + 0.02), (0.172 * b, j["pelvis"].y + 0.075)], 12, HM_WRAPS, 0, 0, cap=False)
+        kit.box("belt", 0.07, 0.06, 0.02, HM_TRIM, 0, j["pelvis"].y + 0.048, -0.128 * b)
         fig.from_kit(kit, ("rigid", "hips"))
     else:
-        for t in "LR":
-            J = {"hip": j["hip" + t] + Vector((0, 0.02, 0)), "th": j["hip" + t].lerp(j["kn" + t], 0.4), "kn": j["kn" + t],
-                 "ca": j["kn" + t].lerp(j["an" + t], 0.3), "bt": j["kn" + t].lerp(j["an" + t], 0.55)}
-            R = {"hip": 0.105 * b, "th": 0.094 * b, "kn": 0.07 * b, "ca": 0.072 * b, "bt": 0.06 * b}
-            v, f = hm_skin_shell("legs", J, [("hip", "th"), ("th", "kn"), ("kn", "ca"), ("ca", "bt")], R, "hip", levels=1,
-                                 open_ends=[(J["hip"], Vector((0, 1, 0)), 0.14), (J["bt"], Vector((0, -1, 0)), 0.1)])
-            fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(HM_TROUSERS, rnd)), ("auto", None))
+        def keep(c, bone, t):
+            if bone in ("thigh.L", "thigh.R"):
+                return True
+            if bone in ("shin.L", "shin.R"):
+                return t < 0.62
+            return bone == "hips" and c.y < j["pelvis"].y - 0.02
+        hm_wrap(fig, keep, 0.012, lambda c, n: hm_tone(HM_TROUSERS, rnd))
 
 
 def wd_coat(f):
-    """Gambeson with the tabard painted on (cloth panel, trim edges, dark sides), belt, pouch, emblem."""
+    """Gambeson cut from the body (full sleeves to mid forearm), a skirt to the knee below
+    the belt, the tabard painted on (cloth panel, trim edges, dark sides), belt, pouch, emblem."""
     S, j, rnd = f.S, f.j, f.rnd
     b = S["build"] * 1.2
     k = (S["height"] - S["head"]) / (1.98 - 0.36)
-    J = {"pelvis": j["pelvis"], "belly": j["belly"], "chest": j["chest"], "collar": j["neck"] + Vector((0, -0.01, 0)),
-         "skirt": j["pelvis"] + Vector((0, -0.2 * k, 0)), "hem": j["pelvis"] + Vector((0, -0.4 * k, 0.01))}
-    R = {"pelvis": (0.19 * b, 0.14 * b), "belly": (0.178 * b, 0.136 * b), "chest": (0.205 * b, 0.15 * b), "collar": 0.09 * b,
-         "skirt": (0.225 * b, 0.175 * b), "hem": (0.25 * b, 0.2 * b)}
-    E = [("pelvis", "belly"), ("belly", "chest"), ("chest", "collar"), ("pelvis", "skirt"), ("skirt", "hem")]
-    opens = [(J["hem"], Vector((0, -1, 0)), 0.32), (J["collar"], Vector((0, 1, 0)), 0.12)]
-    for t in "LR":
-        J["sh" + t] = j["sh" + t]
-        J["ua" + t] = j["sh" + t].lerp(j["el" + t], 0.5)
-        J["el" + t] = j["el" + t]
-        J["cf" + t] = j["el" + t].lerp(j["wr" + t], 0.55)
-        R.update({"sh" + t: 0.09 * b, "ua" + t: 0.074 * b, "el" + t: 0.064 * b, "cf" + t: 0.062 * b})
-        E += [("chest", "sh" + t), ("sh" + t, "ua" + t), ("ua" + t, "el" + t), ("el" + t, "cf" + t)]
-        opens.append((J["cf" + t], (j["wr" + t] - j["el" + t]).normalized(), 0.09))
     half = 0.13 * b
-    hem_y = J["hem"].y + 0.05
-    def tabard(c, n):
-        if c.y < hem_y:
-            return hm_tone(HM_TRIM, rnd)
-        if abs(c.x) < half and c.y < j["neck"].y - 0.04:
+    def tabard_top(c, n):
+        if abs(c.x) < half and c.y < j["neck"].y - 0.06:
             return hm_tone(HM_TRIM, rnd) if abs(c.x) > half - 0.035 else hm_tone(HM_CLOTH, rnd)
         return hm_tone(HM_CLOTH_D, rnd)
-    v, fc = hm_skin_shell("gambeson", J, E, R, "pelvis", levels=1, open_ends=opens)
-    f.add(v, fc, hm_paint(f, v, fc, tabard), ("skirt", None))
+    sleeves = {"upperArm.L": 1.0, "upperArm.R": 1.0, "forearm.L": 0.55, "forearm.R": 0.55}
+    hm_wrap(f, hm_torso_keep(f, sleeves, collar=0.03), 0.034, tabard_top)
+    J = {"waist": j["pelvis"] + Vector((0, 0.05, 0)), "skirt": j["pelvis"] + Vector((0, -0.18 * k, 0)),
+         "hem": j["pelvis"] + Vector((0, -0.4 * k, 0.01))}
+    R = {"waist": (0.18 * b, 0.135 * b), "skirt": (0.22 * b, 0.17 * b), "hem": (0.25 * b, 0.2 * b)}
+    hem_y = J["hem"].y + 0.05
+    def tabard_skirt(c, n):
+        if c.y < hem_y:
+            return hm_tone(HM_TRIM, rnd)
+        if abs(c.x) < half:
+            return hm_tone(HM_TRIM, rnd) if abs(c.x) > half - 0.035 else hm_tone(HM_CLOTH, rnd)
+        return hm_tone(HM_CLOTH_D, rnd)
+    v, fc = hm_skin_shell("coatskirt", J, [("waist", "skirt"), ("skirt", "hem")], R, "waist", levels=1,
+                          open_ends=[(J["hem"], Vector((0, -1, 0)), 0.34), (J["waist"], Vector((0, 1, 0)), 0.3)])
+    f.add(v, fc, hm_paint(f, v, fc, tabard_skirt), ("skirt", None))
     kit = Kit(0)
     kit.r = rnd
-    kit.box("emblem", 0.11, 0.11, 0.03, HM_TRIM, 0, j["chest"].y, -0.15 * b - 0.012, rz=math.pi / 4)
+    kit.box("emblem", 0.11, 0.11, 0.03, HM_TRIM, 0, j["chest"].y, -0.135 * b - 0.022, rz=math.pi / 4)
     f.from_kit(kit, ("rigid", "chest"))
-    dk_lathe(kit, "belt", [(0.2 * b, j["pelvis"].y + 0.02), (0.205 * b, j["pelvis"].y + 0.08)], 12, HM_LEATHER, 0, 0, cap=False)
-    kit.box("belt", 0.08, 0.07, 0.02, HM_TRIM, 0, j["pelvis"].y + 0.05, -0.2 * b - 0.03)
-    kit.box("belt", 0.09, 0.1, 0.06, HM_LEATHER, 0.17 * b, j["pelvis"].y - 0.03, -0.1 * b)
+    dk_lathe(kit, "belt", [(0.183 * b, j["pelvis"].y + 0.02), (0.188 * b, j["pelvis"].y + 0.08)], 12, HM_LEATHER, 0, 0, cap=False)
+    kit.box("belt", 0.08, 0.07, 0.02, HM_TRIM, 0, j["pelvis"].y + 0.05, -0.185 * b)
+    kit.box("belt", 0.09, 0.1, 0.06, HM_LEATHER, 0.16 * b, j["pelvis"].y - 0.03, -0.1 * b)
     f.from_kit(kit, ("rigid", "hips"))
 
 
