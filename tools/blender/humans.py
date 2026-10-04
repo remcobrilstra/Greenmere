@@ -545,20 +545,95 @@ def hm_clothes_base(fig):
         hm_glove(fig, t, HM_WRAPS)
 
 
-def hm_boot(fig, t, pal, cuff=None, top=0.5):
+HM_BOOT_N = 16   # points round every boot ring
+
+
+def hm_boot_ring(c, w, front, back, sq=2.6):
+    """A horizontal ring round centre c: half-width w, reaching `front` ahead (-z) and
+    `back` behind; the front half squared off (sq) for a boxy toe, the heel narrower."""
+    pts = []
+    for i in range(HM_BOOT_N):
+        a = i * 2 * math.pi / HM_BOOT_N          # 0 = straight ahead
+        ca, sa = math.cos(a), math.sin(a)
+        e = 2 / (sq if ca > 0 else 2.0)
+        cz = abs(ca) ** e * (1 if ca >= 0 else -1)
+        sx = abs(sa) ** e * (1 if sa >= 0 else -1)
+        ww = w * (1 - 0.14 * max(0.0, -ca))
+        pts.append(c + Vector((sx * ww, 0, -cz * (front if ca > 0 else back))))
+    return pts
+
+
+def hm_boot(fig, t, pal, cuff=None, top=0.5, wound=False):
+    """A boot lofted from horizontal rings: a shaft round the calf from `top` (0 knee,
+    1 ankle) down, then the foot growing out of it below the ankle, a sloping instep
+    down to a boxy toe, a rounded heel and a flat sole a shade wider than the upper.
+    wound: the shaft is turns of cloth (pal) stepping out over each other, slanted round
+    the leg, over a plain leather foot; the sole is always boot leather (its own slot)."""
     S, j, rnd = fig.S, fig.j, fig.rnd
-    b = S["build"] * 1.2   # clothes clear the body shell
-    up = j["kn" + t].lerp(j["an" + t], top)
-    J = {"top": up, "an": j["an" + t] + Vector((0, 0.01, 0)), "ball": j["an" + t].lerp(j["toe" + t], 0.65) + Vector((0, -0.02, 0)),
-         "toe": j["toe" + t] + Vector((0, -0.005, -0.02))}
-    R = {"top": 0.07 * b, "an": 0.056 * b, "ball": (0.055 * S["feet"], 0.04), "toe": (0.048 * S["feet"], 0.034)}
-    v, f = hm_skin_shell("boot", J, [("top", "an"), ("an", "ball"), ("ball", "toe")], R, "top", levels=1,
-                         open_ends=[(J["top"], Vector((0, 1, 0)), 0.09)])
-    fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(pal, rnd) if n.y > -0.6 else shade(pal[0], 0.7)), ("auto", None))
+    b = S["build"]
+    ft = S["feet"]
+    kn, an = j["kn" + t], j["an" + t]
+    def body_r(u):                               # the body shell's leg radius at u (knee 0, ankle 1)
+        if u < 0.3:
+            return 0.075 * b + (0.078 - 0.075) * b * u / 0.3
+        return 0.078 * b + (0.05 - 0.078) * b * (u - 0.3) / 0.7
+    rings, kinds = [], []
+    def shaft_r(u):                              # clears the calf, hugs in towards the ankle
+        return body_r(u) * (1.14 - 0.08 * min(1.0, max(0.0, (u - 0.6) / 0.3))) + 0.005
+    rows = 7 if wound else 4
+    for k in range(rows):
+        u = top + (0.9 - top) * k / (rows - 1)
+        c = kn.lerp(an, u)
+        r = shaft_r(u)
+        ring = hm_boot_ring(c, r, r * 1.02, r * 0.98, sq=2.0)
+        if wound and 1 < k < rows - 1:            # the first turn tucks under the cuff
+            # each turn's lower edge stands proud of the next; the turns run on a slant
+            r2 = r + (0.008 if k % 2 else 0.0)
+            ring = [c + (p_ - c) * (r2 / r) + Vector((0, 0.014 * math.sin(i * 2 * math.pi / HM_BOOT_N), 0))
+                    for i, p_ in enumerate(ring)]
+        rings.append(ring)
+        kinds.append(("shaft", u))
+    ax, ay = an.x, an.y
+    w = 0.05 * ft * b ** 0.5
+    # (height, centre z, front, back, half-width): the instep falling to the toe
+    for y, cz, fr, bk, ww, kind in (
+            (ay + 0.005, -0.012, 0.072, 0.062, w * 1.02, "upper"),
+            (ay - 0.03, -0.035 * ft, 0.105 * ft, 0.082, w * 1.05, "upper"),
+            (0.05, -0.058 * ft, 0.13 * ft, 0.104, w * 1.08, "upper"),
+            (0.027, -0.06 * ft, 0.138 * ft, 0.112, w * 1.08, "upper"),
+            (0.022, -0.06 * ft, 0.145 * ft, 0.118, w * 1.16, "sole"),
+            (0.0, -0.06 * ft, 0.145 * ft, 0.118, w * 1.16, "sole")):
+        rings.append(hm_boot_ring(Vector((ax, y, cz)), ww, fr, bk))
+        kinds.append((kind, y))
+    N = HM_BOOT_N
+    v = [p_ for r in rings for p_ in r]
+    f, cols = [], []
+    dark = shade(HM_BOOT[0], 0.7)
+    foot = HM_BOOT if wound else pal
+    for r in range(len(rings) - 1):
+        for k in range(N):
+            q = (k + 1) % N
+            f.append((r * N + k, (r + 1) * N + k, (r + 1) * N + q, r * N + q))
+            if kinds[r][0] == "sole":
+                cols.append(dark)
+            elif kinds[r][0] == "shaft" and kinds[r + 1][0] == "shaft":
+                cols.append(hm_tone(pal, rnd))
+            else:
+                cols.append(hm_tone(foot, rnd))
+    # the sole's step: the upper's bottom ring meets the wider sole top (already a face band)
+    v.append(Vector((ax, 0.0, -0.06 * ft)))
+    last = (len(rings) - 1) * N
+    for k in range(N):
+        f.append((last + (k + 1) % N, last + k, len(v) - 1))
+        cols.append(dark)
+    fig.add(v, f, cols, ("auto", None))
     if cuff:
+        u = top
+        c = kn.lerp(an, u)
+        r = shaft_r(u)
         kit = Kit(0)
         kit.r = rnd
-        dk_lathe(kit, "cuff", [(0.078 * b, up.y - 0.05), (0.082 * b, up.y + 0.01)], 9, cuff, up.x, up.z, cap=False)
+        dk_lathe(kit, "cuff", [(r + 0.006, c.y - 0.045), (r + 0.01, c.y + 0.012)], 10, cuff, c.x, c.z, cap=False)
         fig.from_kit(kit, ("rigid", "shin." + t))
 
 
@@ -1127,7 +1202,7 @@ def wd_trousers(f):
 
 def wd_wraps(f):
     for t in "LR":
-        hm_boot(f, t, HM_BOOT, cuff=HM_WRAPS)
+        hm_boot(f, t, HM_WRAPS, cuff=HM_BOOT, wound=True)
 
 
 def wd_gloves(f):
@@ -2167,7 +2242,15 @@ def folk_clips(rig):
     return [t.name for t in rig.animation_data.nla_tracks]
 
 
-def render_head(names, out_dir, tag="", yaws=(180, 215, 270, 0), look=None, w=420, h=420, dist=1.15):
+def render_close(names, out_dir, tag="", yaws=(180, 215, 270, 0), look=None, w=420, h=420, dist=1.15,
+                 bone="head", at=0.45, lift=0.12, action=None, frame=0):
+    """Close Workbench renders around `bone` with `names` shown, one per yaw (180 = from
+    the front); optionally posed at `frame` of `action`."""
+    return render_head(names, out_dir, tag, yaws, look, w, h, dist, bone, at, lift, action, frame)
+
+
+def render_head(names, out_dir, tag="", yaws=(180, 215, 270, 0), look=None, w=420, h=420, dist=1.15,
+                bone="head", at=0.45, lift=0.12, action=None, frame=0):
     """Close Workbench renders of the Warden's head with `names` shown, one per yaw
     (180 = from the front), for checking head gear against the head."""
     os.makedirs(out_dir, exist_ok=True)
@@ -2180,6 +2263,10 @@ def render_head(names, out_dir, tag="", yaws=(180, 215, 270, 0), look=None, w=42
         rig.animation_data.action = None
     for b in rig.pose.bones:
         b.rotation_quaternion = (1, 0, 0, 0)
+    if action:
+        rig.animation_data_create()
+        rig.animation_data.action = bpy.data.actions.get(rig.name + "_" + action)
+        scn.frame_set(frame)
     bpy.context.view_layer.update()
     wd_preview_paint(scn, names, look if look is not None else PREVIEW_OUTFITS[1][1])
     scn.render.engine = 'BLENDER_WORKBENCH'
@@ -2196,18 +2283,20 @@ def render_head(names, out_dir, tag="", yaws=(180, 215, 270, 0), look=None, w=42
         cam = bpy.data.objects.new("wd_cam", bpy.data.cameras.new("wd_cam"))
         scn.collection.objects.link(cam)
     scn.camera = cam
-    hb = rig.data.bones["head"]
-    target = rig.matrix_world @ hb.head_local.lerp(hb.tail_local, 0.45)
+    pb = rig.pose.bones[bone]
+    target = rig.matrix_world @ pb.head.lerp(pb.tail, at)
     files = []
     for yaw in yaws:
         yr = math.radians(yaw)
-        cam.location = target + Vector((-math.sin(yr) * dist, -math.cos(yr) * dist, 0.12))
+        cam.location = target + Vector((-math.sin(yr) * dist, -math.cos(yr) * dist, lift))
         cam.rotation_euler = (target - cam.location).normalized().to_track_quat('-Z', 'Y').to_euler()
         cam.data.lens = 60
         path = os.path.join(out_dir, "%s%03d.png" % (tag, yaw))
         scn.render.filepath = path
         bpy.ops.render.render(write_still=True)
         files.append(path)
+    if action and rig.animation_data:
+        rig.animation_data.action = None
     for o in scn.objects:
         if o.type == 'MESH' and "Col" in o.data.color_attributes:
             o.data.color_attributes.active_color = o.data.color_attributes["Col"]
