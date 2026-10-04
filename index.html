@@ -1224,9 +1224,71 @@
       .slot { transition: none; }
       .slot:active { transform: none; }
     }
+
+    /* Loading card (src/ui/loading.js): up from the first paint until the models are in. */
+    #loading {
+      position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center;
+      background:
+        radial-gradient(ellipse at 50% 42%, rgba(46, 74, 40, 0.55), rgba(10, 14, 10, 0) 62%),
+        radial-gradient(ellipse at 50% 120%, rgba(210, 165, 79, 0.10), rgba(0, 0, 0, 0) 55%),
+        #0d110d;
+      transition: opacity 0.7s ease;
+      pointer-events: auto;
+    }
+    #loading::before {
+      content: ""; position: absolute; inset: 0; background-image: var(--grain); opacity: 0.35; mix-blend-mode: overlay;
+    }
+    #loading.loaded { opacity: 0; pointer-events: none; }
+    #loading .ld-card { position: relative; text-align: center; padding: 0 16px; width: min(440px, 92vw); }
+    #loading .ld-crest { width: 64px; height: 64px; margin: 0 auto 14px; opacity: 0.9; }
+    #loading .ld-title {
+      margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clamp(34px, 7vw, 58px); letter-spacing: 0.16em;
+      text-transform: uppercase; line-height: 1.05;
+      color: var(--brass-hi);
+      text-shadow: 0 1px 0 #a8823a, 0 2px 0 #5a4018, 0 3px 6px rgba(0, 0, 0, 0.7), 0 0 26px rgba(243, 215, 154, 0.22);
+    }
+    #loading .ld-sub {
+      margin: 6px 0 30px; font-family: var(--f-body); font-style: italic; font-size: 19px; color: var(--mute); letter-spacing: 0.04em;
+    }
+    #loading .ld-bar {
+      position: relative; height: 12px; margin: 0 auto; width: min(360px, 82vw); border-radius: 2px; overflow: hidden;
+      background: rgba(0, 0, 0, 0.55); border: 1px solid var(--brass-lo);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 1px 3px rgba(0, 0, 0, 0.8);
+    }
+    #loading-fill {
+      position: absolute; inset: 1px; transform-origin: left center; transform: scaleX(0); transition: transform 0.35s ease;
+      background: linear-gradient(180deg, var(--brass-hi), var(--brass) 60%, var(--brass-lo));
+      box-shadow: 0 0 10px rgba(243, 215, 154, 0.35);
+    }
+    #loading-stage {
+      margin: 14px 0 0; min-height: 1.3em; font-family: var(--f-display); font-size: 13px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--ink);
+    }
+    #loading .ld-tip {
+      margin: 26px auto 0; max-width: 34ch; font-family: var(--f-body); font-style: italic; font-size: 16px; line-height: 1.4; color: var(--mute);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #loading, #loading-fill { transition: none; }
+    }
   </style>
 </head>
 <body>
+  <div id="loading" role="status" aria-live="polite" aria-label="Loading Greenmere">
+    <div class="ld-card">
+      <svg class="ld-crest" viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="none" stroke="#d2a54f" stroke-width="2">
+          <circle cx="32" cy="32" r="27" opacity=".55" />
+          <path d="M32 9 L36 28 L55 32 L36 36 L32 55 L28 36 L9 32 L28 28 Z" fill="rgba(210,165,79,.18)" />
+        </g>
+        <circle cx="32" cy="32" r="4" fill="#f3d79a" />
+      </svg>
+      <h1 class="ld-title">Greenmere</h1>
+      <p class="ld-sub">and the Underwood beneath</p>
+      <div class="ld-bar"><div id="loading-fill"></div></div>
+      <p id="loading-stage">Lighting the way…</p>
+      <p id="loading-tip" class="ld-tip"></p>
+    </div>
+  </div>
   <div id="vignette"></div>
   <div id="hud">
     <section id="vitals" class="plaque" aria-label="Warden">

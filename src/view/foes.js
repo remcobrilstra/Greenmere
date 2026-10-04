@@ -83,6 +83,11 @@ export function loadFoeSet(key) {
   return sets.get(key).ready;
 }
 
+// Resolves once every biome's foe set has loaded (or failed and fallen back).
+export function foeSetsReady() {
+  return Promise.all(FOE_KEYS.map(loadFoeSet));
+}
+
 export function preloadFoeSets() {
   for (const key of FOE_KEYS) loadFoeSet(key);
 }

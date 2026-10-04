@@ -17,11 +17,11 @@ import { loadWardenSkin, attachWardenSkin } from "./heroskin.js";
 // material, so a fully dressed Warden stays a handful of draw calls.
 // hero.tick(dt) animates the relic extras (orbiting charm, motes, glow pulse).
 //
-// Blender-built pieces: once assets/models/hero.glb (tools/blender/hero.py)
-// loads, the base and every gear layer are built from it instead, painted from
-// the same looks (slot-coded vertex colours with baked shading), on the same rig
-// groups, buckets and materials. `nose` and `toe` stay code-built. hero.ready
-// resolves after the switch (or if the library fails, keeping the code pieces).
+// Blender-built: the skinned Warden (assets/models/warden.glb, view/heroskin.js,
+// tools/blender/humans.py) wears everything and is posed from these rig groups and
+// its clips. If it cannot load, the piece library (assets/models/hero.glb,
+// tools/blender/hero.py) builds the base and every gear layer on the rig groups
+// instead, and without that the code pieces stay. hero.ready resolves after the switch.
 
 const LINEN = 0xcfc3a4;
 const LINEN_DARK = 0xa89878;
@@ -515,7 +515,7 @@ export function buildHero(scene) {
     for (const slot of ["weapon", "offhand", "head", "body", "feet", "trinket"]) looks[slot] = gearLook(eq[slot]);
     if (lib) libDress(looks);
     if (skin) skin.dress(looks, libPalette, MATS);
-    if (!lib) {
+    if (!lib && !skin) {
       dressBody(looks.body);
       dressHead(looks.head, !!looks.body);
       dressFeet(looks.feet);
@@ -575,52 +575,56 @@ export function buildHero(scene) {
   scene.add(player);
   void toe;
 
-  // Switch to the Blender pieces once they load: rebuild the base, re-dress what is worn.
-  const ready = loadPartLibrary("./assets/models/hero.glb", "hp_").then((parts) => {
-    lib = parts;
-    for (const g of rigGroups) {
-      for (let i = g.children.length - 1; i >= 0; i--) {
-        const c = g.children[i];
-        if (c.userData.layer === "base") {
-          g.remove(c);
-          c.geometry.dispose();
-        }
-      }
-    }
-    libBase();
-    flush("base");
-    dress(lastEquipped);
-    return true;
-  }).catch((err) => {
-    console.warn("[hero] Warden parts did not load; keeping the code-built Warden", err);
-    return false;
-  }).then((ok) => {
-    if (!ok) return false;
-    // The skinned Warden takes over the body once assets/models/warden.glb loads; the
-    // code rig keeps animating and drives its bones. Without it the pieces stay.
-    return loadWardenSkin().then((gltf) => {
-      skin = attachWardenSkin({ player, body, leftLeg, rightLeg, leftArm, rightArm, torso, head, cape, sword, shield, orbit }, gltf, matMatte);
+  // The piece library (assets/models/hero.glb): rebuild the base from it, re-dress what is worn.
+  function useLibrary() {
+    return loadPartLibrary("./assets/models/hero.glb", "hp_").then((parts) => {
+      lib = parts;
       for (const g of rigGroups) {
-        if (carried(g)) continue;
         for (let i = g.children.length - 1; i >= 0; i--) {
           const c = g.children[i];
-          if (c.userData.layer === "base" || c.userData.layer === "gear") {
+          if (c.userData.layer === "base") {
             g.remove(c);
             c.geometry.dispose();
           }
         }
       }
-      // the facing oracles stay for the self-test, unseen
-      nose.visible = false;
-      // the piece-built relic charm was sized for the code-built Warden
-      if (!skin.charm) orbit.scale.setScalar(0.6);
-      toe.visible = false;
+      libBase();
+      flush("base");
       dress(lastEquipped);
       return true;
     }).catch((err) => {
-      console.warn("[hero] skinned Warden did not load; keeping the pieces", err);
-      return true;
+      console.warn("[hero] Warden parts did not load; keeping the code-built Warden", err);
+      return false;
     });
+  }
+  // The skinned Warden (assets/models/warden.glb) wears everything; the code rig keeps
+  // animating and drives its bones where no clip does.
+  function useSkin(gltf) {
+    skin = attachWardenSkin({ player, body, leftLeg, rightLeg, leftArm, rightArm, torso, head, cape, sword, shield, orbit }, gltf, matMatte);
+    for (const g of rigGroups) {
+      if (carried(g)) continue;
+      for (let i = g.children.length - 1; i >= 0; i--) {
+        const c = g.children[i];
+        if (c.userData.layer === "base" || c.userData.layer === "gear") {
+          g.remove(c);
+          c.geometry.dispose();
+        }
+      }
+    }
+    // the facing oracles stay for the self-test, unseen
+    nose.visible = false;
+    toe.visible = false;
+    dress(lastEquipped);
+    // an older warden.glb without held gear or the charm still needs the pieces for those
+    if (!skin.holds || !skin.charm) {
+      if (!skin.charm) orbit.scale.setScalar(0.6);
+      return useLibrary().then(() => true);
+    }
+    return true;
+  }
+  const ready = loadWardenSkin().then(useSkin).catch((err) => {
+    console.warn("[hero] skinned Warden did not load; using the piece-built Warden", err);
+    return useLibrary();
   });
 
   return { player, body, leftLeg, rightLeg, leftArm, rightArm, torso, cape, head, nose, sword, shield, dress, tick, ready, skin: () => skin };

@@ -167,6 +167,7 @@ async function main() {
       await page.goto(srv.base + "/index.html?dev=1&res=pin&" + q, { waitUntil: "load", timeout: 90000 });
       await page.waitForFunction(() => window.__game && window.__game.rt && window.__game.rt.townModelsReady, null, { timeout: 60000 });
       await page.evaluate(() => window.__game.rt.townModelsReady);
+  await page.evaluate(() => window.__game.rt.assetsReady);
       await page.waitForFunction(() => { const d = window.__game.rt.dungeonRoot; return !d || (d.userData.dressedWithKit && d.userData.foesReady); }, null, { timeout: 15000 }).catch(() => {});
       await page.waitForTimeout(1500);
       let cdp = null;

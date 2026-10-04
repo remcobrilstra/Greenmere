@@ -97,6 +97,11 @@ twist and lunge, aim, the hearth channel) write on top of the mixer each frame, 
 - Animals (beyond the humans plan): `tools/blender/critters.py` builds a cat, a dog
   and a hen on their own skeletons with clips; `src/view/skinkit.js` plays them.
 
+- Phase 4 (cleanup) done: the skinned files load first and the piece libraries
+  (`hero.glb`, `villager.glb`, `animals.glb`) are only fetched if those fail; the
+  code rigs stay as the pose source for the death fall, body height and the portrait,
+  and as the last fallback.
+
 ## Phases
 
 0. **Style.** Three or four hero candidates rendered side by side in rest, walk and

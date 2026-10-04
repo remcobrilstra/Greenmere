@@ -91,6 +91,7 @@ async function shoot(page, base, query, file) {
   await page.goto(base + "/index.html?dev=1&" + query, { waitUntil: "load", timeout: 90000 });
   await page.waitForFunction(() => window.__game && window.__game.rt && window.__game.rt.townModelsReady, null, { timeout: 60000 });
   await page.evaluate(() => window.__game.rt.townModelsReady);
+  await page.evaluate(() => window.__game.rt.assetsReady);
   // A dungeon floor re-dresses itself and its foes once its biome's Blender sets are in (blocked on "before").
   await page.waitForFunction(() => { const d = window.__game.rt.dungeonRoot; return !d || (d.userData.dressedWithKit && d.userData.foesReady); }, null, { timeout: 15000 }).catch(() => {});
   // &hide=hero also on dungeon floors (main.js only applies it in town).

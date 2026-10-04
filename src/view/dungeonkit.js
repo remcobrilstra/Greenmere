@@ -338,6 +338,11 @@ export function loadDungeonKit(key) {
   return kits.get(key).ready;
 }
 
+// Resolves once every biome kit has loaded (or failed and fallen back).
+export function dungeonKitsReady() {
+  return Promise.all(KIT_KEYS.map(loadDungeonKit));
+}
+
 export function preloadDungeonKits() {
   for (const key of KIT_KEYS) loadDungeonKit(key);
 }

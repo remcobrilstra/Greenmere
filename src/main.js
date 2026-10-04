@@ -39,6 +39,9 @@ import { attachAbilityTips } from "./ui/abilitytips.js";
 import { attachQuestMarks } from "./play/questmarks.js";
 import { installSelfTest } from "./test/self-test.js";
 import { attachResolution } from "./play/resolution.js";
+import { attachLoading } from "./ui/loading.js";
+import { dungeonKitsReady } from "./view/dungeonkit.js";
+import { foeSetsReady } from "./view/foes.js";
 import { parseSave, migrate, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY } from "./sim/save.js";
 
 const params = new URLSearchParams(location.search);
@@ -108,6 +111,21 @@ rt.campLight = town.campLight;
 
 const hero = buildHero(scene);
 rt.townModelsReady = Promise.all([rt.townModelsReady, hero.ready]);
+// Loading card (src/ui/loading.js): every model (town, Warden, townsfolk, animals, the
+// dungeon kits and foes) and the fonts, then the town's shaders compiled, then it fades.
+// The self-test does not wait for it; a stuck file never keeps the player out.
+const loading = attachLoading();
+THREE.DefaultLoadingManager.onProgress = (url, loaded, total) => loading.progress(url, loaded, total);
+rt.assetsReady = Promise.all([rt.townModelsReady, dungeonKitsReady(), foeSetsReady(), document.fonts ? document.fonts.ready : null])
+  .then(() => {
+    loading.stage("Lighting the lamps", 0.92);
+    return renderer.compileAsync ? renderer.compileAsync(scene, camera) : null;
+  })
+  .catch((err) => console.warn("[loading]", err))
+  .then(() => loading.done(params.has("test")));
+if (params.has("test")) loading.done(true);
+setTimeout(() => loading.done(), 30000);
+rt.loading = loading;
 rt.player = hero.player;
 rt.body = hero.body;
 rt.leftLeg = hero.leftLeg;
@@ -325,6 +343,8 @@ function takeDt(now) {
 }
 let lastFrameAt = 0;
 function frame(now) {
+  // no walking off while the loading card is still up
+  if (loading.active) for (const k in rt.keys) rt.keys[k] = false;
   if (lastFrameAt) tickResolution(now - lastFrameAt, now);
   lastFrameAt = now;
   const dt = takeDt(now);
