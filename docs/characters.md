@@ -72,6 +72,15 @@ twist and lunge, aim, the hearth channel) write on top of the mixer each frame, 
 - `src/view/townfolk.js` does the same for villagers on the shared skeleton; body
   variety from per-villager bone scales (height, build) and swappable hair, hats, aprons.
 
+## Status
+
+- Phase 0 done (2026-10-04): the `warden` style in `tools/blender/humans.py`, the
+  heroic body (2.02 m, broad build) with the storybook head (clean-shaven, swept hair).
+- Phase 1 in game: `assets/models/warden.glb`, `src/view/heroskin.js`. The code rig
+  still animates (retargeted onto the bones); authored clips are the next step.
+  Head gear, boots and tier-specific shapes (relic runes, crowns) are not on the
+  skinned Warden yet: the worn look colours the outfit, phase 2 brings the shapes.
+
 ## Phases
 
 0. **Style.** Three or four hero candidates rendered side by side in rest, walk and

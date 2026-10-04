@@ -876,3 +876,155 @@ def render_candidates(out_dir=None, w=1500, h=900, styles=None):
             bpy.ops.render.render(write_still=True)
             files.append(path)
     return files
+
+
+# ---------------------------------------------------------------- the Warden (phase 1)
+#
+#   g["build_warden"]()   -> assets/models/warden.glb
+#
+# One armature ("wd_rig", bones as HM_BONES) and two skinned outfits on it:
+#   wd_base   the Warden in linen (nothing worn on the body)
+#   wd_gear   gambeson with the painted tabard, hood, pauldrons, cape (any body armour)
+# Vertex colour R holds a hero colour slot ((slot + 0.5) / 16, HERO_SLOTS in hero.py and
+# src/view/hero.js), G the baked shade; src/view/heroskin.js paints them per gear look.
+# Sword and shield stay the hero's own pieces, carried on the hand and forearm bones.
+
+WD_SLOT_HEX = {
+    "skin": HM_SKIN + [shade(HM_SKIN[0], 0.96), shade(HM_SKIN[0], 0.92)],
+    "hair": HM_HAIR,
+    "linen": HM_LINEN + [0xf4f0e8, 0xf2ece0],
+    "linenDark": HM_LINEN_D,
+    "trousers": HM_TROUSERS,
+    "wraps": HM_WRAPS,
+    "eye": HM_EYE,
+    "lip": HM_LIP + [shade(HM_LIP[0], 0.62)],
+    "cloth": HM_CLOTH,
+    "dark": HM_CLOTH_D,
+    "trim": HM_TRIM,
+    "steel": HM_STEEL + [shade(HM_STEEL[0], 0.8)],
+    "leather": HM_LEATHER + [shade(HM_LEATHER[0], 0.7)],
+    "boot": HM_BOOT + [shade(HM_BOOT[0], 0.7)],
+}
+
+
+def wd_slot_lookup():
+    exact = {}
+    refs = []
+    for name, hexes in WD_SLOT_HEX.items():
+        for hx in hexes:
+            c = hexc(hx)
+            exact[tuple(round(v, 5) for v in c)] = name
+            refs.append((c, name))
+    def slot_of(c):
+        c = hexc(c) if isinstance(c, int) else c
+        key = tuple(round(v, 5) for v in c[:3])
+        if key in exact:
+            return exact[key]
+        return min(refs, key=lambda r: sum((a - b) ** 2 for a, b in zip(r[0], c)))[1]
+    return slot_of
+
+
+def hm_armature(fig, name, coll):
+    for o in (bpy.data.objects.get(name),):
+        if o is not None:
+            bpy.data.objects.remove(o, do_unlink=True)
+    arm = bpy.data.armatures.new(name)
+    rig = bpy.data.objects.new(name, arm)
+    coll.objects.link(rig)
+    bpy.context.view_layer.objects.active = rig
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    rig.select_set(True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    eb = {}
+    for bname, h, t, par in HM_BONES:
+        b = arm.edit_bones.new(bname)
+        b.head = hm_g2b(fig.j[h])
+        b.tail = hm_g2b(fig.j[t])
+        b.roll = 0.0
+        if par:
+            b.parent = eb[par]
+            b.use_connect = False
+        eb[bname] = b
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return rig
+
+
+def hm_mesh(fig, name, coll, rig, slots=False):
+    """The figure as one mesh weighted to `rig`. slots=True writes colour-slot codes into
+    the "base" attribute (for bake_slot_ao); otherwise plain colours into "Col"."""
+    children = {}
+    for bn in HM_BONES:
+        if bn[3]:
+            children.setdefault(bn[3], []).append(bn)
+    slot_of = wd_slot_lookup() if slots else None
+    verts, faces, cols, groups = [], [], [], []
+    for part in fig.parts:
+        base = len(verts)
+        for p in part["v"]:
+            verts.append(hm_g2b(p))
+            groups.append(hm_weights(fig, p, part["rule"], HM_BONES, children))
+        for f, c in zip(part["f"], part["c"]):
+            faces.append(tuple(base + i for i in f))
+            cols.append(c)
+    stale = bpy.data.objects.get(name)
+    if stale is not None:
+        bpy.data.objects.remove(stale, do_unlink=True)
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    me.update()
+    attr = me.color_attributes.new("base" if slots else "Col", 'FLOAT_COLOR', 'CORNER')
+    flat = []
+    for poly in me.polygons:
+        c = cols[poly.index]
+        if slots:
+            rgb = ((HERO_SLOTS.index(slot_of(c)) + 0.5) / 16, 1.0, 0.0)
+        else:
+            rgb = hexc(c) if isinstance(c, int) else c
+        for _ in poly.loop_indices:
+            flat += (rgb[0], rgb[1], rgb[2], 1.0)
+    attr.data.foreach_set("color", flat)
+    me.color_attributes.active_color = attr
+    ob = bpy.data.objects.new(name, me)
+    coll.objects.link(ob)
+    for bname, *_ in HM_BONES:
+        ob.vertex_groups.new(name=bname)
+    for i, w in enumerate(groups):
+        for bname, wt in w.items():
+            if wt > 1e-4:
+                ob.vertex_groups[bname].add([i], wt, 'REPLACE')
+    mod = ob.modifiers.new("rig", 'ARMATURE')
+    mod.object = rig
+    ob.parent = rig
+    return ob
+
+
+def build_warden(export=True, bake=True, samples=64, style="warden"):
+    keep = bpy.context.window.scene
+    scn = scene_for("warden")
+    bpy.context.window.scene = scn
+    base = HmFig(HM_STYLES[style])
+    hm_body(base)
+    hm_head(base, hood=False)
+    hm_clothes_base(base)
+    gear = HmFig(HM_STYLES[style])
+    hm_body(gear)
+    hm_head(gear, hood=True)
+    hm_heirloom(gear)
+    rig = hm_armature(base, "wd_rig", scn.collection)
+    objs = [hm_mesh(base, "wd_base", scn.collection, rig, slots=True),
+            hm_mesh(gear, "wd_gear", scn.collection, rig, slots=True)]
+    bpy.context.view_layer.update()
+    if bake:
+        for o in objs:
+            for o2 in objs:
+                o2.hide_render = o2 is not o
+            bake_slot_ao(scn, o, samples)
+        for o in objs:
+            o.hide_render = False
+    line = {"id": "warden", "tris": {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs}}
+    if export:
+        p, size = write_glb(scn, [rig] + objs, "warden")
+        line["kb"] = round(size / 1024)
+    bpy.context.window.scene = keep
+    return line

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { makeMat, mergeParts } from "./materials.js";
 import { gearLook } from "./gearlook.js";
 import { loadPartLibrary, paintParts } from "./partlib.js";
+import { loadWardenSkin, attachWardenSkin } from "./heroskin.js";
 
 // The Warden, code-built. Local forward is −z. Groups keep the pivots that
 // movement and combat animate (legs at the hips, arms at the shoulders, the
@@ -94,8 +95,15 @@ export function buildHero(scene) {
     };
     return HERO_SLOTS.map((s) => new THREE.Color(hex[s]));
   }
+  // Once the skinned Warden is on (view/heroskin.js) it wears the body, head and legs;
+  // only what is carried (sword, shield, the orbiting charm) is still built from pieces.
+  let skin = null;
+  function carried(group) {
+    return group === sword || group === shield || group === orbit;
+  }
   // One piece into its group's buckets; glowMode paints it all in the glow colour on the glow material.
   function piece(group, name, k, glowMode) {
+    if (skin && !carried(group)) return;
     const pal = libPalette(k);
     const glowPal = glowMode ? HERO_SLOTS.map(() => new THREE.Color((k && k.glow) || 0xffffff)) : null;
     for (const kind of ["matte", "metal", "glow"]) {
@@ -503,7 +511,8 @@ export function buildHero(scene) {
     const looks = {};
     for (const slot of ["weapon", "offhand", "head", "body", "feet", "trinket"]) looks[slot] = gearLook(eq[slot]);
     if (lib) libDress(looks);
-    else {
+    if (skin) skin.paint(libPalette(looks.body), !!looks.body);
+    if (!lib) {
       dressBody(looks.body);
       dressHead(looks.head, !!looks.body);
       dressFeet(looks.feet);
@@ -580,7 +589,32 @@ export function buildHero(scene) {
   }).catch((err) => {
     console.warn("[hero] Warden parts did not load; keeping the code-built Warden", err);
     return false;
+  }).then((ok) => {
+    if (!ok) return false;
+    // The skinned Warden takes over the body once assets/models/warden.glb loads; the
+    // code rig keeps animating and drives its bones. Without it the pieces stay.
+    return loadWardenSkin().then((gltf) => {
+      skin = attachWardenSkin({ player, body, leftLeg, rightLeg, leftArm, rightArm, torso, head, cape, sword, shield }, gltf, matMatte);
+      for (const g of rigGroups) {
+        if (carried(g)) continue;
+        for (let i = g.children.length - 1; i >= 0; i--) {
+          const c = g.children[i];
+          if (c.userData.layer === "base" || c.userData.layer === "gear") {
+            g.remove(c);
+            c.geometry.dispose();
+          }
+        }
+      }
+      // the facing oracles stay for the self-test, unseen
+      nose.visible = false;
+      toe.visible = false;
+      dress(lastEquipped);
+      return true;
+    }).catch((err) => {
+      console.warn("[hero] skinned Warden did not load; keeping the pieces", err);
+      return true;
+    });
   });
 
-  return { player, body, leftLeg, rightLeg, leftArm, rightArm, torso, cape, head, nose, sword, shield, dress, tick, ready };
+  return { player, body, leftLeg, rightLeg, leftArm, rightArm, torso, cape, head, nose, sword, shield, dress, tick, ready, skin: () => skin };
 }
