@@ -643,7 +643,13 @@ def build_upper(kit, b):
     kit.frame = Matrix.Identity(4)
     walls = [((0, top + U / 2, ud / 2 - T / 2), (uw, U, T), "front"), ((0, top + U / 2, -ud / 2 + T / 2), (uw, U, T), "back"),
              ((-uw / 2 + T / 2, top + U / 2, 0), (T, U, ud - 2 * T), "left"), ((uw / 2 - T / 2, top + U / 2, 0), (T, U, ud - 2 * T), "right")]
+    # Cores stop 2 cm behind the outer plaster so the two faces never fight for depth.
+    IN = 0.02
     for (x, y, z), (w, h, d), side in walls:
+        if side in ("front", "back"):
+            z -= math.copysign(IN / 2, z); d -= IN; w -= 2 * IN
+        else:
+            x -= math.copysign(IN / 2, x); w -= IN
         kit.box("shell", w, h, d, {"*": MORTAR}, x, y, z)
     for side in ("front", "back", "left", "right"):
         L = uw if side in ("front", "back") else ud

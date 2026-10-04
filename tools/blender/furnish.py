@@ -1022,7 +1022,8 @@ def build_ground(kit):
     top = PLAN["SQUARE_TOP"]
     roads = PLAN["roads"]
     kit.frame = Matrix.Identity(4)
-    kit.cylr("ground", R + 0.3, R + 0.3, 0.06, 48, [0x5d5a52], 0, 0.0, 0)
+    # Mortar bed (top 0.05) sits clear above every road (centres top out at 0.034).
+    kit.cylr("ground", R + 0.3, R + 0.3, 0.06, 48, [0x5d5a52], 0, 0.02, 0)
     # Cobbles in concentric courses around the hearth: the fan reads as a town square.
     ring = 0.9
     rr = 1.2
@@ -1044,12 +1045,13 @@ def build_ground(kit):
                     ry=-a + math.pi / 2)
     # the hearth camp: a packed-earth clearing with a few flagstones
     hx, hz = PLAN["HEARTH"]["x"], PLAN["HEARTH"]["z"]
-    kit.cylr("ground", 3.1, 3.2, 0.05, 20, [0x7d6040], hx, 0.022, hz)
-    kit.cylr("ground", 2.6, 2.6, 0.052, 20, DIRT, hx, 0.024, hz)
+    # Stepped clear of the footpath (centre 0.022) and of each other.
+    kit.cylr("ground", 3.1, 3.2, 0.05, 20, [0x7d6040], hx, 0.025, hz)
+    kit.cylr("ground", 2.6, 2.6, 0.06, 20, DIRT, hx, 0.032, hz)
     for k in range(9):
         a = k / 9 * math.pi * 2 + 0.3
         rr = kit.r.uniform(2.7, 3.0)
-        kit.cylr("ground", kit.r.uniform(0.22, 0.32), kit.r.uniform(0.24, 0.34), 0.06, 6, STONE_G, hx + math.cos(a) * rr, 0.03,
+        kit.cylr("ground", kit.r.uniform(0.22, 0.32), kit.r.uniform(0.24, 0.34), 0.06, 6, STONE_G, hx + math.cos(a) * rr, 0.045,
                  hz + math.sin(a) * rr, ry=kit.r.uniform(0, 1))
     # curb ring, broken where roads arrive
     for i in range(64):
@@ -1073,6 +1075,8 @@ def road_strip(kit, r):
     nv = 6
     R = kit.role("ground")
     base = len(R["v"])
+    # Wider roads ride higher, so where a path meets a road it tucks under instead of fighting it.
+    yc = 0.012 + 0.006 * w
     for i in range(nu + 1):
         t = i / nu
         edge = [kit.r.uniform(-0.18, 0.12), kit.r.uniform(-0.18, 0.12)]
@@ -1081,7 +1085,7 @@ def road_strip(kit, r):
             off = v * w + (edge[0] * -1 if j == 0 else edge[1] if j == nv else kit.r.uniform(-0.03, 0.03))
             x = r["ax"] + dx * t + px * off
             z = r["az"] + dz * t + pz * off
-            y = 0.03 if 0 < j < nv else 0.012
+            y = yc if 0 < j < nv else yc - 0.018
             R["v"].append(Vector((x, y, z)))
     ruts = w > 2
     for i in range(nu):
@@ -1093,7 +1097,7 @@ def road_strip(kit, r):
             R["c"].append(c)
     for k in range(int(ln * w * 0.6)):
         t, v = kit.r.random(), kit.r.uniform(-0.45, 0.45)
-        kit.ball("ground", kit.r.uniform(0.03, 0.07), STONE_G, r["ax"] + dx * t + px * v * w, 0.04, r["az"] + dz * t + pz * v * w)
+        kit.ball("ground", kit.r.uniform(0.03, 0.07), STONE_G, r["ax"] + dx * t + px * v * w, yc + 0.01, r["az"] + dz * t + pz * v * w)
 
 def build_hearth(kit):
     """Fire pit at the hearth: stone ring, ash bed and the eight seats (local to the hearth group)."""
@@ -1101,9 +1105,9 @@ def build_hearth(kit):
     for i in range(12):
         a = i / 12 * math.pi * 2
         kit.box("hearth", 0.34, 0.22, 0.26, QUOIN if i % 3 else RUBBLE, math.cos(a) * 0.72, 0.1, math.sin(a) * 0.72, ry=-a + math.pi / 2)
-    kit.cylr("hearth", 0.6, 0.62, 0.04, 12, [0x2a2624, 0x34302c], 0, 0.02, 0)
+    kit.cylr("hearth", 0.6, 0.62, 0.04, 12, [0x2a2624, 0x34302c], 0, 0.06, 0)
     for i in range(10):
-        kit.ball("hearth", kit.r.uniform(0.05, 0.09), [0x1c1c1e, 0x3a3634], kit.r.uniform(-0.35, 0.35), 0.05, kit.r.uniform(-0.35, 0.35))
+        kit.ball("hearth", kit.r.uniform(0.05, 0.09), [0x1c1c1e, 0x3a3634], kit.r.uniform(-0.35, 0.35), 0.08, kit.r.uniform(-0.35, 0.35))
     # seats where the collider stones stand: stumps and dressed blocks alternately
     for i in range(8):
         a = i / 8 * math.pi * 2
@@ -1118,7 +1122,7 @@ def build_hearth(kit):
             kit.box("hearth", s * 0.95, 0.06, s * 0.66, ASHLAR, x, 0.44, z, ry=-a + math.pi / 2)
     # the fire itself: four logs leaning into a cone over a bed of embers (the flame stays code-built)
     for i in range(14):
-        kit.ball("hearth", kit.r.uniform(0.05, 0.09), [0xff7a2a, 0xe0601e, 0x9a3a1a, 0x2a2624], kit.r.uniform(-0.3, 0.3), 0.06,
+        kit.ball("hearth", kit.r.uniform(0.05, 0.09), [0xff7a2a, 0xe0601e, 0x9a3a1a, 0x2a2624], kit.r.uniform(-0.3, 0.3), 0.09,
                  kit.r.uniform(-0.3, 0.3), 1, 0.6, 1)
     for k in range(4):
         a = k / 4 * math.pi * 2 + 0.4

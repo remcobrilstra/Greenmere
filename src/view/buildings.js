@@ -1052,7 +1052,7 @@ const PROP = {
 function buildGround(kit) {
   kit.setFrame(new THREE.Matrix4());
   // Mortar disc under the cobbles.
-  kit.cyl("ground", SQUARE_R + 0.3, SQUARE_R + 0.3, 0.06, 36, [0x5d5a52], 0, 0.0, 0);
+  kit.cyl("ground", SQUARE_R + 0.3, SQUARE_R + 0.3, 0.06, 36, [0x5d5a52], 0, 0.02, 0);
   const s = 1.0;
   for (let x = -SQUARE_R; x <= SQUARE_R; x += s) {
     for (let z = -SQUARE_R; z <= SQUARE_R; z += s) {

@@ -2661,7 +2661,7 @@
   }
  ],
  "SQUARE_R": 10,
- "SQUARE_TOP": 0.045,
+ "SQUARE_TOP": 0.065,
  "HEARTH": {
   "x": 6.5,
   "z": -28.5

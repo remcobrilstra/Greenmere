@@ -11,7 +11,7 @@ export const DOOR_H = 2.6;
 export const TOWN_FLAT_R = 36;
 export const FOREST_CLEAR_R = 44;
 export const SQUARE_R = 10;
-export const SQUARE_TOP = 0.045;
+export const SQUARE_TOP = 0.065;
 export const INTERACT_R = 2.4;
 // Indoors, the current building's walls are cut away above this height (dollhouse view).
 export const CUTAWAY_H = 1.5;
