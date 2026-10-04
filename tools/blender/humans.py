@@ -1655,10 +1655,11 @@ def wd_mirror(pose):
 
 
 def wd_action(rig, name, keys):
-    act = bpy.data.actions.get(name)
+    full = rig.name + "_" + name
+    act = bpy.data.actions.get(full)
     if act is not None:
         bpy.data.actions.remove(act)
-    act = bpy.data.actions.new(name)
+    act = bpy.data.actions.new(full)
     rig.animation_data_create()
     rig.animation_data.action = act
     for frame, pose in keys:
@@ -1798,7 +1799,7 @@ def render_clips(frames=None, out_dir=None, w=520, h=640, names=None, yaw=230):
     rig.animation_data.use_nla = False
     files = []
     for name, fr in frames:
-        rig.animation_data.action = bpy.data.actions[name]
+        rig.animation_data.action = bpy.data.actions.get(rig.name + "_" + name) or bpy.data.actions[name]
         scn.frame_set(int(fr))
         path = os.path.join(out_dir, "%s-%02d.png" % (name, int(fr)))
         scn.render.filepath = path
@@ -1964,9 +1965,93 @@ def build_folk(export=True, bake=True, samples=48):
             bake_slot_ao(scn, o, samples)
         for o in objs.values():
             o.hide_render = False
-    line = {"id": "folk", "pieces": len(objs), "tris": {n: sum(len(p.vertices) - 2 for p in o.data.polygons) for n, o in objs.items()}}
+    scn.render.fps = WD_FPS
+    line = {"id": "folk", "pieces": len(objs), "tris": {n: sum(len(p.vertices) - 2 for p in o.data.polygons) for n, o in objs.items()},
+            "clips": folk_clips(rig)}
     if export:
-        p, size = write_glb(scn, [rig] + list(objs.values()), "folk")
-        line["kb"] = round(size / 1024)
+        path = os.path.join(REPO, "assets", "models", "folk.glb")
+        for o in scn.collection.all_objects:
+            o.select_set(False)
+        for o in [rig] + list(objs.values()):
+            o.select_set(True)
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            _gltf(filepath=path, export_format='GLB', use_selection=True, use_active_scene=True, export_yup=True,
+                  export_vertex_color='ACTIVE', export_all_vertex_colors=False, export_materials='PLACEHOLDER',
+                  export_normals=False, export_texcoords=False, export_apply=False,
+                  export_animations=True, export_animation_mode='NLA_TRACKS', export_force_sampling=True,
+                  export_meshopt_compression_enable=True)
+        line["kb"] = round(os.path.getsize(path) / 1024)
     bpy.context.window.scene = keep
     return line
+
+
+# ---------------------------------------------------------------- townsfolk clips
+#
+# The Warden's idle and walk (and the rest of wd_clips) baked on the folk rig, plus the
+# work loops the villagers use (view/townfolk.js poseVillager `work`). Body height
+# (sitting, resting on the ground) stays with the code, which lowers the whole body.
+
+def folk_clips(rig):
+    wd_clips(rig)
+    # villagers neither run nor fight: keep their file small
+    for t in list(rig.animation_data.nla_tracks):
+        if t.name in ("run", "strike", "hearth", "mend", "flinch"):
+            rig.animation_data.nla_tracks.remove(t)
+    # hammer: the right arm high, then down on the anvil (1.2 s)
+    up = {"upperArm.R": [("X", 150)], "forearm.R": [("X", 55)], "hand.R": [("X", -20)], "upperArm.L": [("X", 32)],
+          "forearm.L": [("X", 62)], "chest": [("X", -5), ("Z", 6)], "spine": [("X", -4)], "head": [("X", -14)]}
+    down = {"upperArm.R": [("X", 58)], "forearm.R": [("X", 18)], "hand.R": [("X", 15)], "upperArm.L": [("X", 32)],
+            "forearm.L": [("X", 62)], "chest": [("X", -10), ("Z", -4)], "spine": [("X", -7)], "head": [("X", -20)]}
+    wd_action(rig, "hammer", [(0, up), (9, down), (13, down), (36, up)])
+    # stir: the right hand drawing circles in a pot (2.6 s)
+    def stir_k(y, x):
+        return {"upperArm.R": [("X", x), ("Y", y)], "forearm.R": [("X", 72)], "upperArm.L": [("X", 20)], "forearm.L": [("X", 40)],
+                "head": [("X", -16)], "spine": [("X", -6)]}
+    wd_action(rig, "stir", [(0, stir_k(14, 52)), (20, stir_k(0, 64)), (39, stir_k(-14, 52)), (58, stir_k(0, 42)), (78, stir_k(14, 52))])
+    # tally: book in the left hand, pen in the right, head down (1 s)
+    def tally_k(h):
+        return {"upperArm.L": [("X", 48), ("Y", -14)], "forearm.L": [("X", 82)], "upperArm.R": [("X", 44), ("Y", 10)],
+                "forearm.R": [("X", 92)], "hand.R": [("X", h)], "head": [("X", -16), ("Z", 4)]}
+    wd_action(rig, "tally", [(0, tally_k(-10)), (8, tally_k(12)), (16, tally_k(-6)), (30, tally_k(-10))])
+    # wipe: a cloth swept along the counter (2.1 s)
+    def wipe_k(y, z):
+        return {"upperArm.R": [("X", 56), ("Y", y)], "forearm.R": [("X", 40)], "hand.R": [("X", -10)],
+                "upperArm.L": [("X", 22)], "forearm.L": [("X", 50)], "chest": [("Z", z)], "head": [("X", -12)]}
+    wd_action(rig, "wipe", [(0, wipe_k(-20, -4)), (31, wipe_k(18, 4)), (63, wipe_k(-20, -4))])
+    # drill: the trainer's slow alternating arm forms (4.8 s)
+    def drill_k(l, r):
+        return {"upperArm.L": [("X", l)], "forearm.L": [("X", 30 + l * 0.3)], "upperArm.R": [("X", r)], "forearm.R": [("X", 30 + r * 0.3)],
+                "chest": [("Z", (l - r) * 0.08)], "thigh.L": [("X", 8)], "thigh.R": [("X", -6)]}
+    wd_action(rig, "drill", [(0, drill_k(75, 15)), (72, drill_k(15, 75)), (144, drill_k(75, 15))])
+    # chat: talking with the hands, a nod, a little sway (2 s)
+    def chat_k(a, nod, sway):
+        return {"upperArm.R": [("X", a), ("Y", 8)], "forearm.R": [("X", 62)], "hand.R": [("X", -18)],
+                "upperArm.L": [("X", 12)], "forearm.L": [("X", 30)], "head": [("X", nod), ("Z", sway * 2)], "spine": [("Z", sway)]}
+    wd_action(rig, "chat", [(0, chat_k(30, 2, 2)), (14, chat_k(55, -6, -1)), (30, chat_k(38, 3, -3)), (44, chat_k(52, -4, 1)), (60, chat_k(30, 2, 2))])
+    # rest: sat on the ground, legs out, leaning back on the hands (4 s)
+    rest = {"thigh.L": [("X", 82)], "thigh.R": [("X", 78), ("Y", -4)], "shin.L": [("X", -8)], "shin.R": [("X", -20)],
+            "upperArm.L": [("X", -28), ("Y", -12)], "upperArm.R": [("X", -28), ("Y", 12)], "forearm.L": [("X", 6)], "forearm.R": [("X", 6)],
+            "spine": [("X", 10)], "head": [("X", 6)]}
+    rest2 = dict(rest, head=[("X", 10), ("Z", 6)], spine=[("X", 12)])
+    wd_action(rig, "rest", [(0, rest), (60, rest2), (120, rest)])
+    # sit: on a bench, hands in the lap; sitdrink lifts a cup now and then
+    sit = {"thigh.L": [("X", 84)], "thigh.R": [("X", 84)], "shin.L": [("X", -86)], "shin.R": [("X", -86)],
+           "upperArm.L": [("X", 30), ("Y", -10)], "upperArm.R": [("X", 30), ("Y", 10)], "forearm.L": [("X", 40)], "forearm.R": [("X", 40)],
+           "spine": [("X", -3)]}
+    wd_action(rig, "sit", [(0, sit), (60, dict(sit, head=[("Z", 6)], chest=[("X", 2)])), (120, sit)])
+    cup = dict(sit)
+    cup.update({"upperArm.R": [("X", 52), ("Y", 18)], "forearm.R": [("X", 128)], "hand.R": [("X", -20)], "head": [("X", 10)]})
+    wd_action(rig, "sitdrink", [(0, sit), (40, sit), (60, cup), (80, cup), (100, sit), (180, sit)])
+    stand_cup = {"upperArm.R": [("X", 52), ("Y", 18)], "forearm.R": [("X", 128)], "hand.R": [("X", -20)], "head": [("X", 12)],
+                 "upperArm.L": [("X", 10)], "forearm.L": [("X", 20)]}
+    stand_hold = {"upperArm.R": [("X", 30), ("Y", 10)], "forearm.R": [("X", 70)], "upperArm.L": [("X", 10)], "forearm.L": [("X", 20)]}
+    wd_action(rig, "drink", [(0, stand_hold), (60, stand_hold), (80, stand_cup), (100, stand_cup), (120, stand_hold), (210, stand_hold)])
+    # warm: hands held out to the fire, a slow rub (2 s)
+    def warm_k(r):
+        return {"upperArm.L": [("X", 64), ("Y", -14 + r)], "upperArm.R": [("X", 64), ("Y", 14 - r)], "forearm.L": [("X", 24)], "forearm.R": [("X", 24)],
+                "hand.L": [("X", -32)], "hand.R": [("X", -32)], "spine": [("X", -6)], "head": [("X", -6)]}
+    wd_action(rig, "warm", [(0, warm_k(0)), (30, warm_k(6)), (60, warm_k(0))])
+    for b in rig.pose.bones:
+        b.rotation_quaternion = (1, 0, 0, 0)
+    return [t.name for t in rig.animation_data.nla_tracks]

@@ -93,7 +93,9 @@ function loadFolk() {
       if (rootBone.parent) w0.premultiply(rootBone.parent.quaternion);
       rest[b.name] = { l0: b.quaternion.clone(), w0, w0i: w0.clone().invert() };
     }
-    folk = { pieces, bones, rootBone, inverses: template.skeleton.boneInverses, bindMatrix: template.bindMatrix.clone(), rest };
+    const clips = {};
+    for (const c of gltf.animations || []) clips[c.name] = c;
+    folk = { pieces, bones, rootBone, inverses: template.skeleton.boneInverses, bindMatrix: template.bindMatrix.clone(), rest, clips };
     return true;
   }).catch((err) => {
     console.warn("[townfolk] folk.glb did not load; falling back to the villager parts", err);
@@ -186,9 +188,46 @@ function dressSkinned(v) {
     mesh,
     links: [link(v.leftLeg, "thigh.L", null), link(v.rightLeg, "thigh.R", null),
       link(v.leftArm, "upperArm.L", _corrL), link(v.rightArm, "upperArm.R", _corrR)],
-    fixed: [link(null, "forearm.L", null), link(null, "forearm.R", null)]
+    fixed: [link(null, "forearm.L", null), link(null, "forearm.R", null)],
+    // authored clips (humans.py folk_clips): idle, walk and the work loops
+    mixer: folk.clips.idle && folk.clips.walk ? new THREE.AnimationMixer(mesh) : null,
+    acts: {},
+    on: new Set()
   };
   v.reskinned = true;
+}
+
+// Clip weights from the same signals the code pose uses: walk by `blend`, the work loop
+// only while mostly standing (as poseLimbs does), idle takes what is left.
+function driveFolk(v, phase, blend, time, work) {
+  const sk = v.skin;
+  const want = new Map();
+  const walkW = Math.max(0, Math.min(1, blend));
+  const workW = work && folk.clips[work] && blend <= 0.5 ? 1 - walkW : 0;
+  want.set("walk", walkW);
+  if (workW > 0) want.set(work, workW);
+  want.set("idle", Math.max(0, 1 - walkW - workW));
+  for (const name of sk.on) {
+    if (!want.has(name) || want.get(name) <= 0.001) {
+      sk.acts[name].enabled = false;
+      sk.on.delete(name);
+    }
+  }
+  const cyc = ((phase / (Math.PI * 2)) % 1 + 1) % 1;
+  for (const [name, w] of want) {
+    if (w <= 0.001) continue;
+    let a = sk.acts[name];
+    if (!a) {
+      a = sk.acts[name] = sk.mixer.clipAction(folk.clips[name]);
+      a.play();
+    }
+    a.enabled = true;
+    a.setEffectiveWeight(w);
+    const dur = a.getClip().duration;
+    a.time = name === "walk" ? cyc * dur : time % dur;
+    sk.on.add(name);
+  }
+  sk.mixer.update(0);
 }
 
 // bone = rest · w0⁻¹ · (R · C) · w0: the code group's rotation onto its bone.
@@ -339,7 +378,9 @@ export function buildVillager(look, seed) {
 // Pose one villager. phase: walk cycle; blend 0..1 walking; work: arm loop name.
 export function poseVillager(v, phase, blend, time, work) {
   poseLimbs(v, phase, blend, time, work);
-  if (v.skin) retargetFolk(v);
+  if (!v.skin) return;
+  if (v.skin.mixer) driveFolk(v, phase, blend, time, work);
+  else retargetFolk(v);
 }
 
 function poseLimbs(v, phase, blend, time, work) {
