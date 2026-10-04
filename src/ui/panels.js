@@ -3,7 +3,7 @@
 import { raiseRank, upgradeCost } from "../sim/balance.js";
 import { RECIPES, tryCraft, tryUpgrade } from "../sim/items.js";
 import { affixLines, changeText, compareEquip, compareUpgrade, trackEffects, trackNext, upgradedCopy } from "../sim/gearstats.js";
-import { upgradeStatus } from "./character.js";
+import { el, num, glyph, itemCell, attachTips, gearTip, rarityOf, RARITY_EDGE, upgradeStatus } from "./gearui.js";
 
 export const PACK_CAP = 24;
 export const STASH_CAP = 48;
@@ -12,7 +12,9 @@ export const DRAUGHT_PRICE = 25;
 export const DRAUGHT_STACK = 20;
 export const DRAUGHT_HEAL = 45;
 const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still", bank: "The Counting House", inn: "The Banked Fire", board: "Notice Board" };
-const RARITY_EDGE = ["#e7d7b4", "#8ed15a", "#7eb6ef", "#d4a03a"];
+const WORN_KEYS = ["weapon", "offhand", "head", "body", "feet", "trinket"];
+const SLOT_LABEL = { weapon: "Weapon", offhand: "Offhand", head: "Head", body: "Body", feet: "Feet", trinket: "Trinket" };
+const MAT_LABEL = { heartwood: "Heartwood", rootfiber: "Rootfiber", slag: "Slag", emberglass: "Emberglass" };
 
 export function vendorValue(item) {
   const ilvl = Math.max(0, Math.floor(Number(item && item.ilvl) || 0));
@@ -99,6 +101,7 @@ const TRAINER_ROWS = [
 // What a carried supply does, in one line.
 const SUPPLY_TEXT = {
   "draught-hp": "Restores " + DRAUGHT_HEAL + " health. Drink it from the action bar.",
+  "draught-mp": "Restores mana. Drink it from the action bar.",
   oil: "Coats the blade: the next strikes deal 15% more damage, one charge each.",
   kit: "Pays the materials for one upgrade at The Quench (gold is still due)."
 };
@@ -124,20 +127,14 @@ export function attachPanels(rt) {
   if (hud && vitals) hud.insertBefore(panel, vitals.nextSibling);
   else if (hud) hud.appendChild(panel);
 
-  function placePanel() {
-    const node = document.getElementById("vitals");
-    if (!node) return;
-    const rect = node.getBoundingClientRect();
-    panel.style.top = Math.round(rect.bottom + 8) + "px";
-    panel.style.left = Math.round(rect.left) + "px";
-  }
-
-  function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text != null) node.textContent = text;
-    return node;
-  }
+  const tips = attachTips(panel);
+  const tabFor = { store: "trade", smith: "upgrade", bank: "gold", board: "notices" };
+  const TABS = {
+    store: [["trade", "Trade"], ["worn", "Worn"], ["buyback", "Buyback"]],
+    smith: [["upgrade", "Upgrade"], ["craft", "Craft"]],
+    bank: [["gold", "Gold"], ["stash", "Stash"]],
+    board: [["notices", "Notices"], ["mine", "Your quests"]]
+  };
 
   function button(act, text, attrs) {
     const btn = document.createElement("button");
@@ -159,7 +156,7 @@ export function attachPanels(rt) {
     btn.classList.add("deny");
   }
 
-  // A full-width line under a row's name.
+  // A full-width line under a card's name.
   function detail(row, text, cls) {
     row.appendChild(el("span", "detail" + (cls ? " " + cls : ""), text));
   }
@@ -175,27 +172,6 @@ export function attachPanels(rt) {
     row.appendChild(line);
   }
 
-  // What a carried piece is, and what wearing it would change.
-  function gearDetails(row, item, opts) {
-    const lines = affixLines(item);
-    detail(row, (lines.length ? lines.join("  ·  ") : "No affixes") + "  ·  ilvl " + Math.floor(Number(item.ilvl) || 0));
-    if (!opts || !opts.compare) return;
-    const cmp = compareEquip(rt.session, item);
-    if (!cmp) return;
-    const tag = { better: "▲ Better", worse: "▼ Worse", mixed: "◆ Trade-off", same: "= Same" }[cmp.verdict];
-    row.insertBefore(el("span", "verdict " + cmp.verdict, tag), row.children[1] || null);
-    const vs = "vs " + (cmp.worn ? itemLabel(cmp.worn) : "empty " + item.slot) + ": ";
-    if (cmp.changes.length) changeLine(row, vs, cmp.changes);
-    else detail(row, vs + "no change to your stats.", "muted");
-  }
-
-  function supplyDetails(row, item) {
-    const text = item && SUPPLY_TEXT[item.consumableId];
-    if (!text) return;
-    const charges = item.consumableId === "oil" ? "  " + Math.floor(Number(item.charges) || 0) + " charges left." : "";
-    detail(row, text + charges, "muted");
-  }
-
   function carried(id) {
     const pack = rt.session && Array.isArray(rt.session.pack) ? rt.session.pack : [];
     let n = 0;
@@ -203,17 +179,175 @@ export function attachPanels(rt) {
     return n;
   }
 
-  // Keeper name, then what they are saying, with a control to hear more.
-  function keeperLine() {
+  // ---- building blocks ----
+
+  // A card for one item: its cell (hover for the full tooltip), name, details, and controls.
+  // Class "slot pack-row" and the 2 px rarity edge are kept for existing hooks.
+  function ware(parent, item, key, opts) {
+    const o = opts || {};
+    const row = el("div", item || o.slot ? "slot pack-row ware" : "ware");
+    const rarity = rarityOf(item);
+    row.style.borderTop = "2px solid " + (item ? RARITY_EDGE[rarity] : "rgba(210, 165, 79, 0.25)");
+    const cell = itemCell(item, { slot: o.slot, kind: o.kind, color: o.color, tip: key });
+    row.appendChild(cell);
+    const main = el("div", "ware-main");
+    const head = el("div", "ware-head");
+    const name = el("span", "name", o.label || itemLabel(item));
+    if (item && isGear(item)) name.style.color = RARITY_EDGE[rarity];
+    head.appendChild(name);
+    main.appendChild(head);
+    row.appendChild(main);
+    const acts = el("div", "ware-acts");
+    row.appendChild(acts);
+    if (item || o.slot) {
+      const note = o.note || (isGear(item) ? (rt.space === "dungeon" ? "Carried  ·  lost if you fall." : "") : "");
+      tips.set(key, gearTip(rt.session, item, { slot: o.slot, worn: !!o.worn, note, supply: item && SUPPLY_TEXT[item.consumableId] }));
+    }
+    parent.appendChild(row);
+    return { row, main, head, acts };
+  }
+
+  // What a carried piece is, and what wearing it would change.
+  function gearDetails(card, item, opts) {
+    const lines = affixLines(item);
+    detail(card.main, (SLOT_LABEL[item.slot] || "Gear") + "  ·  ilvl " + Math.floor(Number(item.ilvl) || 0) + (lines.length ? "  ·  " + lines.join("  ·  ") : "  ·  no affixes"), "muted");
+    if (!opts || !opts.compare) return;
+    const cmp = compareEquip(rt.session, item);
+    if (!cmp) return;
+    const tag = { better: "▲ Better", worse: "▼ Worse", mixed: "◆ Trade-off", same: "= Same" }[cmp.verdict];
+    card.head.appendChild(el("span", "verdict " + cmp.verdict, tag));
+    const vs = "vs " + (cmp.worn ? itemLabel(cmp.worn) : "empty " + item.slot) + ": ";
+    if (cmp.changes.length) changeLine(card.main, vs, cmp.changes);
+    else detail(card.main, vs + "no change to your stats.", "muted");
+  }
+
+  function supplyDetails(card, item) {
+    const text = item && SUPPLY_TEXT[item.consumableId];
+    if (!text) return;
+    const charges = item.consumableId === "oil" ? "  " + Math.floor(Number(item.charges) || 0) + " charges left." : "";
+    detail(card.main, text + charges, "muted");
+  }
+
+  // Price chips: gold and each material, marked short when you lack it.
+  function costChips(parent, cost, skipMats) {
+    const s = rt.session || {};
+    const mats = s.materials || {};
+    const line = el("span", "detail costs");
+    line.appendChild(el("span", "costs-label", "Costs"));
+    const gold = Math.floor(Number(cost && cost.gold) || 0);
+    const purse = Math.floor(Number(s.purse) || 0);
+    const g = el("span", "chip" + (purse < gold ? " down" : ""));
+    g.appendChild(glyph("gold"));
+    g.appendChild(el("span", "", gold + " gold"));
+    line.appendChild(g);
+    const req = !skipMats && cost && cost.materials ? cost.materials : {};
+    for (const k of Object.keys(req)) {
+      const have = Math.floor(Number(mats[k]) || 0);
+      const c = el("span", "chip" + (have < req[k] ? " down" : ""));
+      c.appendChild(glyph(k));
+      c.appendChild(el("span", "", req[k] + " " + k + " (have " + have + ")"));
+      line.appendChild(c);
+    }
+    parent.appendChild(line);
+  }
+
+  // Wallet chips in the header: what this counter takes.
+  function wallet(head, keys) {
+    const s = rt.session || {};
+    const box = el("div", "kp-wallet");
+    for (const k of keys) {
+      const chip = el("span", "chip");
+      if (k === "points") {
+        const pts = Math.floor(Number(s.skillPoints) || 0);
+        chip.className = "chip" + (pts ? " lit" : "");
+        chip.appendChild(el("span", "", "Unspent points " + pts));
+        chip.title = "One point each level.";
+      } else if (k === "purse" || k === "bank") {
+        chip.appendChild(glyph("gold"));
+        chip.appendChild(el("span", "", (k === "purse" ? "Purse " : "Bank ") + num(k === "purse" ? s.purse : s.bank)));
+      } else if (k === "depth") {
+        chip.appendChild(el("span", "", "Depth " + Math.floor(Number(s.bestDepth) || 0)));
+        chip.title = "Deepest extract. Upgrades go up to this item level.";
+      } else {
+        const have = Math.floor(Number(s.materials && s.materials[k]) || 0);
+        chip.appendChild(glyph(k));
+        chip.appendChild(el("span", "", String(have)));
+        chip.title = MAT_LABEL[k] + " " + have;
+        chip.setAttribute("aria-label", MAT_LABEL[k] + " " + have);
+      }
+      box.appendChild(chip);
+    }
+    head.appendChild(box);
+  }
+
+  // Header, keeper column, counter column. Returns both columns.
+  function frame(title, keys) {
+    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    tips.reset();
+    const head = el("div", "kp-head");
+    const id = el("div", "kp-title");
+    id.appendChild(el("p", "eyebrow", title));
     const st = rt.panelStation;
-    if (st && st.keeperLine) panel.appendChild(el("p", "panel-line keeper", st.keeperLine));
+    if (st && st.keeperLine) id.appendChild(el("p", "panel-line keeper", st.keeperLine));
+    head.appendChild(id);
+    wallet(head, keys);
+    const close = button("close", "×");
+    close.classList.add("kp-close");
+    close.setAttribute("aria-label", "Close");
+    head.appendChild(close);
+    panel.appendChild(head);
+    const body = el("div", "kp-body");
+    const keeper = el("aside", "kp-keeper");
+    const counter = el("div", "kp-counter");
+    body.appendChild(keeper);
+    body.appendChild(counter);
+    panel.appendChild(body);
+    return { keeper, counter };
+  }
+
+  // Keeper column: what they are saying, a control to hear more, their request.
+  function keeperColumn(col, note) {
     const talk = rt.keeperTalk ? rt.keeperTalk(panelKind, false) : null;
-    if (!talk || !talk.line) return;
-    panel.appendChild(el("p", "panel-talk", "\u201c" + talk.line + "\u201d"));
-    const row = el("div", "row");
-    row.appendChild(button("talk", talk.index + 1 < talk.count ? "Ask more" : "Start over"));
-    panel.appendChild(row);
-    requestBlock();
+    if (talk && talk.line) {
+      const card = el("div", "kp-card talk");
+      card.appendChild(el("p", "panel-talk", "“" + talk.line + "”"));
+      card.appendChild(button("talk", talk.index + 1 < talk.count ? "Ask more" : "Start over"));
+      col.appendChild(card);
+    }
+    requestBlock(col);
+    if (note) col.appendChild(el("p", "panel-line muted kp-note", note));
+  }
+
+  // Tabs over the counter; every pane is built, only the chosen one shows.
+  function tabbed(col, panes) {
+    const list = TABS[panelKind];
+    const want = tabFor[panelKind];
+    const bar = el("div", "kp-tabs");
+    bar.setAttribute("role", "tablist");
+    for (const [id, label] of list) {
+      const b = button("tab", label, { "data-tab": id, role: "tab", "aria-selected": id === want ? "true" : "false" });
+      b.classList.add("kp-tab");
+      if (id === want) b.classList.add("on");
+      bar.appendChild(b);
+    }
+    col.appendChild(bar);
+    const out = {};
+    for (const [id] of list) {
+      const pane = el("div", "kp-pane");
+      pane.setAttribute("role", "tabpanel");
+      pane.setAttribute("data-pane", id);
+      pane.hidden = id !== want;
+      col.appendChild(pane);
+      out[id] = pane;
+    }
+    return out;
+  }
+
+  function section(parent, text) {
+    parent.appendChild(el("p", "section-label", text));
+  }
+  function empty(parent, text) {
+    parent.appendChild(el("p", "panel-empty", text));
   }
 
   function rewardLine(r) {
@@ -224,72 +358,112 @@ export function attachPanels(rt) {
     return "Reward: " + parts.join(", ");
   }
 
-  function questRow(qst, actions) {
+  function questRow(parent, qst, actions) {
     const row = el("div", "slot quest-row");
-    row.appendChild(el("span", "name", qst.title));
+    const head = el("div", "quest-head");
+    head.appendChild(glyph("quest"));
+    head.appendChild(el("span", "name", qst.title));
+    row.appendChild(head);
     row.appendChild(el("span", "affix", qst.text));
     const count = qst.objective.count;
     if (rt.questProgress && rt.findQuest && rt.findQuest(qst.key)) {
-      row.appendChild(el("span", "affix", "Progress " + rt.questProgress(qst) + " / " + count));
+      const have = Math.min(count, rt.questProgress(qst));
+      const prog = el("div", "quest-prog");
+      const bar = el("div", "bar xp");
+      const fill = el("span");
+      fill.style.width = Math.round((have / Math.max(1, count)) * 100) + "%";
+      bar.appendChild(fill);
+      prog.appendChild(bar);
+      prog.appendChild(el("span", "affix", "Progress " + rt.questProgress(qst) + " / " + count));
+      row.appendChild(prog);
     }
-    row.appendChild(el("span", "affix", rewardLine(qst.reward)));
-    for (const a of actions) row.appendChild(a);
-    panel.appendChild(row);
+    row.appendChild(el("span", "affix reward", rewardLine(qst.reward)));
+    if (actions.length) {
+      const acts = el("div", "quest-acts");
+      for (const a of actions) acts.appendChild(a);
+      row.appendChild(acts);
+    }
+    parent.appendChild(row);
   }
 
   // A keeper's request: offered, in progress, or ready to hand in.
-  function requestBlock() {
+  function requestBlock(col) {
     const req = rt.keeperRequest ? rt.keeperRequest(panelKind) : null;
     if (!req) return;
-    panel.appendChild(el("p", "section-label", "Request"));
+    section(col, "Request");
     const qst = req.quest;
     if (req.state === "offer") {
-      questRow(qst, [button("quest-take", "Accept", { "data-key": qst.key, "data-source": "request" })]);
+      questRow(col, qst, [button("quest-take", "Accept", { "data-key": qst.key, "data-source": "request" })]);
       return;
     }
     const done = rt.questComplete && rt.questComplete(qst);
     const label = qst.objective.type === "deliver" ? "Hand over" : "Hand in";
-    questRow(qst, done ? [button("quest-claim", label, { "data-key": qst.key })] : []);
+    questRow(col, qst, done ? [button("quest-claim", label, { "data-key": qst.key })] : []);
   }
+
+  // ---- the counters ----
 
   // The notice board in the square: today's notices and the Warden's quests.
   function renderBoard() {
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
-    panel.appendChild(el("p", "eyebrow", "Notice Board"));
     const b = rt.questBoard ? rt.questBoard() : { offers: [], active: [], cap: 0 };
-    panel.appendChild(el("p", "panel-line keeper", "New notices go up at dawn. Unfinished ones come down at midnight."));
-    panel.appendChild(el("p", "section-label", "Today's notices"));
-    if (!b.offers.length) panel.appendChild(el("p", "panel-empty", "Nothing new today. Come back tomorrow."));
-    for (const o of b.offers) questRow(o, [button("quest-take", "Take", { "data-key": o.key, "data-source": "board" })]);
-    panel.appendChild(el("p", "section-label", "Your quests " + b.active.length + " / " + b.cap));
-    if (!b.active.length) panel.appendChild(el("p", "panel-empty", "You carry no quests."));
+    const { keeper, counter } = frame("Notice Board", []);
+    keeper.appendChild(el("p", "panel-line keeper", "New notices go up at dawn. Unfinished ones come down at midnight."));
+    keeper.appendChild(el("p", "panel-line muted kp-note", "You can carry " + b.cap + " quests. Notices are claimed here; keepers' requests are handed in to the keeper who asked."));
+    const panes = tabbed(counter);
+    section(panes.notices, "Today's notices");
+    const grid = el("div", "card-grid");
+    panes.notices.appendChild(grid);
+    if (!b.offers.length) empty(grid, "Nothing new today. Come back tomorrow.");
+    for (const o of b.offers) questRow(grid, o, [button("quest-take", "Take", { "data-key": o.key, "data-source": "board" })]);
+    section(panes.mine, "Your quests " + b.active.length + " / " + b.cap);
+    const mine = el("div", "card-grid");
+    panes.mine.appendChild(mine);
+    if (!b.active.length) empty(mine, "You carry no quests.");
     for (const a of b.active) {
       const actions = [];
       const done = rt.questComplete && rt.questComplete(a);
       if (a.giver === "board" && done) actions.push(button("quest-claim", "Claim", { "data-key": a.key }));
       if (a.giver !== "board" && done) actions.push(el("span", "affix", "Hand in to the keeper who asked."));
       if (!done) actions.push(button("quest-drop", "Abandon", { "data-key": a.key }));
-      questRow(a, actions);
+      questRow(mine, a, actions);
     }
-    panel.appendChild(button("close", "Close"));
+  }
+
+  function vitalBar(parent, cls, now, max, label) {
+    const bar = el("div", "bar " + cls);
+    const fill = el("span");
+    fill.style.width = Math.round((now / Math.max(1, max)) * 100) + "%";
+    bar.appendChild(fill);
+    bar.appendChild(el("em", "", label + " " + Math.round(now) + " / " + max));
+    parent.appendChild(bar);
   }
 
   function renderInn() {
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
-    panel.appendChild(el("p", "eyebrow", "The Banked Fire"));
-    keeperLine();
+    const { keeper, counter } = frame("The Banked Fire", ["purse"]);
+    keeperColumn(keeper);
     const night = rt.townClock ? rt.townClock.phase : 0.5;
     const late = night < 0.24 || night >= 0.7;
-    panel.appendChild(el("p", "section-label", "Rooms"));
     const v = rt.vitals;
     const hurt = v && (v.hp < v.hpMax || v.mp < v.mpMax);
-    panel.appendChild(el("p", "panel-line", "Free of charge. Restores health and mana to full"
-      + (v ? " (now " + Math.round(v.hp) + " / " + v.hpMax + " health, " + Math.round(v.mp) + " / " + v.mpMax + " mana)" : "")
-      + " and passes the time " + (late ? "until morning" : "until evening") + "." + (hurt ? "" : " You are already rested.")));
+    section(counter, "Rooms");
+    const card = el("div", "kp-card feature");
+    const top = el("div", "feature-top");
+    top.appendChild(itemCell(null, { kind: "rest", color: "#f3d79a" }));
+    const words = el("div", "feature-words");
+    words.appendChild(el("p", "feature-title", late ? "A room until morning" : "A seat by the fire until evening"));
+    words.appendChild(el("p", "panel-line", "Free of charge. Restores health and mana to full and passes the time " + (late ? "until morning" : "until evening") + "." + (hurt ? "" : " You are already rested.")));
+    top.appendChild(words);
+    card.appendChild(top);
+    if (v) {
+      const bars = el("div", "feature-bars");
+      vitalBar(bars, "health", v.hp, v.hpMax, "Health");
+      vitalBar(bars, "mana", v.mp, v.mpMax, "Mana");
+      card.appendChild(bars);
+    }
     const row = el("div", "row");
     row.appendChild(button("rest", late ? "Take a room until morning" : "Rest by the fire until evening"));
-    panel.appendChild(row);
-    panel.appendChild(button("close", "Close"));
+    card.appendChild(row);
+    counter.appendChild(card);
   }
 
   // The Counting House: gold between purse and bank, gear between pack and stash.
@@ -299,10 +473,24 @@ export function attachPanels(rt) {
     const stash = session && Array.isArray(session.stash) ? session.stash : [];
     const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
     const bank = session ? Math.floor(Number(session.bank) || 0) : 0;
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
-    panel.appendChild(el("p", "eyebrow", "The Counting House"));
-    keeperLine();
-    panel.appendChild(el("p", "panel-line", "Purse " + purse + "  \u00b7  Bank " + bank));
+    const { keeper, counter } = frame("The Counting House", ["purse", "bank"]);
+    keeperColumn(keeper, "Banked gold and stashed gear are safe if you fall below. Your purse and pack are not.");
+    const panes = tabbed(counter);
+
+    const vaults = el("div", "vaults");
+    for (const [label, value, note, risk] of [["Purse", purse, "Carried. Lost if you fall.", true], ["Bank", bank, "Kept here. Never lost.", false]]) {
+      const v = el("div", "kp-card vault" + (risk ? " risk" : ""));
+      v.appendChild(el("p", "section-label", label));
+      const big = el("p", "vault-sum");
+      big.appendChild(glyph("gold"));
+      big.appendChild(el("span", "", num(value)));
+      v.appendChild(big);
+      v.appendChild(el("p", "panel-line muted", note));
+      vaults.appendChild(v);
+    }
+    panes.gold.appendChild(vaults);
+    const move = el("div", "kp-card");
+    move.appendChild(el("p", "section-label", "Move gold"));
     const bankRow = el("div", "row");
     const input = document.createElement("input");
     input.id = "panel-amount";
@@ -316,280 +504,230 @@ export function attachPanels(rt) {
     bankRow.appendChild(input);
     bankRow.appendChild(button("deposit", "Deposit"));
     bankRow.appendChild(button("withdraw", "Withdraw"));
-    panel.appendChild(bankRow);
+    move.appendChild(bankRow);
     const allRow = el("div", "row");
     allRow.appendChild(button("deposit-all", "Deposit all · " + purse));
     allRow.appendChild(button("withdraw-all", "Withdraw all · " + bank));
-    panel.appendChild(allRow);
-    panel.appendChild(el("p", "panel-line muted", "Banked gold and stashed gear are safe if you fall below. Your purse and pack are not."));
-    panel.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP));
-    if (!pack.length) panel.appendChild(el("p", "panel-empty", "The pack is empty."));
+    move.appendChild(allRow);
+    panes.gold.appendChild(move);
+
+    const cols = el("div", "two-col");
+    const packCol = el("div", "col");
+    const stashCol = el("div", "col");
+    section(packCol, "Pack " + pack.length + " / " + PACK_CAP);
+    if (!pack.length) empty(packCol, "The pack is empty.");
     for (let i = 0; i < pack.length; i++) {
       const item = pack[i];
-      const row = el("div", "slot pack-row");
-      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
-      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
-      row.appendChild(el("span", "name", itemLabel(item)));
-      if (isGear(item)) gearDetails(row, item, { compare: true });
-      row.appendChild(button("stash", "Stash", { "data-index": String(i) }));
-      panel.appendChild(row);
+      const card = ware(packCol, item, "pack:" + i);
+      if (isGear(item)) gearDetails(card, item, { compare: true });
+      else supplyDetails(card, item);
+      card.acts.appendChild(button("stash", "Stash", { "data-index": String(i) }));
     }
-    panel.appendChild(el("p", "section-label", "Stash " + stash.length + " / " + STASH_CAP));
-    if (!stash.length) panel.appendChild(el("p", "panel-empty", "The stash is empty."));
+    section(stashCol, "Stash " + stash.length + " / " + STASH_CAP);
+    if (!stash.length) empty(stashCol, "The stash is empty.");
     for (let i = 0; i < stash.length; i++) {
       const item = stash[i];
-      const row = el("div", "slot pack-row");
-      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
-      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
-      row.appendChild(el("span", "name", itemLabel(item)));
-      if (isGear(item)) gearDetails(row, item, { compare: true });
-      row.appendChild(button("pack", "To pack", { "data-index": String(i) }));
-      panel.appendChild(row);
+      const card = ware(stashCol, item, "stash:" + i, { note: "In the stash  ·  always kept." });
+      if (isGear(item)) gearDetails(card, item, { compare: true });
+      else supplyDetails(card, item);
+      card.acts.appendChild(button("pack", "To pack", { "data-index": String(i) }));
     }
-    panel.appendChild(button("close", "Close"));
+    cols.appendChild(packCol);
+    cols.appendChild(stashCol);
+    panes.stash.appendChild(cols);
   }
 
-  function recipeRows(station) {
-    panel.appendChild(el("p", "section-label", station === "still" ? "Distillations" : "Recipes"));
+  function recipeCards(parent, station) {
+    const grid = el("div", "card-grid");
     for (let i = 0; i < RECIPES.length; i++) {
       const recipe = RECIPES[i];
       if ((recipe.station || "smith") !== station) continue;
-      const row = el("div", "row pack-row");
       const gets = recipe.stack ? recipe.count + " " + recipe.name : recipe.name;
-      row.appendChild(el("span", "name", gets));
+      const kind = recipe.consumableId === "oil" ? "oil" : recipe.consumableId === "kit" ? "kit" : "draught";
+      const color = recipe.consumableId === "draught-mp" ? "#6f9bf0" : kind === "draught" ? "#e2665a" : "#f3d79a";
+      const card = ware(grid, null, "recipe:" + recipe.id, { label: gets, kind, color });
+      card.row.classList.add("recipe");
       const have = carried(recipe.consumableId);
-      if (RECIPE_TEXT[recipe.id]) detail(row, RECIPE_TEXT[recipe.id] + (have ? "  You carry " + have + "." : ""), "muted");
-      costDetail(row, recipe);
-      row.appendChild(button("craft", station === "still" ? "Distill" : "Craft", { "data-recipe": recipe.id }));
-      panel.appendChild(row);
+      if (RECIPE_TEXT[recipe.id]) detail(card.main, RECIPE_TEXT[recipe.id] + (have ? "  You carry " + have + "." : ""), "muted");
+      costChips(card.main, recipe);
+      card.acts.appendChild(button("craft", station === "still" ? "Distill" : "Craft", { "data-recipe": recipe.id }));
     }
+    parent.appendChild(grid);
   }
 
   function renderStill() {
-    const session = rt.session;
-    const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
-    panel.appendChild(el("p", "eyebrow", "The Still"));
-    keeperLine();
-    panel.appendChild(el("p", "panel-line", "Purse " + purse));
-    panel.appendChild(el("p", "panel-line", matLine(session && session.materials)));
-    recipeRows("still");
-    panel.appendChild(button("close", "Close"));
+    const { keeper, counter } = frame("The Still", ["purse"].concat(MAT_NAMES));
+    keeperColumn(keeper);
+    section(counter, "Distillations");
+    recipeCards(counter, "still");
   }
 
   function renderTrainer() {
     const session = rt.session;
     const tracks = session && session.tracks ? session.tracks : {};
     const points = session ? Math.floor(Number(session.skillPoints) || 0) : 0;
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
-    panel.appendChild(el("p", "eyebrow", "The Circle"));
-    keeperLine();
-    panel.appendChild(el("p", "panel-line", "Unspent points " + points + (points ? "" : "  ·  you earn one each level")));
+    const { keeper, counter } = frame("The Circle", ["points"]);
+    keeperColumn(keeper, points ? "" : "You earn one point each level.");
+    section(counter, "Training");
+    const grid = el("div", "track-grid");
     for (let i = 0; i < TRAINER_ROWS.length; i++) {
       const key = TRAINER_ROWS[i][0];
       const label = TRAINER_ROWS[i][1];
       const rank = Math.max(0, Math.min(5, Math.floor(Number(tracks[key]) || 0)));
-      const row = el("div", "row pack-row");
-      row.appendChild(el("span", "name", label + "  " + rank + " / 5"));
-      detail(row, TRAINER_ROWS[i][2], "muted");
-      const next = trackNext(key, rank);
+      const card = el("div", "kp-card track");
+      const top = el("div", "track-top");
+      top.appendChild(itemCell(null, { kind: key, color: "#f3d79a" }));
+      const words = el("div", "track-words");
+      words.appendChild(el("span", "name", label));
+      const pips = el("span", "pips");
+      for (let p = 0; p < 5; p++) pips.appendChild(el("i", p < rank ? "on" : ""));
+      pips.appendChild(el("span", "rank", rank + " / 5"));
+      words.appendChild(pips);
+      top.appendChild(words);
+      card.appendChild(top);
+      detail(card, TRAINER_ROWS[i][2], "muted");
       if (rank >= 5) {
-        detail(row, "Mastered: " + trackEffects(key, rank).filter((e) => e[1] !== "—").map((e) => e[0] + " " + e[1]).join("  ·  "));
+        detail(card, "Mastered: " + trackEffects(key, rank).filter((e) => e[1] !== "—").map((e) => e[0] + " " + e[1]).join("  ·  "));
       } else {
-        const line = el("span", "detail");
-        line.appendChild(el("span", "", "Rank " + (rank + 1) + ": "));
-        next.forEach((n, k) => {
-          if (k) line.appendChild(el("span", "", "  ·  "));
-          line.appendChild(el("span", "up", n[0] + " " + (n[1] === "—" ? n[2] : n[1] + " → " + n[2])));
-        });
-        row.appendChild(line);
+        const next = trackNext(key, rank);
+        const list = el("div", "track-next");
+        list.appendChild(el("span", "detail", "Rank " + (rank + 1) + ":"));
+        for (const n of next) list.appendChild(el("span", "up", n[0] + " " + (n[1] === "—" ? n[2] : n[1] + " → " + n[2])));
+        card.appendChild(list);
       }
+      const row = el("div", "row");
       row.appendChild(button("raise", "Raise", { "data-track": key }));
-      panel.appendChild(row);
+      card.appendChild(row);
+      grid.appendChild(card);
     }
-    panel.appendChild(button("close", "Close"));
-  }
-
-  // "Costs 64 gold, 2 heartwood" with each part marked short when you lack it.
-  function costDetail(row, cost, skipMats) {
-    const s = rt.session || {};
-    const mats = s.materials || {};
-    const line = el("span", "detail");
-    line.appendChild(el("span", "", "Costs "));
-    const gold = Math.floor(Number(cost && cost.gold) || 0);
-    const purse = Math.floor(Number(s.purse) || 0);
-    line.appendChild(el("span", purse < gold ? "down" : "", gold + " gold"));
-    const req = !skipMats && cost && cost.materials ? cost.materials : {};
-    for (const k of Object.keys(req)) {
-      const have = Math.floor(Number(mats[k]) || 0);
-      line.appendChild(el("span", "", ", "));
-      line.appendChild(el("span", have < req[k] ? "down" : "", req[k] + " " + k + " (have " + have + ")"));
-    }
-    row.appendChild(line);
-  }
-
-  function matLine(materials) {
-    const src = materials || {};
-    return "Heartwood " + Math.floor(Number(src.heartwood) || 0)
-      + "  ·  Rootfiber " + Math.floor(Number(src.rootfiber) || 0)
-      + "  ·  Slag " + Math.floor(Number(src.slag) || 0)
-      + "  ·  Emberglass " + Math.floor(Number(src.emberglass) || 0);
+    counter.appendChild(grid);
   }
 
   function renderSmith() {
     const session = rt.session;
-    const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
-    const depth = session ? Math.floor(Number(session.bestDepth) || 0) : 0;
     const pack = session && Array.isArray(session.pack) ? session.pack : [];
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
-    panel.appendChild(el("p", "eyebrow", "The Quench"));
-    keeperLine();
-    panel.appendChild(el("p", "panel-line", "Purse " + purse + "  ·  Depth " + depth));
-    panel.appendChild(el("p", "panel-line", matLine(session && session.materials)));
-    recipeRows("smith");
+    const { keeper, counter } = frame("The Quench", ["purse", "depth"].concat(MAT_NAMES));
+    keeperColumn(keeper, "Each upgrade adds one item level, up to the deepest floor you have extracted from.");
+    const panes = tabbed(counter);
     let kit = false;
     for (let i = 0; i < pack.length; i++) {
       const item = pack[i];
       if (item && item.kind === "consumable" && item.consumableId === "kit") kit = true;
     }
-    panel.appendChild(el("p", "section-label", "Gear"));
     const equipped = session && session.equipped;
-    const wornKeys = ["weapon", "offhand", "head", "body", "feet", "trinket"];
     let gearRows = 0;
-    for (let i = 0; i < wornKeys.length; i++) {
-      const key = wornKeys[i];
+    section(panes.upgrade, "Worn");
+    for (const key of WORN_KEYS) {
       const item = equipped ? equipped[key] : null;
       if (!item || item.kind === "consumable") continue;
       gearRows += 1;
-      appendUpgradeRow(item, { "data-slot": key }, kit, key);
+      upgradeCard(panes.upgrade, item, { "data-slot": key }, kit, key, "eq:" + key);
     }
-    for (let i = 0; i < pack.length; i++) {
-      const item = pack[i];
-      if (!item || item.kind === "consumable") continue;
+    const carriedGear = pack.map((item, i) => [item, i]).filter(([item]) => item && item.kind !== "consumable");
+    if (carriedGear.length) section(panes.upgrade, "Carried");
+    for (const [item, i] of carriedGear) {
       gearRows += 1;
-      appendUpgradeRow(item, { "data-index": String(i) }, kit);
+      upgradeCard(panes.upgrade, item, { "data-index": String(i) }, kit, null, "pack:" + i);
     }
-    if (!gearRows) panel.appendChild(el("p", "panel-empty", "No gear to quench."));
-    panel.appendChild(button("close", "Close"));
+    if (!gearRows) empty(panes.upgrade, "No gear to quench.");
+    section(panes.craft, "Recipes");
+    recipeCards(panes.craft, "smith");
   }
 
   // One piece at the smith: what +1 item level does for you, what it costs,
   // and why it cannot be done yet.
-  function appendUpgradeRow(item, attrs, kit, worn) {
+  function upgradeCard(parent, item, attrs, kit, worn, key) {
     const ilvl = Math.max(0, Math.floor(Number(item.ilvl) || 0));
     const themeId = Math.max(0, Math.floor(Number(item.themeId) || 0));
-    const row = el("div", "row pack-row");
-    row.appendChild(el("span", "name", itemLabel(item) + "  ·  ilvl " + ilvl + " → " + (ilvl + 1)));
-    if (worn) detail(row, "Worn · " + worn, "muted");
+    const card = ware(parent, item, key, { worn: !!worn, label: itemLabel(item) });
+    card.head.appendChild(el("span", "ilvl-step", "ilvl " + ilvl + " → " + (ilvl + 1)));
+    if (worn) detail(card.main, "Worn · " + worn, "muted");
     const up = compareUpgrade(rt.session, item);
     if (up && up.hollow) {
-      detail(row, "No affixes: levelling it changes none of your stats.", "down");
+      detail(card.main, "No affixes: levelling it changes none of your stats.", "down");
     } else if (up && up.changes.length) {
-      changeLine(row, worn ? "You gain: " : "If worn: ", up.changes);
+      changeLine(card.main, worn ? "You gain: " : "If worn: ", up.changes);
     } else {
-      detail(row, "Too small to show this level; affixes grow slowly with item level.", "muted");
+      detail(card.main, "Too small to show this level; affixes grow slowly with item level.", "muted");
     }
-    detail(row, "Sells for " + sellValue(item) + " → " + sellValue(upgradedCopy(item)) + " gold", "muted");
-    costDetail(row, upgradeCost(ilvl, themeId));
+    detail(card.main, "Sells for " + sellValue(item) + " → " + sellValue(upgradedCopy(item)) + " gold", "muted");
+    costChips(card.main, upgradeCost(ilvl, themeId));
     const status = upgradeStatus(rt.session || {}, item);
-    if (status && !status.ok) detail(row, status.text, "down");
-    row.appendChild(button("upgrade", "Upgrade", attrs));
-    if (kit) row.appendChild(button("upgrade-kit", "Use kit (no materials)", attrs));
-    panel.appendChild(row);
+    if (status && !status.ok) detail(card.main, status.text, "down");
+    card.acts.appendChild(button("upgrade", "Upgrade", attrs));
+    if (kit) card.acts.appendChild(button("upgrade-kit", "Use kit", attrs));
+  }
+
+  function goodsCard(parent, id, name, text) {
+    const item = { kind: "consumable", consumableId: id, name };
+    const card = ware(parent, null, "goods:" + id, { label: name, kind: "draught", color: id === "draught-mp" ? "#6f9bf0" : "#e2665a" });
+    card.row.classList.add("goods");
+    tips.set("goods:" + id, gearTip(rt.session, item, { supply: text }));
+    detail(card.main, text + " You carry " + carried(id) + ".", "muted");
+    card.acts.appendChild(button(id === "draught-mp" ? "buy-mp" : "buy-hp", "Buy · " + DRAUGHT_PRICE + " gold"));
   }
 
   function render() {
-    if (panelKind === "trainer") {
-      renderTrainer();
-      return;
-    }
-    if (panelKind === "smith") {
-      renderSmith();
-      return;
-    }
-    if (panelKind === "still") {
-      renderStill();
-      return;
-    }
-    if (panelKind === "bank") {
-      renderBank();
-      return;
-    }
-    if (panelKind === "inn") {
-      renderInn();
-      return;
-    }
-    if (panelKind === "board") {
-      renderBoard();
-      return;
-    }
+    if (panelKind === "trainer") return renderTrainer();
+    if (panelKind === "smith") return renderSmith();
+    if (panelKind === "still") return renderStill();
+    if (panelKind === "bank") return renderBank();
+    if (panelKind === "inn") return renderInn();
+    if (panelKind === "board") return renderBoard();
     const session = rt.session;
     const pack = session && Array.isArray(session.pack) ? session.pack : [];
     const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    const { keeper, counter } = frame("Bramble & Board", ["purse"]);
+    keeperColumn(keeper, "Sold gear can be bought back for the same price until you leave town.");
+    const panes = tabbed(counter);
 
-    panel.appendChild(el("p", "eyebrow", "Bramble & Board"));
-    keeperLine();
-    panel.appendChild(el("p", "panel-line", "Purse " + purse + " gold"));
+    section(panes.trade, "For sale");
+    const goods = el("div", "card-grid");
+    goodsCard(goods, "draught-hp", "Health Draught", "Restores " + DRAUGHT_HEAL + " health.");
+    goodsCard(goods, "draught-mp", "Mana Draught", "Restores mana.");
+    panes.trade.appendChild(goods);
 
-    panel.appendChild(el("p", "section-label", "For sale"));
-    const buyRow = el("div", "row pack-row");
-    buyRow.appendChild(el("span", "name", "Health Draught"));
-    detail(buyRow, "Restores " + DRAUGHT_HEAL + " health. You carry " + carried("draught-hp") + ".", "muted");
-    buyRow.appendChild(button("buy-hp", "Buy · " + DRAUGHT_PRICE + " gold"));
-    panel.appendChild(buyRow);
-    const mpRow = el("div", "row pack-row");
-    mpRow.appendChild(el("span", "name", "Mana Draught"));
-    detail(mpRow, "You carry " + carried("draught-mp") + ".", "muted");
-    mpRow.appendChild(button("buy-mp", "Buy · " + DRAUGHT_PRICE + " gold"));
-    panel.appendChild(mpRow);
-
-    panel.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP));
-    if (!pack.length) panel.appendChild(el("p", "panel-empty", "The pack is empty."));
+    section(panes.trade, "Pack " + pack.length + " / " + PACK_CAP);
+    if (!pack.length) empty(panes.trade, "The pack is empty.");
     for (let i = 0; i < pack.length; i++) {
       const item = pack[i];
-      const row = el("div", "slot pack-row");
-      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
-      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
-      row.appendChild(el("span", "name", itemLabel(item)));
-      if (isGear(item)) gearDetails(row, item, { compare: true });
-      else supplyDetails(row, item);
-      if (isGear(item) && item.slot) row.appendChild(button("equip", "Equip", { "data-index": String(i) }));
+      const card = ware(panes.trade, item, "pack:" + i);
+      if (isGear(item)) gearDetails(card, item, { compare: true });
+      else supplyDetails(card, item);
+      if (isGear(item) && item.slot) card.acts.appendChild(button("equip", "Equip", { "data-index": String(i) }));
       if (isGear(item)) {
         const price = sellValue(item);
-        row.appendChild(button("sell", "Sell · " + price + " gold", { "data-index": String(i), title: "Purse " + purse + " → " + (purse + price) + ". Buy it back for the same price later this session." }));
+        card.acts.appendChild(button("sell", "Sell · " + price + " gold", { "data-index": String(i), title: "Purse " + purse + " → " + (purse + price) + ". Buy it back for the same price later this session." }));
       }
-      panel.appendChild(row);
     }
 
-    const wornKeys = ["weapon", "offhand", "head", "body", "feet", "trinket"];
-    const wornLabel = { weapon: "Weapon", offhand: "Offhand", head: "Head", body: "Body", feet: "Feet", trinket: "Trinket" };
     const equipped = session && session.equipped;
-    panel.appendChild(el("p", "section-label", "Worn"));
-    for (let i = 0; i < wornKeys.length; i++) {
-      const key = wornKeys[i];
+    section(panes.worn, "Worn");
+    for (const key of WORN_KEYS) {
       const item = equipped ? equipped[key] : null;
-      const row = el("div", "slot pack-row");
-      const rarity = Math.max(0, Math.min(3, Math.floor(Number(item && item.rarity) || 0)));
-      row.style.borderTop = "2px solid " + RARITY_EDGE[rarity];
-      const label = wornLabel[key] + " · " + (item ? itemLabel(item) : "Empty");
-      row.appendChild(el("span", "name", label.slice(0, 80)));
-      if (item) gearDetails(row, item);
-      if (item) row.appendChild(button("unequip", "Unequip", { "data-slot": key }));
-      panel.appendChild(row);
+      const card = ware(panes.worn, item, "eq:" + key, { slot: key, worn: true, label: (SLOT_LABEL[key] + " · " + (item ? itemLabel(item) : "Empty")).slice(0, 80), note: "Worn  ·  always kept." });
+      if (item) gearDetails(card, item);
+      if (item) card.acts.appendChild(button("unequip", "Unequip", { "data-slot": key }));
     }
 
-    panel.appendChild(el("p", "section-label", "Buyback " + buyback.length + " / " + BUYBACK_CAP));
-    if (!buyback.length) panel.appendChild(el("p", "panel-empty", "No recent sales."));
+    section(panes.buyback, "Buyback " + buyback.length + " / " + BUYBACK_CAP);
+    if (!buyback.length) empty(panes.buyback, "No recent sales.");
     for (let i = buyback.length - 1; i >= 0; i--) {
       const entry = buyback[i];
-      const row = el("div", "slot pack-row");
-      row.appendChild(el("span", "name", itemLabel(entry.item)));
-      row.appendChild(button("buyback", "Buy back · " + entry.price, { "data-index": String(i) }));
-      panel.appendChild(row);
+      const card = ware(panes.buyback, entry.item, "buyback:" + i);
+      if (isGear(entry.item)) gearDetails(card, entry.item);
+      card.acts.appendChild(button("buyback", "Buy back · " + entry.price, { "data-index": String(i) }));
     }
+  }
 
-    panel.appendChild(button("close", "Close"));
+  // Re-render, keeping the counter's scroll and an open tooltip.
+  function renderKeep() {
+    const scroller = panel.querySelector(".kp-counter");
+    const top = scroller ? scroller.scrollTop : 0;
+    render();
+    const again = panel.querySelector(".kp-counter");
+    if (again) again.scrollTop = top;
+    tips.reanchor();
   }
 
   function refuse(btn) {
@@ -636,7 +774,7 @@ export function attachPanels(rt) {
     }
     session.purse = Math.floor(Number(session.purse) || 0) - DRAUGHT_PRICE;
     noteChange();
-    render();
+    renderKeep();
   }
 
   function onClick(e) {
@@ -652,9 +790,15 @@ export function attachPanels(rt) {
       closePanel();
       return;
     }
+    if (act === "tab") {
+      tabFor[panelKind] = btn.getAttribute("data-tab");
+      tips.hide();
+      renderKeep();
+      return;
+    }
     if (act === "talk") {
       if (rt.keeperTalk) rt.keeperTalk(panelKind, true);
-      render();
+      renderKeep();
       return;
     }
     if (act === "quest-take") {
@@ -673,7 +817,7 @@ export function attachPanels(rt) {
         refuse(btn);
         return;
       }
-      render();
+      renderKeep();
       return;
     }
     if (act === "quest-claim") {
@@ -682,17 +826,17 @@ export function attachPanels(rt) {
         refuse(btn);
         return;
       }
-      render();
+      renderKeep();
       return;
     }
     if (act === "quest-drop") {
       if (rt.abandonQuest) rt.abandonQuest(btn.getAttribute("data-key"));
-      render();
+      renderKeep();
       return;
     }
     if (act === "rest") {
       if (rt.restAtInn) rt.restAtInn();
-      render();
+      renderKeep();
       return;
     }
     if (act === "raise") {
@@ -704,7 +848,7 @@ export function attachPanels(rt) {
       if (rt.applyRankStats) rt.applyRankStats();
       if (rt.derivePools) rt.derivePools();
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "craft") {
@@ -716,7 +860,7 @@ export function attachPanels(rt) {
       }
       if (rt.questEvent) rt.questEvent({ type: "craft", recipe: btn.getAttribute("data-recipe") });
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "upgrade" || act === "upgrade-kit") {
@@ -728,7 +872,7 @@ export function attachPanels(rt) {
       }
       refreshGear();
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "buy-hp") {
@@ -758,7 +902,7 @@ export function attachPanels(rt) {
       }
       if (rt.questEvent) rt.questEvent({ type: act, amount: n });
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "equip") {
@@ -782,7 +926,7 @@ export function attachPanels(rt) {
       while (buyback.length > BUYBACK_CAP) buyback.shift();
       if (rt.questEvent) rt.questEvent({ type: "sell" });
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "stash") {
@@ -794,7 +938,7 @@ export function attachPanels(rt) {
       session.pack.splice(index, 1);
       session.stash.push(item);
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "pack") {
@@ -806,7 +950,7 @@ export function attachPanels(rt) {
       session.stash.splice(index, 1);
       session.pack.push(item);
       noteChange();
-      render();
+      renderKeep();
       return;
     }
     if (act === "buyback") {
@@ -820,7 +964,7 @@ export function attachPanels(rt) {
       buyback.splice(index, 1);
       if (rt.questEvent) rt.questEvent({ type: "unsell" });
       noteChange();
-      render();
+      renderKeep();
     }
   }
 
@@ -844,15 +988,19 @@ export function attachPanels(rt) {
       rt.panelStation = home || rt.panelStation;
     }
     rt.panelOpen = true;
+    if (rt.sheetOpen && rt.closeSheet) rt.closeSheet();
+    document.body.classList.add("window-open");
     if (rt.resetTalk) rt.resetTalk(kind);
     panel.setAttribute("aria-label", PANEL_TITLES[kind]);
-    placePanel();
+    tips.hide();
     panel.hidden = false;
     panel.removeAttribute("aria-hidden");
     render();
   }
 
   function closePanel() {
+    tips.hide();
+    if (!rt.sheetOpen) document.body.classList.remove("window-open");
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
     rt.panelOpen = false;
@@ -881,7 +1029,7 @@ export function attachPanels(rt) {
     else session.pack.splice(index, 1);
     refreshGear();
     noteChange();
-    render();
+    renderKeep();
   }
 
   function unequip(slot, btn) {
@@ -902,7 +1050,7 @@ export function attachPanels(rt) {
     session.pack.push(item);
     refreshGear();
     noteChange();
-    render();
+    renderKeep();
   }
 
   function notePicked(uid) {
@@ -938,7 +1086,7 @@ export function attachPanels(rt) {
     if (item.stack <= 0) session.pack.splice(index, 1);
     vitals.hp = Math.min(vitals.hpMax, vitals.hp + DRAUGHT_HEAL);
     noteChange();
-    if (!panel.hidden) render();
+    if (!panel.hidden) renderKeep();
     return { ok: true };
   }
 
@@ -969,7 +1117,7 @@ export function attachPanels(rt) {
     takeGear(drop);
     drops.splice(best, 1);
     noteChange();
-    if (!panel.hidden) render();
+    if (!panel.hidden) renderKeep();
     return true;
   }
 
@@ -1048,16 +1196,13 @@ export function attachPanels(rt) {
     }
     if (changed) {
       noteChange();
-      if (!panel.hidden) render();
+      if (!panel.hidden) renderKeep();
     }
   }
 
   panel.addEventListener("click", onClick);
   panel.addEventListener("input", (e) => {
     if (e.target && e.target.id === "panel-amount") amountDraft = e.target.value;
-  });
-  window.addEventListener("resize", () => {
-    if (!panel.hidden) placePanel();
   });
 
   rt.panelOpen = false;

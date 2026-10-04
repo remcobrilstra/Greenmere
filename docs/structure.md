@@ -53,7 +53,8 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/play/space.js` | PR-03 | Town or dungeon, `descendFloor`, `arriveTown`. |
 | `src/play/combat.js` | PR-03 | Windups and strikes. Numbers come from `src/sim`. |
 | `src/sim/save.js` | PR-04 | Schema and `migrate` only. |
-| `src/ui/panels.js` | PR-05 | Store, stash, trainer, smith. |
+| `src/ui/panels.js` | PR-05 | Keeper windows (store, smith, still, trainer, inn, bank, notice board): one centred window, the keeper's talk and request on the left, the counter on the right with tabs and item cards. |
+| `src/ui/gearui.js` | Town | Shared by the sheet and the keeper windows: slot and supply glyphs, `itemCell`, the shared tooltip (`attachTips`, `#ui-tip`), `gearTip`, `upgradeStatus`. |
 | `src/sim/items.js` | PR-06 | Slots, affixes, `dropIlvl`, recipes. |
 | `src/sim/townplan.js` | Town | Every town coordinate: buildings, doors, counters, furniture, roads, props, arrival, wall boxes, `floorAt`, `buildingAt`. See `docs/town-living.md`. |
 | `src/sim/townfolk.js` | Town | Keeper and wanderer roster, barks, waypoint graph, `shortestPath`, `stepWalker`. |

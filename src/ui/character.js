@@ -10,16 +10,16 @@
 // - a cast line on level-up.
 // DOM only, built with textContent. Reads the session; changes nothing.
 
-import { xpToNext, upgradeCost } from "../sim/balance.js";
-import { affixLines, heroStats, compareEquip, changeText } from "../sim/gearstats.js";
+import { xpToNext } from "../sim/balance.js";
+import { heroStats, compareEquip } from "../sim/gearstats.js";
 import { gearTotals } from "../sim/items.js";
 import { playTimeText } from "../sim/lifestats.js";
+import { SLOT_NAME, RARITY_NAME, RARITY_EDGE, el, int, num, itemName, itemCell as gearCell, attachTips, gearTip, upgradeStatus } from "./gearui.js";
 
-const SLOT_NAME = { weapon: "Weapon", offhand: "Offhand", head: "Head", body: "Body", feet: "Feet", trinket: "Trinket" };
+export { upgradeStatus };
+
 const DOLL_LEFT = ["head", "body", "feet"];
 const DOLL_RIGHT = ["trinket", "weapon", "offhand"];
-const RARITY_NAME = ["Common", "Uncommon", "Rare", "Epic"];
-const RARITY_EDGE = ["#e7d7b4", "#8ed15a", "#7eb6ef", "#d4a03a"];
 const MATS = [["heartwood", "Heartwood"], ["rootfiber", "Rootfiber"], ["slag", "Slag"], ["emberglass", "Emberglass"]];
 const TRACKS = [
   ["edge", "Edge", "Strike damage, reach, arc, and cooldown."],
@@ -30,77 +30,6 @@ const TRACKS = [
 const PACK_CAP = 24;
 const TABS = [["character", "Character"], ["pack", "Pack"], ["ledger", "Ledger"]];
 const FOE_NAME = { skirmisher: "Skirmishers", brute: "Brutes", spitter: "Spitters", shade: "Shades", boss: "Floor guardians" };
-
-// 24×24 line glyphs, one per slot, plus a flask for draughts.
-const GLYPH = {
-  weapon: "M19 3l2 2-10 10-3 1 1-3zM7 15l2 2M5 17l-2 4 4-2M8 14l-3-3",
-  offhand: "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM12 7v10M8 11h8",
-  head: "M4 15l2-7 3 4 3-6 3 6 3-4 2 7zM4 15h16v3H4z",
-  body: "M8 4l-4 3 2 4 2-1v10h8V10l2 1 2-4-4-3c-1 2-2 3-4 3S9 6 8 4z",
-  feet: "M8 3h5v10l6 3v4H6l-1-4 3-1z M6 20h13",
-  trinket: "M8 3c0 4 8 4 8 0M12 7v2M12 9a5 5 0 1 1 0 10 5 5 0 1 1 0-10zM12 12v4M10 14h4",
-  draught: "M10 3h4M10 3v5l-4 7a4 4 0 0 0 4 6h4a4 4 0 0 0 4-6l-4-7V3M8 14h8"
-};
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function el(tag, cls, text) {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text != null) n.textContent = text;
-  return n;
-}
-function glyph(kind, color) {
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  const p = document.createElementNS(SVG_NS, "path");
-  p.setAttribute("d", GLYPH[kind] || GLYPH.trinket);
-  p.setAttribute("fill", "none");
-  p.setAttribute("stroke", color || "currentColor");
-  p.setAttribute("stroke-width", "1.6");
-  p.setAttribute("stroke-linejoin", "round");
-  p.setAttribute("stroke-linecap", "round");
-  svg.appendChild(p);
-  return svg;
-}
-function int(v) {
-  return Math.max(0, Math.floor(Number(v) || 0));
-}
-function num(v) {
-  return int(v).toLocaleString("en-US");
-}
-function rarityOf(it) {
-  return it && it.kind !== "consumable" ? Math.max(0, Math.min(3, int(it.rarity))) : 0;
-}
-function itemName(it) {
-  if (!it) return "Empty";
-  if (it.kind === "consumable") {
-    const n = it.name || (it.consumableId === "draught-mp" ? "Mana Draught" : it.consumableId === "draught-hp" ? "Health Draught" : it.consumableId);
-    const stack = int(it.stack);
-    return stack > 1 ? n + " ×" + stack : n;
-  }
-  return it.name || it.baseId || "Gear";
-}
-
-// Next +1 for a worn or carried piece: what it costs and whether it can be paid now.
-export function upgradeStatus(session, item) {
-  if (!item || item.kind === "consumable") return null;
-  const ilvl = Math.max(0, Math.floor(Number(item.ilvl) || 0));
-  const depth = int(session.bestDepth);
-  const cost = upgradeCost(ilvl, Math.floor(Number(item.themeId) || 0));
-  const mats = Object.keys(cost.materials || {});
-  const parts = [cost.gold + " gold"].concat(mats.map((k) => cost.materials[k] + " " + k));
-  if (ilvl + 1 > depth) {
-    return { ok: false, text: "Next level needs an extract from floor " + (ilvl + 1) + " (best so far: " + depth + ")." };
-  }
-  const shortGold = Math.max(0, cost.gold - int(session.purse));
-  const shortMats = mats.filter((k) => int(session.materials && session.materials[k]) < cost.materials[k]);
-  if (!shortGold && !shortMats.length) return { ok: true, text: "Orrin can take it to item level " + (ilvl + 1) + " now: " + parts.join(", ") + "." };
-  const missing = [];
-  if (shortGold) missing.push(shortGold + " more gold in your purse" + (int(session.bank) >= shortGold ? " (withdraw it at the Counting House)" : ""));
-  for (const k of shortMats) missing.push((cost.materials[k] - int(session.materials[k])) + " more " + k);
-  return { ok: false, text: "Item level " + (ilvl + 1) + " costs " + parts.join(", ") + ". You need " + missing.join(" and ") + "." };
-}
 
 export function attachCharacter(rt) {
   const hud = document.getElementById("hud") || document.body;
@@ -124,132 +53,16 @@ export function attachCharacter(rt) {
   sheet.setAttribute("role", "dialog");
   sheet.setAttribute("aria-label", "Character");
   hud.appendChild(sheet);
-  const tip = el("div", "plaque");
-  tip.id = "sheet-tip";
-  tip.hidden = true;
-  tip.setAttribute("role", "tooltip");
-  hud.appendChild(tip);
   rt.sheetOpen = false;
   rt.sheetTab = "character";
-
-  // Tooltip builders keyed by data-tip; rebuilt each render.
-  let tips = new Map();
-  let tipKey = null;
-  let tipAnchor = null;
-
-  function tipLine(text, cls) {
-    tip.appendChild(el("p", "tip-line" + (cls ? " " + cls : ""), text));
-  }
-  function showTip(anchor) {
-    const key = anchor && anchor.getAttribute("data-tip");
-    const build = key && tips.get(key);
-    if (!build) return hideTip();
-    tipKey = key;
-    tipAnchor = anchor;
-    while (tip.firstChild) tip.removeChild(tip.firstChild);
-    tip.style.removeProperty("--rc");
-    build();
-    tip.hidden = false;
-    placeTip();
-  }
-  function placeTip() {
-    if (!tipAnchor || tip.hidden) return;
-    const a = tipAnchor.getBoundingClientRect();
-    const w = tip.offsetWidth;
-    const h = tip.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    // Beside the anchor (right, else left); below it when neither side fits.
-    let x = a.right + 10;
-    let y = a.top;
-    if (x + w > vw - 8) x = a.left - w - 10;
-    if (x < 8) {
-      x = Math.max(8, Math.min(vw - w - 8, a.left));
-      y = a.bottom + 8;
-    }
-    y = Math.max(8, Math.min(vh - h - 8, y));
-    tip.style.left = Math.round(x) + "px";
-    tip.style.top = Math.round(y) + "px";
-  }
-  function hideTip() {
-    tipKey = null;
-    tipAnchor = null;
-    tip.hidden = true;
-  }
-  function tipTarget(e) {
-    return e.target && e.target.closest ? e.target.closest("[data-tip]") : null;
-  }
-  sheet.addEventListener("pointerover", (e) => {
-    const t = tipTarget(e);
-    if (t && t !== tipAnchor) showTip(t);
-  });
-  sheet.addEventListener("pointerout", (e) => {
-    const t = tipTarget(e);
-    if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) hideTip();
-  });
-  sheet.addEventListener("focusin", (e) => {
-    const t = tipTarget(e);
-    if (t) showTip(t);
-  });
-  sheet.addEventListener("focusout", hideTip);
-  sheet.addEventListener("scroll", hideTip, true);
-
-  // ---- gear tooltips ----
-  function gearTip(s, it, slot, worn) {
-    return () => {
-      if (!it) {
-        tipLine(SLOT_NAME[slot], "tip-title");
-        tipLine("Nothing worn here. Gear for this slot drops below ground.", "muted");
-        return;
-      }
-      if (it.kind === "consumable") {
-        tipLine(itemName(it), "tip-title");
-        tipLine(it.consumableId === "draught-mp" ? "Restores mana. Drink it from the action bar." : "Restores health. Drink it from the action bar.", "muted");
-        return;
-      }
-      const r = rarityOf(it);
-      tip.style.setProperty("--rc", RARITY_EDGE[r]);
-      tip.appendChild(el("p", "tip-line tip-title", itemName(it)));
-      tipLine(RARITY_NAME[r] + " " + (SLOT_NAME[it.slot] || "gear").toLowerCase() + "  ·  ilvl " + int(it.ilvl), "muted");
-      const lines = affixLines(it);
-      if (lines.length) {
-        tip.appendChild(el("hr"));
-        for (const l of lines) tipLine(l, "stat");
-      } else tipLine("No affixes.", "muted");
-      if (!worn) {
-        const cmp = compareEquip(s, it);
-        if (cmp) {
-          tip.appendChild(el("hr"));
-          tipLine(cmp.worn ? "If worn instead of " + itemName(cmp.worn) + ":" : "If worn (slot is empty):", "muted");
-          if (!cmp.changes.length) tipLine("No change.", "muted");
-          for (const c of cmp.changes) tipLine(changeText(c), c.good ? "up" : "down");
-        }
-      }
-      const up = upgradeStatus(s, it);
-      if (up) {
-        tip.appendChild(el("hr"));
-        tipLine(up.text, up.ok ? "gold" : "muted");
-      }
-      tipLine(worn ? "Worn  ·  always kept." : (rt.space === "dungeon" ? "Carried  ·  lost if you fall." : "Carried  ·  equip it at a keeper's panel."), "muted small");
-    };
-  }
+  const tips = attachTips(sheet);
 
   function itemCell(s, it, key, slot, worn) {
-    const cell = el("button", "gear-cell" + (it ? "" : " empty"));
-    cell.type = "button";
-    cell.setAttribute("data-tip", key);
-    const r = rarityOf(it);
-    const kind = it ? (it.kind === "consumable" ? "draught" : it.slot) : slot;
-    if (kind) cell.appendChild(glyph(kind, it ? RARITY_EDGE[r] : "rgba(226,186,96,0.35)"));
-    if (it) {
-      cell.style.borderColor = RARITY_EDGE[r];
-      cell.style.setProperty("--rc", RARITY_EDGE[r]);
-      if (it.kind === "consumable") {
-        if (int(it.stack) > 1) cell.appendChild(el("span", "badge", "×" + int(it.stack)));
-      } else cell.appendChild(el("span", "badge", "ilvl " + int(it.ilvl)));
-    }
+    const cell = gearCell(it, { tag: "button", slot, tip: key });
     cell.setAttribute("aria-label", (slot ? SLOT_NAME[slot] + ": " : "") + itemName(it));
-    tips.set(key, gearTip(s, it, slot || (it && it.slot), worn));
+    const note = worn ? "Worn  ·  always kept." : (rt.space === "dungeon" ? "Carried  ·  lost if you fall." : "Carried  ·  equip it at a keeper's counter.");
+    const supply = it && it.consumableId === "draught-mp" ? "Restores mana. Drink it from the action bar." : "Restores health. Drink it from the action bar.";
+    tips.set(key, gearTip(s, it, { slot: slot || (it && it.slot), worn, note, supply }));
     return cell;
   }
 
@@ -261,9 +74,9 @@ export function attachCharacter(rt) {
     if (key) {
       row.setAttribute("data-tip", key);
       row.tabIndex = 0;
-      tips.set(key, () => {
-        tipLine(label, "tip-title");
-        for (const t of [].concat(text)) tipLine(t, "muted");
+      tips.set(key, (t) => {
+        t.title(label);
+        for (const line of [].concat(text)) t.line(line, "muted");
       });
     }
     parent.appendChild(row);
@@ -453,7 +266,7 @@ export function attachCharacter(rt) {
 
   function render() {
     const s = rt.session || {};
-    tips = new Map();
+    tips.reset();
     timeNode = null;
     delveTimeNode = null;
     const keepScroll = sheet.querySelector(".sheet-body");
@@ -497,11 +310,7 @@ export function attachCharacter(rt) {
     body.scrollTop = scrollTop;
 
     // Keep an open tooltip on the rebuilt anchor.
-    if (tipKey) {
-      const again = sheet.querySelector('[data-tip="' + tipKey + '"]');
-      if (again && tips.has(tipKey)) showTip(again);
-      else hideTip();
-    }
+    tips.reanchor();
   }
 
   // What the sheet shows, minus the clock; re-render only when it moves.
@@ -517,8 +326,11 @@ export function attachCharacter(rt) {
   function setOpen(open) {
     rt.sheetOpen = !!open;
     sheet.hidden = !open;
-    hideTip();
+    document.body.classList.toggle("window-open", !!open || !!rt.panelOpen);
+    tips.hide();
     if (open) {
+      // One window at a time: the sheet replaces an open keeper panel.
+      if (rt.panelOpen && rt.closePanel) rt.closePanel();
       if (rt.refreshPortrait) rt.refreshPortrait();
       sig = signature();
       render();
@@ -527,7 +339,7 @@ export function attachCharacter(rt) {
   function setTab(id) {
     if (!TABS.some((t) => t[0] === id)) return;
     rt.sheetTab = id;
-    hideTip();
+    tips.hide();
     if (rt.sheetOpen) {
       sig = signature();
       render();
@@ -569,7 +381,6 @@ export function attachCharacter(rt) {
       }
     } else if (e.code === "Escape" && rt.sheetOpen) setOpen(false);
   });
-  window.addEventListener("resize", placeTip);
 
   // ---- per frame: xp bar, live sheet, level-up line ----
   let lastSig = "";

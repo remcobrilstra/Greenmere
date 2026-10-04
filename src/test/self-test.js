@@ -901,7 +901,7 @@ export function installSelfTest(rt) {
       rt.openSheet("character");
       const dollSlots = sheet.querySelectorAll('.doll-stage [data-tip^="eq:"]');
       check(dollSlots.length === 6 && !!sheet.querySelector(".doll-stage .doll-frame"), "the doll stands between six worn slots (" + dollSlots.length + ")");
-      const tipNode = document.getElementById("sheet-tip");
+      const tipNode = document.getElementById("ui-tip");
       const weaponCell = sheet.querySelector('[data-tip="eq:weapon"]');
       weaponCell.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
       check(!!tipNode && !tipNode.hidden && tipNode.textContent.indexOf("ilvl") >= 0 && tipNode.textContent.indexOf("base damage") >= 0, "a worn slot's tooltip lists the piece's numbers");
@@ -2402,10 +2402,13 @@ export function installSelfTest(rt) {
     const panelStyle = getComputedStyle(panel);
     check(!!panel && panel.tagName === "SECTION" && panel.classList.contains("plaque") && document.querySelectorAll("#panel").length === 1, "one #panel plaque");
     check(!panel.hidden, "F at Bramble & Board opens the store");
-    check(panelBox.width <= 380, "panel width is at most 380 (" + panelBox.width.toFixed(1) + ")");
-    check(panelBox.left < 40 && Math.abs(panelBox.left - vitalsBox.left) < 2, "panel is anchored with the vitals, not the viewport center");
-    check(panelBox.top >= vitalsBox.bottom - 1 && panelBox.top <= vitalsBox.bottom + 24, "panel sits under the vitals plaque");
+    const barBox = document.getElementById("actionbar").getBoundingClientRect();
+    check(panelBox.width <= 940 && panelBox.width > vitalsBox.width, "the keeper window is a wide window, at most 940 (" + panelBox.width.toFixed(1) + ")");
+    check(Math.abs(panelBox.left + panelBox.width / 2 - window.innerWidth / 2) < 2, "the keeper window is centred");
+    check(panelBox.bottom <= barBox.top + 1, "the keeper window clears the action bar");
     check(panelStyle.transform === "none", "panel is not transformed onto the viewport");
+    check(!!panel.querySelector(".kp-keeper .panel-talk") && !!panel.querySelector(".kp-counter .kp-tabs"), "the keeper speaks on the left; the counter has tabs on the right");
+    check(document.body.classList.contains("window-open") && getComputedStyle(rt.keyPrompt.node).display === "none", "the F prompt steps aside while the window is open");
     check(panelStyle.backgroundImage.indexOf("gradient") >= 0, "panel uses the plaque gradient");
     check(panelStyle.boxShadow.indexOf("122, 90, 38") >= 0, "panel frame carries the brass line (" + panelStyle.boxShadow.slice(0, 60) + ")");
     const panelFont = panelStyle.fontFamily.toLowerCase();
@@ -2815,7 +2818,7 @@ export function installSelfTest(rt) {
     tap("KeyF");
     check(!panel.hidden && panel.querySelector(".eyebrow") && panel.querySelector(".eyebrow").textContent === "The Circle", "F at the Circle opens the trainer");
     const trainerBox = panel.getBoundingClientRect();
-    check(trainerBox.width <= 380 && trainerBox.left < 40, "the trainer plaque is at most 380 wide and anchored to the side (" + trainerBox.width.toFixed(1) + ")");
+    check(trainerBox.width <= 940 && Math.abs(trainerBox.left + trainerBox.width / 2 - window.innerWidth / 2) < 2 && panel.querySelectorAll(".track-grid .track").length === 4, "the Circle opens the same centred window with four training cards (" + trainerBox.width.toFixed(1) + ")");
     check(getComputedStyle(panel).transform === "none", "the trainer plaque is not moved to the viewport center");
     check(panel.textContent.indexOf("Edge") >= 0 && panel.textContent.indexOf("Bulwark") >= 0 && panel.textContent.indexOf("Mend") >= 0 && panel.textContent.indexOf("Delver") >= 0 && panel.textContent.indexOf("Unspent points 0") >= 0, "the trainer lists the four tracks and unspent points");
     check(panel.textContent.indexOf("oath") < 0 && panel.innerHTML.indexOf("<img") < 0, "extra tracks are not painted and names stay text");
