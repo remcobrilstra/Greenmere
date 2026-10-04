@@ -1542,6 +1542,41 @@ def wd_shield(f, kind, part="face"):
     wd_held(f, "forearm.L", build)
 
 
+# ---------------------------------------------------------------- the relic charm
+#
+# Not skinned: it circles the Warden in hero.js's orbit group. Built in that group's
+# space (orbit radius CHARM_R along +x) as wd_charm (the gold cage) and wd_charm_glow.
+
+CHARM_R = 0.78
+
+
+def wd_charm_parts(glow):
+    kit = Kit(0)
+    kit.r = random.Random(7)
+    x = CHARM_R
+    if glow:
+        octa(kit, "c", 0.075, HM_GLOW, x, 0, 0, 0.8, 1.7, 0.8)
+    else:
+        for a in (0.0, math.pi / 2):
+            ring(kit, "c", 0.11, 0.011, HM_TRIM, x, 0, 0, ry=a, sy=1.35, segs=14, sides=4)
+        dk_lathe(kit, "c", [(0.04, 0.15), (0.055, 0.17), (0.0, 0.21)], 6, HM_TRIM, x, 0)
+        dk_lathe(kit, "c", [(0.0, -0.21), (0.055, -0.17), (0.04, -0.15)], 6, HM_TRIM, x, 0)
+        kit.ball("c", 0.02, HM_STEEL, x, 0.23, 0)
+    return kit.roles["c"]
+
+
+def wd_static_mesh(name, R, coll):
+    """A plain (unskinned) slot-coded mesh, for pieces that do not ride the skeleton."""
+    slot_of = wd_slot_lookup()
+    role = {"v": R["v"], "f": R["f"], "c": [((HERO_SLOTS.index(slot_of(c)) + 0.5) / 16, 1.0, 0.0) for c in R["c"]]}
+    ob = to_object(name, role, coll)
+    me = ob.data
+    for poly in me.polygons:
+        poly.use_smooth = False
+    me.color_attributes.active_color = me.color_attributes["base"]
+    return ob
+
+
 # piece name -> builder; the game decides what shows (view/heroskin.js)
 WD_PIECES = {
     "core": wd_core, "hair": wd_hair, "linen": wd_linen, "trousers": wd_trousers, "wraps": wd_wraps, "gloves": wd_gloves,
@@ -1594,6 +1629,8 @@ def build_warden(export=True, bake=True, samples=64, style="warden", only=None):
             bake_slot_ao(scn, o, samples)
         for o in objs.values():
             o.hide_render = False
+    statics = [wd_static_mesh("wd_charm", wd_charm_parts(False), scn.collection),
+               wd_static_mesh("wd_charm_glow", wd_charm_parts(True), scn.collection)]
     scn.render.fps = WD_FPS
     line = {"id": "warden", "pieces": len(objs), "tris": sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs.values()),
             "clips": wd_clips(rig)}
@@ -1601,7 +1638,7 @@ def build_warden(export=True, bake=True, samples=64, style="warden", only=None):
         path = os.path.join(REPO, "assets", "models", "warden.glb")
         for o in scn.collection.all_objects:
             o.select_set(False)
-        for o in [rig] + list(objs.values()):
+        for o in [rig] + list(objs.values()) + statics:
             o.select_set(True)
         import contextlib, io
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

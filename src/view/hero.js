@@ -101,6 +101,7 @@ export function buildHero(scene) {
   function carried(group) {
     // the skinned Warden holds its own sword and shield when warden.glb has them
     if (skin && skin.holds && (group === sword || group === shield)) return false;
+    if (skin && skin.charm && group === orbit) return false;
     return group === sword || group === shield || group === orbit;
   }
   // One piece into its group's buckets; glowMode paints it all in the glow colour on the glow material.
@@ -598,7 +599,7 @@ export function buildHero(scene) {
     // The skinned Warden takes over the body once assets/models/warden.glb loads; the
     // code rig keeps animating and drives its bones. Without it the pieces stay.
     return loadWardenSkin().then((gltf) => {
-      skin = attachWardenSkin({ player, body, leftLeg, rightLeg, leftArm, rightArm, torso, head, cape, sword, shield }, gltf, matMatte);
+      skin = attachWardenSkin({ player, body, leftLeg, rightLeg, leftArm, rightArm, torso, head, cape, sword, shield, orbit }, gltf, matMatte);
       for (const g of rigGroups) {
         if (carried(g)) continue;
         for (let i = g.children.length - 1; i >= 0; i--) {
@@ -611,8 +612,8 @@ export function buildHero(scene) {
       }
       // the facing oracles stay for the self-test, unseen
       nose.visible = false;
-      // the relic charm was sized for the code-built Warden
-      orbit.scale.setScalar(0.6);
+      // the piece-built relic charm was sized for the code-built Warden
+      if (!skin.charm) orbit.scale.setScalar(0.6);
       toe.visible = false;
       dress(lastEquipped);
       return true;

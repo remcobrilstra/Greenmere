@@ -37,7 +37,13 @@ export function attachWardenSkin(hero, gltf, material) {
   const root = gltf.scene;
   root.name = "wardenSkin";
   const meshes = {};
+  // the relic charm: plain meshes that move into the hero's orbit group
+  const statics = {};
   root.traverse((o) => {
+    if (o.isMesh && !o.isSkinnedMesh && o.name.startsWith("wd_charm")) {
+      statics[o.name.slice(3)] = o;
+      return;
+    }
     if (o.isSkinnedMesh) {
       if (!o.name.startsWith("wd_")) return;
       const key = o.name.slice(3);
@@ -60,7 +66,27 @@ export function attachWardenSkin(hero, gltf, material) {
       meshes[key] = o;
     }
   });
-  const skeleton = (meshes.core || Object.values(meshes)[0]).skeleton;
+  for (const key in statics) {
+    const o = statics[key];
+    const c = o.geometry.attributes.color;
+    const code = new Float32Array(c.count * 2);
+    for (let i = 0; i < c.count; i++) {
+      code[i * 2] = c.getX(i);
+      code[i * 2 + 1] = c.getY(i);
+    }
+    o.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(c.count * 3), 3));
+    o.userData.code = code;
+    o.userData.layer = "skin";
+    o.visible = false;
+    o.material = material;
+    o.castShadow = true;
+    o.position.set(0, 0, 0);
+    o.quaternion.identity();
+    o.scale.set(1, 1, 1);
+    if (hero.orbit) hero.orbit.add(o);
+    meshes[key] = o;
+  }
+  const skeleton = (meshes.core || Object.values(meshes).find((m) => m.isSkinnedMesh)).skeleton;
   // GLTFLoader sanitizes node names ("thigh.L" arrives as "thighL"); accept either.
   const bone = (name) => skeleton.bones.find((b) => b.name === name || b.name === name.replace(/[.[\]:/]/g, ""));
   root.updateMatrixWorld(true);
@@ -116,7 +142,7 @@ export function attachWardenSkin(hero, gltf, material) {
     chest.b.scale.set(chest.s0.x, chest.s0.y * hero.torso.scale.y, chest.s0.z);
     root.updateMatrixWorld(true);
     // the renderer refreshed the skeletons before this hook; refresh them for this pose
-    for (const k in meshes) if (meshes[k].visible) meshes[k].skeleton.update();
+    for (const k in meshes) if (meshes[k].visible && meshes[k].isSkinnedMesh) meshes[k].skeleton.update();
   }
 
   // The sword and shield groups move from the code arms onto the hand and forearm
@@ -147,7 +173,7 @@ export function attachWardenSkin(hero, gltf, material) {
   // Which pieces show, and in whose colours, from the worn looks (view/gearlook.js),
   // mirroring the tiers of the piece-built Warden (view/hero.js libDress). Glowing
   // pieces take the glow material and the slot's glow colour.
-  const GLOW_ALWAYS = new Set(["cape_hem", "runes", "halo", "halo_hood", "sword_relic_glow", "shield_relic_glow"]);
+  const GLOW_ALWAYS = new Set(["cape_hem", "runes", "halo", "halo_hood", "sword_relic_glow", "shield_relic_glow", "charm_glow"]);
   const GLOW_IF = new Set(["gem", "gem_big", "circlet_gem", "circlet_gem_hood", "greave_rings", "pendant", "pendant_big",
     "sword_rare_glow", "shield_kite_glow"]);
   const painted = new Map();
@@ -224,6 +250,10 @@ export function attachWardenSkin(hero, gltf, material) {
     if (t && t.tier !== "relic") {
       put("necklace", t);
       put(t.rarity >= 1 ? "pendant_big" : "pendant", t);
+    }
+    if (t && t.tier === "relic" && meshes.charm) {
+      put("charm", t);
+      put("charm_glow", t);
     }
     // held gear, when the file has it (older warden.glb files leave it to the pieces)
     const w = looks.weapon;
@@ -353,6 +383,7 @@ export function attachWardenSkin(hero, gltf, material) {
     if (!clipsOn) retarget(1);
   };
   for (const k in meshes) {
+    if (!meshes[k].isSkinnedMesh) continue;
     meshes[k].onBeforeRender = codeDraw;
     meshes[k].onBeforeShadow = codeDraw;
   }
@@ -364,5 +395,5 @@ export function attachWardenSkin(hero, gltf, material) {
   hero.sword.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(X, -0.55));
   hero.shield.scale.setScalar(0.85);
   retarget();
-  return { root, meshes, dress, retarget, update, bone, clips: Object.keys(acts), holds: !!meshes.sword_plain };
+  return { root, meshes, dress, retarget, update, bone, clips: Object.keys(acts), holds: !!meshes.sword_plain, charm: !!meshes.charm };
 }
