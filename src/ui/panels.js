@@ -95,7 +95,7 @@ const TRAINER_ROWS = [
   ["edge", "Edge", "Your strike: damage, reach, and speed."],
   ["bulwark", "Bulwark", "Your ward: how much it soaks and how long it holds."],
   ["mend", "Mend", "Your heal: how much, how fast, and how cheap."],
-  ["delver", "Delver", "Getting about: speed, the hearth home, and extra materials."]
+  ["delver", "Delver", "Getting about: speed, the hearth home, extra materials, and a nose for traps."]
 ];
 
 // What a carried supply does, in one line.

@@ -680,22 +680,46 @@ export function generateFloor(runSeed, floorIndex) {
       if (bossFloor && inRect(stairsRoomRef, c, r)) return false;
       return true;
     }
+    // The axis of a straight one-wide corridor cell ("x" or "z"), or null.
+    function straight(c, r) {
+      if (!floorAt(c, r) || inAnyRoom(c, r)) return null;
+      const e = floorAt(c + 1, r);
+      const w = floorAt(c - 1, r);
+      const s = floorAt(c, r + 1);
+      const n = floorAt(c, r - 1);
+      if (e && w && !s && !n) return "x";
+      if (s && n && !e && !w) return "z";
+      return null;
+    }
     const roomCells = [];
     const corridorCells = [];
+    const doorCells = [];
+    const dartCells = [];
     for (let r = lo; r <= hiR; r++) {
       for (let c = lo; c <= hiC; c++) {
         if (!floorAt(c, r) || !open(c, r)) continue;
-        const e = floorAt(c + 1, r);
-        const w = floorAt(c - 1, r);
-        const s = floorAt(c, r + 1);
-        const n = floorAt(c, r - 1);
         if (inAnyRoom(c, r)) {
           // A plate needs floor on every side, so it can always be stepped around.
-          if (e && w && s && n) roomCells.push({ col: c, row: r });
-        } else if (e && w && !s && !n) {
-          corridorCells.push({ col: c, row: r, axis: "x" });
-        } else if (s && n && !e && !w) {
-          corridorCells.push({ col: c, row: r, axis: "z" });
+          if (floorAt(c + 1, r) && floorAt(c - 1, r) && floorAt(c, r + 1) && floorAt(c, r - 1)) roomCells.push({ col: c, row: r });
+          continue;
+        }
+        const axis = straight(c, r);
+        if (!axis) continue;
+        corridorCells.push({ col: c, row: r, axis });
+        const dc = axis === "x" ? 1 : 0;
+        const dr = axis === "x" ? 0 : 1;
+        // A gong's tripwire spans a corridor mouth: the next cell along is a room.
+        if (inAnyRoom(c + dc, r + dr) || inAnyRoom(c - dc, r - dr)) doorCells.push({ col: c, row: r, axis });
+        // A dart plate sits mid-run, with straight corridor on both sides; the
+        // launcher stands at one end of the run and shoots down its length.
+        if (straight(c + dc, r + dr) === axis && straight(c - dc, r - dr) === axis) {
+          const ends = [];
+          for (const sgn of [1, -1]) {
+            let k = 1;
+            while (k < 8 && straight(c + dc * sgn * (k + 1), r + dr * sgn * (k + 1)) === axis) k++;
+            ends.push({ col: c + dc * sgn * k, row: r + dr * sgn * k, k });
+          }
+          dartCells.push({ col: c, row: r, axis, ends });
         }
       }
     }
@@ -737,18 +761,18 @@ export function generateFloor(runSeed, floorIndex) {
       }
       return null;
     }
-    const WEIGHT = { spikes: 3, flameJet: 3, fireWall: 2 };
+    shuffle(doorCells);
+    shuffle(dartCells);
+    const WEIGHT = biome.traps || { spikes: 3, flameJet: 2, fireWall: 1, darts: 1, gong: 1 };
+    const POOL = { spikes: roomCells, flameJet: corridorCells, fireWall: corridorCells, darts: dartCells, gong: doorCells };
+    const CAP = { spikes: Math.ceil(budget * 0.6), flameJet: 12, fireWall: 2, darts: 2, gong: 1 };
+    const placed = {};
     const out = [];
-    let walls = 0;
-    let plates = 0;
-    const plateCap = Math.ceil(budget * 0.6);
     for (let n = 0; n < budget; n++) {
       const kinds = [];
       let sum = 0;
       for (const k in WEIGHT) {
-        if (k === "fireWall" && walls >= 2) continue;
-        if (k === "spikes" && plates >= plateCap) continue;
-        if (k === "spikes" ? !roomCells.length : !corridorCells.length) continue;
+        if (!POOL[k] || !POOL[k].length || (placed[k] || 0) >= CAP[k]) continue;
         kinds.push(k);
         sum += WEIGHT[k];
       }
@@ -762,21 +786,31 @@ export function generateFloor(runSeed, floorIndex) {
           break;
         }
       }
-      const pool = kind === "spikes" ? roomCells : corridorCells;
+      const pool = POOL[kind];
       const phase = trng();
+      const side = trng() < 0.5 ? -1 : 1;
       while (pool.length) {
         const cell = pool.pop();
         if (!free(cell.col, cell.row)) continue;
-        let sw = null;
+        const spec = { id: out.length, kind, col: cell.col, row: cell.row, axis: cell.axis || "x", phase, sw: null };
         if (kind === "fireWall") {
-          sw = switchFor(cell);
-          if (!sw || !free(sw.col, sw.row)) continue;
-          busy.add(sw.row * cols + sw.col);
-          walls++;
+          spec.sw = switchFor(cell);
+          if (!spec.sw || !free(spec.sw.col, spec.sw.row)) continue;
+          busy.add(spec.sw.row * cols + spec.sw.col);
+        } else if (kind === "gong") {
+          // The gong hangs against one side wall of the mouth cell.
+          spec.side = side;
+        } else if (kind === "darts") {
+          const from = cell.ends[side < 0 ? 0 : 1];
+          const to = cell.ends[side < 0 ? 1 : 0];
+          if (!free(from.col, from.row)) continue;
+          spec.from = { col: from.col, row: from.row };
+          spec.to = { col: to.col, row: to.row };
+          busy.add(from.row * cols + from.col);
         }
-        if (kind === "spikes") plates++;
+        placed[kind] = (placed[kind] || 0) + 1;
         busy.add(cell.row * cols + cell.col);
-        out.push({ id: out.length, kind, col: cell.col, row: cell.row, axis: cell.axis || "x", phase, sw });
+        out.push(spec);
         break;
       }
     }

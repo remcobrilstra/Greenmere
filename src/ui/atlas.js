@@ -27,7 +27,7 @@ export function attachAtlas(rt) {
   head.appendChild(title);
   head.appendChild(close);
   const canvas = document.createElement("canvas");
-  const legend = el("p", "atlas-legend", "Gold: stairs · ring: arrival · box: chest · red: foes on your trail · M to close");
+  const legend = el("p", "atlas-legend", "Gold: stairs · ring: arrival · box: chest · diamond: trap · red: foes on your trail · M to close");
   node.appendChild(head);
   node.appendChild(canvas);
   node.appendChild(legend);
@@ -177,6 +177,26 @@ export function attachAtlas(rt) {
       ctx.lineWidth = Math.max(1, cell * 0.06);
       ctx.fillRect(cx - w / 2, cy - w * 0.35, w, w * 0.7);
       ctx.strokeRect(cx - w / 2, cy - w * 0.35, w, w * 0.7);
+    }
+    // Traps the Warden has seen, once Delver rank 3 marks them: orange diamonds,
+    // dimmed once put out.
+    const marks = rt.trapMarks ? rt.trapMarks() : [];
+    for (let i = 0; i < marks.length; i++) {
+      const t = marks[i];
+      const tc = Math.round(t.x / (plan.tile || 4) + (plan.cols - 1) / 2);
+      const tr = Math.round(t.z / (plan.tile || 4) + (plan.rows - 1) / 2);
+      if (!isSeen(tc, tr)) continue;
+      const tx = (tc + 0.5) * cell;
+      const ty = (tr + 0.5) * cell;
+      const d = cell * 0.24;
+      ctx.fillStyle = t.off ? "#6e5a44" : "#e8742a";
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - d);
+      ctx.lineTo(tx + d, ty);
+      ctx.lineTo(tx, ty + d);
+      ctx.lineTo(tx - d, ty);
+      ctx.closePath();
+      ctx.fill();
     }
     // Foes on the Warden's trail.
     const tile = plan.tile || 4;

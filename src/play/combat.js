@@ -880,11 +880,10 @@ export function attachCombat(rt) {
         crescent.visible = true;
         crescentT = CRESCENT_LIFE;
         if (strike.locked && rt.space === "dungeon") {
-          resolveStrikeAt(
-            { x: rt.player.position.x, z: rt.player.position.z },
-            strike.locked,
-            rt.enemies
-          );
+          const origin = { x: rt.player.position.x, z: rt.player.position.z };
+          resolveStrikeAt(origin, strike.locked, rt.enemies);
+          // A swing can also cut a tripwire (src/play/traps.js).
+          if (rt.strikeTraps) rt.strikeTraps(origin, strike.locked, strikeRange(edgeRank(session())), (strikeArcDeg(edgeRank(session())) / 2) * Math.PI / 180);
         }
         strike.locked = null;
       }
@@ -1188,6 +1187,15 @@ export function attachCombat(rt) {
     }
   }
 
+  // A trap the Warden put out leaves a small pile of spoils where it stood, rolled
+  // like a normal kill under the trap's run id (src/sim/traps.js TRAP_BASE).
+  function spawnTrapSpoils(sid, x, z, burst) {
+    const s = session();
+    const run = s && s.run;
+    if (!run) return;
+    spawnKillExtras({ id: sid, x, z }, run, "normal", burst);
+  }
+
   // Live kills burst from where the foe fell; a resumed floor lays the same drops
   // out around the spawn point (where resume stands the dead), already settled.
   function spawnKillLoot(enemy, run, burst) {
@@ -1239,6 +1247,7 @@ export function attachCombat(rt) {
     return { t: extract.t, total: extractSeconds(delverRank(session())) };
   };
   rt.spawnKillLoot = spawnKillLoot;
+  rt.spawnTrapSpoils = spawnTrapSpoils;
   rt.tickCombat = tickCombat;
   rt.stepCombat = tickCombat;
   rt.beginStrike = beginStrike;

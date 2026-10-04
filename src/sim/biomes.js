@@ -19,7 +19,9 @@ export const BIOMES = [
     loopRate: 0.3,
     pillars: false,
     propRate: 0.22,
-    props: { stalagmite: 4, rock: 3, mushroom: 3, crystal: 1 }
+    props: { stalagmite: 4, rock: 3, mushroom: 3, crystal: 1 },
+    // Trap weights (docs/traps.md §3.2); src/sim/floorgen.js caps each kind.
+    traps: { spikes: 3, flameJet: 1, fireWall: 1, darts: 1, gong: 1 }
   },
   {
     id: 1,
@@ -34,7 +36,9 @@ export const BIOMES = [
     loopRate: 0.35,
     pillars: true,
     propRate: 0.14,
-    props: { urn: 3, rubble: 3, brazier: 2, statue: 1 }
+    props: { urn: 3, rubble: 3, brazier: 2, statue: 1 },
+    // Trap weights (docs/traps.md §3.2); src/sim/floorgen.js caps each kind.
+    traps: { spikes: 2, darts: 4, flameJet: 1, fireWall: 1, gong: 1 }
   },
   {
     id: 2,
@@ -49,7 +53,9 @@ export const BIOMES = [
     loopRate: 0.25,
     pillars: false,
     propRate: 0.24,
-    props: { root: 5, rock: 2, mushroom: 3 }
+    props: { root: 5, rock: 2, mushroom: 3 },
+    // Trap weights (docs/traps.md §3.2); src/sim/floorgen.js caps each kind.
+    traps: { spikes: 3, darts: 1, flameJet: 1, fireWall: 1, gong: 1 }
   },
   {
     id: 3,
@@ -64,7 +70,9 @@ export const BIOMES = [
     loopRate: 0.2,
     pillars: true,
     propRate: 0.16,
-    props: { tomb: 3, candle: 3, urn: 2, rubble: 2 }
+    props: { tomb: 3, candle: 3, urn: 2, rubble: 2 },
+    // Trap weights (docs/traps.md §3.2); src/sim/floorgen.js caps each kind.
+    traps: { spikes: 2, gong: 3, darts: 2, flameJet: 1, fireWall: 1 }
   },
   {
     id: 4,
@@ -79,7 +87,9 @@ export const BIOMES = [
     loopRate: 0.3,
     pillars: true,
     propRate: 0.18,
-    props: { brazier: 2, anvil: 2, rock: 3, slag: 3 }
+    props: { brazier: 2, anvil: 2, rock: 3, slag: 3 },
+    // Trap weights (docs/traps.md §3.2); src/sim/floorgen.js caps each kind.
+    traps: { spikes: 1, flameJet: 4, fireWall: 3, darts: 1, gong: 1 }
   }
 ];
 

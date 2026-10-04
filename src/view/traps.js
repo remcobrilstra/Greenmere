@@ -169,6 +169,114 @@ function buildValve(theme) {
   return { group, wheel, lamp, wheelMat };
 }
 
+// A small pressure plate with an arrow inlay pointing down the run.
+function buildDartPlate(theme, def) {
+  const group = new THREE.Group();
+  const stone = theme.trim || [0x4c545e, 0x3e4650];
+  const s = def.along * 2;
+  const b = makeBuilder();
+  b.box(0, 0.03, 0, s, 0.06, s, stone[1] || stone[0], stone[0]);
+  const plate = new THREE.Mesh(b.geometry(), lambert({ side: THREE.FrontSide }));
+  plate.receiveShadow = true;
+  group.add(plate);
+  const joints = glowMat(0x3a1a12, 0);
+  joints.emissive.setHex(0xff5a2a);
+  const arrow = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.02, 0.08), joints);
+  shaft.position.set(-0.05, 0.065, 0);
+  const headA = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.02, 0.08), joints);
+  headA.position.set(0.18, 0.065, 0.09);
+  headA.rotation.y = 0.7;
+  const headB = headA.clone();
+  headB.position.z = -0.09;
+  headB.rotation.y = -0.7;
+  arrow.add(shaft, headA, headB);
+  group.add(arrow);
+  return { group, plate, joints, arrow };
+}
+
+// Two slotted blocks on the side walls at the launcher end of a dart run; the
+// slots face local +x (down the run).
+function buildLauncher(theme) {
+  const group = new THREE.Group();
+  const stone = theme.wall || [0x5e6771, 0x4c545e];
+  const b = makeBuilder();
+  for (const z of [-1.78, 1.78]) {
+    b.box(0, 1.0, z, 0.7, 1.5, 0.44, stone[1] || stone[0], stone[0]);
+    for (const y of [0.75, 1.0, 1.25]) b.box(0.36, y, z - Math.sign(z) * 0.02, 0.02, 0.07, 0.24, 0x15110f);
+  }
+  const mesh = new THREE.Mesh(b.geometry(), lambert({ side: THREE.FrontSide }));
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return group;
+}
+
+// A bronze gong on a frame against one side wall, and a tripwire across the mouth.
+function buildGong(theme, side) {
+  const group = new THREE.Group();
+  const wood = [0x5a3a24, 0x6b4428];
+  const b = makeBuilder();
+  const z = side * 1.45;
+  b.box(-0.55, 0.95, z, 0.14, 1.9, 0.14, wood[0], wood[1]);
+  b.box(0.55, 0.95, z, 0.14, 1.9, 0.14, wood[0], wood[1]);
+  b.box(0, 1.9, z, 1.4, 0.14, 0.16, wood[1], wood[0]);
+  // Pegs that hold the wire at the walls.
+  b.box(0, 0.3, -1.92, 0.1, 0.16, 0.12, IRON[1], IRON[0]);
+  b.box(0, 0.3, 1.92, 0.1, 0.16, 0.12, IRON[1], IRON[0]);
+  const frame = new THREE.Mesh(b.geometry(), lambert({ side: THREE.FrontSide }));
+  frame.castShadow = true;
+  group.add(frame);
+  const hanger = new THREE.Group();
+  hanger.position.set(0, 1.82, z);
+  const discMat = new THREE.MeshLambertMaterial({ color: 0xc08a3a, emissive: 0x6a4010, emissiveIntensity: 0.25, flatShading: true });
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.06, 14), discMat);
+  disc.rotation.x = Math.PI / 2;
+  disc.position.y = -0.62;
+  const boss = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.09, 10), discMat);
+  boss.rotation.x = Math.PI / 2;
+  boss.position.y = -0.62;
+  hanger.add(disc, boss);
+  group.add(hanger);
+  const wireMat = new THREE.MeshLambertMaterial({ color: 0xb8bcc2, emissive: 0xffe0a0, emissiveIntensity: 0, flatShading: true });
+  const wire = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.025, 3.84), wireMat);
+  wire.position.y = 0.3;
+  group.add(wire);
+  return { group, hanger, wire, wireMat, discMat };
+}
+
+const DART_MAX = 24;
+
+// Every dart in flight, one instanced mesh; syncDarts places them.
+export function buildDartMesh() {
+  const b = makeBuilder();
+  b.box(0, 0, 0, 0.05, 0.05, 0.5, 0x3a3734);
+  b.box(0, 0, 0.22, 0.14, 0.02, 0.1, 0xb64034);
+  b.box(0, 0, -0.27, 0.03, 0.03, 0.08, 0xd8dce2);
+  const mesh = new THREE.InstancedMesh(b.geometry(), lambert({ side: THREE.FrontSide }), DART_MAX);
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  mesh.name = "darts";
+  return mesh;
+}
+
+const _dart = new THREE.Object3D();
+export function syncDarts(mesh, darts) {
+  if (!mesh) return;
+  let n = 0;
+  for (let i = 0; i < darts.length && n < DART_MAX; i++) {
+    const d = darts[i];
+    if (d.delay > 0) continue;
+    _dart.position.set(d.x, 1.0, d.z);
+    // The tip is on local -z.
+    _dart.rotation.set(0, Math.atan2(-d.dx, -d.dz), 0);
+    _dart.updateMatrix();
+    mesh.setMatrixAt(n++, _dart.matrix);
+  }
+  mesh.count = n;
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
 // Every trap and valve on the floor. Valves add a circle to `colliders`.
 export function buildTraps(plan, theme, colliders) {
   const group = new THREE.Group();
@@ -183,6 +291,8 @@ export function buildTraps(plan, theme, colliders) {
     const item = { id: t.id, kind: t.kind, x: w.x, z: w.z, axis: t.axis, phase: t.phase, sw: null };
     let built;
     if (t.kind === "spikes") built = buildSpikes(theme, def);
+    else if (t.kind === "darts") built = buildDartPlate(theme, def);
+    else if (t.kind === "gong") built = buildGong(theme, t.side || 1);
     else built = buildFlames(def, def.counter === "constant");
     built.group.position.set(w.x, 0, w.z);
     // Local +x runs along the corridor.
@@ -190,6 +300,28 @@ export function buildTraps(plan, theme, colliders) {
     built.group.name = "trap:" + t.id + ":" + t.kind;
     group.add(built.group);
     Object.assign(item, built, { root: built.group });
+    if (t.kind === "darts" && t.from && t.to) {
+      const fromW = tileToWorld(t.from.col, t.from.row, plan.cols, plan.rows);
+      const toW = tileToWorld(t.to.col, t.to.row, plan.cols, plan.rows);
+      item.fromW = fromW;
+      item.toW = toW;
+      const dir = (t.axis === "z" ? toW.z - fromW.z : toW.x - fromW.x) >= 0 ? 1 : -1;
+      // The arrow points the way the darts fly.
+      built.arrow.rotation.y = dir > 0 ? 0 : Math.PI;
+      // The launcher turns to face down the run; it stands at the run's outer edge.
+      const launcher = buildLauncher(theme);
+      const ax = t.axis === "z" ? 0 : dir;
+      const az = t.axis === "z" ? dir : 0;
+      launcher.position.set(fromW.x - ax * 1.4, 0, fromW.z - az * 1.4);
+      launcher.rotation.y = Math.atan2(-az, ax);
+      launcher.name = "launcher:" + t.id;
+      group.add(launcher);
+      for (const side of [-1.78, 1.78]) {
+        const wx = launcher.position.x + (t.axis === "z" ? side : 0);
+        const wz = launcher.position.z + (t.axis === "z" ? 0 : side);
+        if (colliders) colliders.push({ x: wx, z: wz, r: 0.3, tileX: fromW.x, tileZ: fromW.z });
+      }
+    }
     if (t.sw) {
       const sw = tileToWorld(t.sw.col, t.sw.row, plan.cols, plan.rows);
       const sx = sw.x + t.sw.ox;
@@ -216,13 +348,34 @@ export function buildTraps(plan, theme, colliders) {
     }
     items.push(item);
   }
-  return { group, items };
+  const darts = buildDartMesh();
+  group.add(darts);
+  return { group, items, darts };
 }
 
 // Pose one trap from its live state (src/sim/traps.js makeTrapState).
-export function syncTrapView(item, trap, time) {
+// `glint` 0..1: Delver trap sense on a plate or wire the Warden is near.
+export function syncTrapView(item, trap, time, glint) {
   if (!item || !trap) return;
   const def = trapDef(item.kind);
+  const shine = glint > 0 ? glint * (0.22 + 0.16 * Math.sin(time * 4 + item.id)) : 0;
+  if (item.kind === "gong") {
+    item.wire.visible = !trap.disabled;
+    item.wireMat.emissiveIntensity = trap.disabled ? 0 : shine * 2;
+    const ring = trap.ringT > 0 ? trap.ringT : 0;
+    item.hanger.rotation.z = ring > 0 ? Math.sin(ring * 30) * 0.18 * Math.min(1, ring / 2) : 0;
+    item.discMat.emissiveIntensity = 0.25 + Math.min(1, ring) * 0.8;
+    return;
+  }
+  if (item.kind === "darts") {
+    let glow = 0;
+    if (trap.state === "arming") glow = 0.4 + 0.9 * Math.min(1, trap.stateT / Math.max(0.01, def.arm));
+    else if (trap.state === "up") glow = 1.2;
+    else if (trap.state === "rearm") glow = 0.6 * Math.max(0, 1 - trap.stateT / 0.5);
+    item.joints.emissiveIntensity = Math.max(glow, shine);
+    item.plate.position.y = trap.state === "arming" || trap.state === "up" ? -0.025 : 0;
+    return;
+  }
   if (item.kind === "spikes") {
     let y = -0.8;
     let glow = 0;
@@ -242,7 +395,7 @@ export function syncTrapView(item, trap, time) {
     item.spikes.position.y = y;
     item.spikes.visible = y > -0.78;
     item.plate.position.y = trap.state === "arming" || trap.state === "up" ? -0.025 : 0;
-    item.joints.emissiveIntensity = glow;
+    item.joints.emissiveIntensity = Math.max(glow, shine);
     return;
   }
   // Flame jet and fire wall.

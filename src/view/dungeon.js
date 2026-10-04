@@ -1094,6 +1094,7 @@ export function buildFloorMesh(plan) {
   root.userData.propColliders = propColliders;
   root.userData.chests = chests;
   root.userData.traps = trapView.items;
+  root.userData.trapDarts = trapView.darts;
   root.userData.actors = actors;
   root.userData.enemyMesh = enemyMesh;
   root.userData.telegraphMesh = telegraphMesh;

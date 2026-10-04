@@ -10,6 +10,7 @@ import {
   mendHot, walkSpeed, sprintSpeed, extractSeconds
 } from "./balance.js";
 import { affixDef, gearTotals } from "./items.js";
+import { trapSenseRange, trapsOnMap, valveSeconds } from "./traps.js";
 
 const SLOTS = ["weapon", "offhand", "head", "body", "feet", "trinket"];
 
@@ -176,7 +177,10 @@ export function trackEffects(track, rank) {
       ["Walk speed", fmt(walkSpeed(r))],
       ["Sprint speed", fmt(sprintSpeed(r))],
       ["Hearth channel", fmt(extractSeconds(r)) + " s"],
-      ["Extra material", r >= 3 ? "35% chance per drop" : "—"]
+      ["Extra material", r >= 3 ? "35% chance per drop" : "—"],
+      ["Trap sense", trapSenseRange(r) ? "plates and wires glint within " + trapSenseRange(r) + " m" : "—"],
+      ["Traps on the map", trapsOnMap(r) ? "once seen" : "—"],
+      ["Valve turn", fmt(valveSeconds(r)) + " s"]
     ];
   }
   return [];

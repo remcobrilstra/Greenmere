@@ -499,6 +499,27 @@ export function attachHud(rt) {
         ctx.fillStyle = "#e2ba60";
         ctx.fillRect(sm.x - g * 0.5, sm.y - g * 0.5, g, g);
       }
+      // Traps the Warden has seen, once Delver rank 3 marks them (src/play/traps.js).
+      const marks = rt.trapMarks ? rt.trapMarks() : [];
+      for (let i = 0; i < marks.length; i++) {
+        const t = marks[i];
+        const tc = Math.round(t.x / tile + (cols - 1) / 2);
+        const tr = Math.round(t.z / tile + (rows - 1) / 2);
+        if (rt.tileSeen && !rt.tileSeen(tc, tr)) continue;
+        const dx = t.x - px;
+        const dz = t.z - pz;
+        if (dx * dx + dz * dz > reachSq) continue;
+        const m = worldToMap(t.x, t.z);
+        const d = 3.4;
+        ctx.fillStyle = t.off ? "#6e5a44" : "#e8742a";
+        ctx.beginPath();
+        ctx.moveTo(m.x, m.y - d);
+        ctx.lineTo(m.x + d, m.y);
+        ctx.lineTo(m.x, m.y + d);
+        ctx.lineTo(m.x - d, m.y);
+        ctx.closePath();
+        ctx.fill();
+      }
       const foes = rt.enemies || [];
       ctx.fillStyle = "#8e2e28";
       for (let i = 0; i < foes.length; i++) {

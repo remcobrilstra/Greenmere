@@ -42,12 +42,12 @@ import {
 import { generateFloor, setSealedThrows, tileToWorld, SAFE_RADIUS } from "../sim/floorgen.js";
 import { mendCastSeconds, MEND_PUSHBACK, mendPushback, DEATH_LOCK_S } from "../sim/balance.js";
 import { biomeIndex } from "../sim/biomes.js";
-import { TRAP_BASE, trapDef, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches } from "../sim/traps.js";
+import { TRAP_BASE, TRAP_SPENT, trapDef, trapHurts, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches, dartVolley, stepDart, dartHits, valveSeconds, trapSenseRange, trapsOnMap } from "../sim/traps.js";
 import { trapBudget, trapDamage } from "../sim/balance.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
 import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
-import { heroStats, compareEquip, compareUpgrade, trackNext } from "../sim/gearstats.js";
+import { heroStats, compareEquip, compareUpgrade, trackNext, trackEffects } from "../sim/gearstats.js";
 import { KEEPERS, WANDERERS, VENDORS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter, staticTownColliders, shiftPart } from "../sim/townfolk.js";
 import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt, insideRect } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
@@ -3360,6 +3360,110 @@ export function installSelfTest(rt) {
     for (let i = 0; i < 10; i++) rt.tickTraps(0.033, true);
     check(rt.vitals.hp === afterSpike, "one firing spikes only once");
     rt.fillPools();
+
+    // Phase 2: darts, gongs, biome weights, Delver hooks.
+    const biomeTally = (from, to, kind) => {
+      let n = 0;
+      for (let seed = 1; seed <= 30; seed++) for (let f = from; f <= to; f++) n += generateFloor(seed, f).traps.filter((t) => t.kind === kind).length;
+      return n;
+    };
+    check(biomeTally(31, 38, "gong") > biomeTally(1, 8, "gong"), "the Slate Crypt rings more gongs than the Mossy Caves");
+    check(biomeTally(41, 48, "flameJet") > biomeTally(1, 8, "flameJet"), "the Ember Forge burns more flame jets than the Mossy Caves");
+    let capBad = 0;
+    let dartSeed = 0;
+    let dartFloor = 0;
+    let gongSeed = 0;
+    let gongFloor = 0;
+    let dartRunBad = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const floor of [4, 7, 12, 16, 33, 36]) {
+        const plan = generateFloor(seed, floor);
+        const count = (k) => plan.traps.filter((t) => t.kind === k).length;
+        if (count("gong") > 1 || count("darts") > 2 || count("fireWall") > 2) capBad++;
+        for (const t of plan.traps) {
+          if (t.kind === "darts") {
+            const sameLine = t.axis === "x" ? t.from.row === t.row && t.to.row === t.row : t.from.col === t.col && t.to.col === t.col;
+            const between = t.axis === "x" ? (t.from.col - t.col) * (t.to.col - t.col) < 0 : (t.from.row - t.row) * (t.to.row - t.row) < 0;
+            if (!sameLine || !between) dartRunBad++;
+            if (!dartSeed) {
+              dartSeed = seed;
+              dartFloor = floor;
+            }
+          }
+          if (t.kind === "gong" && !gongSeed) {
+            gongSeed = seed;
+            gongFloor = floor;
+          }
+        }
+      }
+    }
+    check(capBad === 0, "a floor holds at most 1 gong, 2 dart runs and 2 fire walls");
+    check(dartSeed > 0 && dartRunBad === 0, "a dart plate sits mid-run, between its launcher and the far end");
+    const dartDef = trapDef("darts");
+    const volley = dartVolley(dartDef, "x", { x: 0, z: 0 }, { x: 12, z: 0 });
+    check(volley.length === 3 && volley.every((d) => d.dx === 1 && d.dz === 0 && d.left >= 16) && volley[2].delay > 0, "a volley is three staggered darts flying down the run");
+    const dart0 = { x: 0, z: 0, dx: 1, dz: 0, left: 1 };
+    check(stepDart(dart0, 0.02, dartDef.volley.speed) && dart0.x > 0.3 && dartHits(dart0, dart0.x + 0.4, 0, 0.42) && !dartHits(dart0, dart0.x, 1.2, 0.42), "darts fly straight and hit what they touch");
+    check(!trapHurts("darts") && !trapHurts("gong") && trapHurts("spikes"), "dart plates and gong wires do not hurt by themselves");
+
+    rt.startRun(dartSeed || 1, dartFloor || 4);
+    rt.fillPools();
+    const dartIdx = rt.plan.traps.findIndex((t) => t.kind === "darts");
+    const dartView = rt.dungeonRoot.userData.traps[dartIdx];
+    check(!!dartView && !!dartView.fromW && !!rt.dungeonRoot.userData.trapDarts, "a dart run is built with its launcher and dart mesh");
+    const dartHp = rt.vitals.hp;
+    rt.session.wardAbsorb = 0;
+    player.position.set(dartView.x, 0, dartView.z);
+    let flew = 0;
+    for (let i = 0; i < 60; i++) {
+      rt.tickTraps(0.033, true);
+      flew = Math.max(flew, rt.trapDarts().length);
+    }
+    check(flew > 0 && rt.dungeonRoot.userData.trapDarts.count >= 0, "stepping on the plate looses darts (" + flew + " in flight)");
+    check(rt.vitals.hp < dartHp, "a dart down the run hits the Warden on the plate");
+    rt.fillPools();
+
+    rt.startRun(gongSeed || 1, gongFloor || 4);
+    rt.fillPools();
+    const gongIdx = rt.plan.traps.findIndex((t) => t.kind === "gong");
+    const gongView = rt.dungeonRoot.userData.traps[gongIdx];
+    const gongTrap = rt.trapStates()[gongIdx];
+    const sleeper = (rt.enemies || []).find((e) => e && e.hp > 0);
+    if (sleeper) {
+      sleeper.x = gongView.x + (gongView.axis === "x" ? 2 : 0);
+      sleeper.z = gongView.z + (gongView.axis === "z" ? 2 : 0);
+      sleeper.state = "idle";
+    }
+    player.position.set(gongView.x, 0, gongView.z);
+    for (let i = 0; i < 4; i++) rt.tickTraps(0.033, true);
+    check(gongTrap.disabled && rt.session.run.killed.indexOf(TRAP_SPENT + gongTrap.id) >= 0, "crossing the wire rings the gong once, and the run remembers it");
+    check(!!sleeper && sleeper.state === "approach", "the gong wakes a sleeping foe nearby");
+    check(!gongView.wire.visible, "the rung gong's wire is gone");
+    if (sleeper) {
+      sleeper.x = sleeper.spawnX;
+      sleeper.z = sleeper.spawnZ;
+      sleeper.state = "idle";
+    }
+    rt.startRun(gongSeed || 1, gongFloor || 4);
+    rt.fillPools();
+    const gongView2 = rt.dungeonRoot.userData.traps[gongIdx];
+    const gongTrap2 = rt.trapStates()[gongIdx];
+    const back = gongView2.axis === "x" ? { x: -1.6, z: 0 } : { x: 0, z: -1.6 };
+    const dropsBefore = (rt.groundDrops || []).length;
+    const cut = rt.strikeTraps({ x: gongView2.x + back.x, z: gongView2.z + back.z }, { x: -back.x / 1.6, z: -back.z / 1.6 }, 2.4, 0.9);
+    check(cut && gongTrap2.disabled && rt.session.run.killed.indexOf(TRAP_BASE + gongTrap2.id) >= 0, "a strike cuts the tripwire before it rings");
+    check((rt.groundDrops || []).length > dropsBefore, "a cut wire leaves spoils");
+    check(!rt.strikeTraps({ x: gongView2.x + back.x, z: gongView2.z + back.z }, { x: -back.x / 1.6, z: -back.z / 1.6 }, 2.4, 0.9), "a cut wire cannot be cut again");
+
+    check(valveSeconds(0) === 1.2 && valveSeconds(5) === 0.6 && trapSenseRange(0) === 0 && trapSenseRange(1) > 0 && !trapsOnMap(2) && trapsOnMap(3), "Delver ranks sense traps, map them, and turn valves faster");
+    const delverWas = rt.session.tracks.delver;
+    rt.session.tracks.delver = 0;
+    check(rt.trapMarks().length === 0, "without Delver rank 3 no traps go on the map");
+    rt.session.tracks.delver = 3;
+    check(rt.trapMarks().length === rt.plan.traps.length && rt.trapMarks().some((m) => m.off), "at Delver rank 3 the floor's traps go on the map, put-out ones dimmed");
+    rt.session.tracks.delver = delverWas;
+    const delverRows = trackEffects("delver", 3).map((row) => row[0]);
+    check(delverRows.indexOf("Traps on the map") >= 0 && delverRows.indexOf("Valve turn") >= 0, "the trainer lists the Delver trap ranks");
     rt.startRun(1, 41);
     let brazierLights = 0;
     let brazierShadow = false;

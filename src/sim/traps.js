@@ -9,8 +9,11 @@
 // A trap covers part of one 4 m tile. `axis` is the way the corridor runs ("x" or
 // "z"); `along` half-depth is measured on that axis, `across` on the other one.
 
-// Switched-off traps share run.killed with foes and chests, above CHEST_BASE.
+// Switched-off traps share run.killed with foes and chests, above CHEST_BASE:
+// TRAP_BASE + id for a trap put out by the Warden (it leaves spoils), TRAP_SPENT + id
+// for one that went off for good (a rung gong).
 export const TRAP_BASE = 6000;
+export const TRAP_SPENT = 7000;
 
 export const TRAP_KINDS = {
   spikes: {
@@ -39,6 +42,33 @@ export const TRAP_KINDS = {
     across: 2.0,
     tick: 0.4,
     dmgMul: 1.4
+  },
+  // A small plate mid-corridor; the launcher at one end of the run looses a fan
+  // of darts down its length. The plate itself does not hurt.
+  darts: {
+    counter: "triggered",
+    along: 0.55,
+    across: 0.55,
+    arm: 0.3,
+    up: 0.45,
+    rearm: 3.0,
+    dmgMul: 0.6,
+    hurts: false,
+    volley: { lanes: [-1.2, 0, 1.2], gap: 0.12, speed: 18, radius: 0.12 }
+  },
+  // A tripwire across a corridor mouth. Crossing it rings the gong once and wakes
+  // the foes nearby; a strike cuts the wire quietly.
+  gong: {
+    counter: "triggered",
+    along: 0.15,
+    across: 2.0,
+    arm: 0,
+    up: 0.1,
+    rearm: 1e9,
+    dmgMul: 0,
+    hurts: false,
+    once: true,
+    wakeSteps: 6
   }
 };
 
@@ -47,6 +77,66 @@ export const TRAP_FOOT = 0.3;
 
 export function trapDef(kind) {
   return TRAP_KINDS[kind] || null;
+}
+
+// Does standing in the trap's footprint while it is hot hurt?
+export function trapHurts(kind) {
+  const def = trapDef(kind);
+  return !!def && def.hurts !== false;
+}
+
+// Seconds to turn a valve; Delver rank 5 halves it.
+export function valveSeconds(delverRank) {
+  return delverRank >= 5 ? 0.6 : 1.2;
+}
+
+// Delver rank 1: plates and wires glint within this many metres (0: no glint).
+export function trapSenseRange(delverRank) {
+  return delverRank >= 1 ? 10 : 0;
+}
+
+// Delver rank 3 (or a keen eye, later): traps the Warden has seen go on the map.
+export function trapsOnMap(delverRank) {
+  return delverRank >= 3;
+}
+
+// A dart in flight: { x, z, dx, dz, left }. Moves it; false once it is spent.
+export function stepDart(dart, dt, speed) {
+  const step = speed * dt;
+  dart.x += dart.dx * step;
+  dart.z += dart.dz * step;
+  dart.left -= step;
+  return dart.left > 0;
+}
+
+export function dartHits(dart, x, z, r, radius) {
+  const dx = x - dart.x;
+  const dz = z - dart.z;
+  const reach = r + (radius || 0.12);
+  return dx * dx + dz * dz <= reach * reach;
+}
+
+// Where a dart volley starts and how far it flies: from the launcher end of the
+// run to the far end. `fromW`/`toW` are the two end cells' world centers.
+export function dartVolley(def, axis, fromW, toW) {
+  const along = axis === "z" ? toW.z - fromW.z : toW.x - fromW.x;
+  const dir = along >= 0 ? 1 : -1;
+  const dx = axis === "z" ? 0 : dir;
+  const dz = axis === "z" ? dir : 0;
+  const len = Math.abs(along) + 4;
+  const out = [];
+  const lanes = def.volley.lanes;
+  for (let i = 0; i < lanes.length; i++) {
+    out.push({
+      x: fromW.x - dx * 1.6 + (axis === "z" ? lanes[i] : 0),
+      z: fromW.z - dz * 1.6 + (axis === "z" ? 0 : lanes[i]),
+      dx,
+      dz,
+      left: len,
+      delay: i * def.volley.gap
+    });
+  }
+  return out;
 }
 
 export function cyclePeriod(def) {

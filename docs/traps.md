@@ -4,7 +4,7 @@
 |---|---|
 | Owner | Dungeon |
 | Date | 2026-10-04 |
-| Status | Phase 1 implemented |
+| Status | Phases 1–2 implemented |
 | Extends | `docs/greenmere-town-and-underwood.md`, `src/sim/floorgen.js`, `src/sim/balance.js` |
 
 Traps add a second layer to a floor: foes threaten the Warden directly, and traps decide where the fight can happen. The Warden has no dodge or jump: the verbs are walk, sprint, strike, ward, mend (a channel that moving breaks), and extract. So every trap is beaten by **position, timing, or a switch**, never by reflexes the controls do not have.
@@ -51,8 +51,8 @@ Damage is a multiple of `skirmisherDmg(floorIndex)`, so it scales with depth lik
 | Trap | Kind | Tell | Effect | Notes |
 |---|---|---|---|---|
 | Spike plate | Triggered | Plate sits 3 cm proud, darker joints | 0.5 s after you step on it: spikes, 1.2× dmg, everything on the tile | Sprinting crosses it before it fires. Re-arms after 2 s. |
-| Dart corridor | Triggered | Wall slots at both ends of a straight corridor, a plate in the middle | Darts fly the length of the corridor, 0.6× dmg per dart, 3 darts | They are projectiles, so ward soaks them fully. Darts also hit foes in the corridor. |
-| Alarm gong | Triggered | Gong on a frame next to a doorway, a tripwire across the door | Wakes every foe within 2 rooms and sends them toward the gong | No damage. Its value is breaking the 9 m aggro bubble. |
+| Dart corridor | Triggered | A small plate with an arrow inlay mid-run, slotted blocks on the walls at the launcher end | A fan of 3 darts (one per lane) flies the length of the run, 0.6× dmg per dart | The plate is 1.1 m in a 4 m corridor, so you can walk around it. Darts are projectiles: ward soaks them, and they hit foes in the run. |
+| Alarm gong | Triggered | Gong on a frame at a corridor mouth, a glinting tripwire across it | Rings once. Wakes every idle foe within 6 walking tiles and sends it after the Warden | No damage, so it may sit on the route. A strike cuts the wire quietly, and the cut wire leaves spoils. |
 | Collapse tile | Triggered | Cracked tile, dust drifting | 1.0 s later it falls through: 1.5× dmg, you land on the next floor | A gamble: you skip ahead but lose this floor's chests. Never on the route, never on boss floors. |
 | Mimic chest | Triggered | A chest that breathes. Seen up close, the lid has teeth | Becomes an elite foe when opened | Rare (about 1 floor in 8 from floor 6). Drops elite chest loot. |
 
@@ -98,7 +98,7 @@ Biomes repeat after 50 floors (`BIOME_BAND` × 5). From the second cycle on, a f
 
 ## 5. Counterplay and progression
 
-- **Delver track:** rank 1 shows triggered traps from 2 m further away. Rank 3 marks them on the minimap. Rank 5 halves switch hold time.
+- **Delver track:** at rank 1, plates and wires glint within 10 m. Rank 3 marks seen traps on the minimap and the floor map. Rank 5 halves the valve turn (1.2 s to 0.6 s).
 - **Gear affixes:** `trapward` (−% trap damage), `surefoot` (immune to slows and holds), `keen` (traps on the minimap at any rank). They use the existing affix system, with no new slots.
 - **Switching off a trap gives a reward:** switching off a constant trap drops a small pile of the biome's material (`THEME_MAT`). That is the reason to engage with a trap instead of always going around it.
 - **Mend:** damage over time breaks the channel the same way moving does, so you heal outside a hazard.
@@ -151,6 +151,13 @@ New pass in `generateFloor`, after chests and before props:
 - **Foes:** brutes, elites, and bosses spring plates. Every foe takes damage from a hot trap, using a foot circle at 60% of its hurt radius. Trap kills go through `rt.woundFoe`, the same path as a sword kill (XP, loot, `run.killed`).
 - **Numbers:** spike plate 1.2× a skirmisher hit, with a 0.38 s wind-up (walking across takes ~0.47 s, sprinting ~0.26 s). Flame jet 0.6× per 0.5 s on a 4.4 s cycle (0.9 s glow, 1.4 s fire, 2.1 s off). Fire wall 1.4× per 0.4 s. All damage goes through guard and ward.
 - **Not in phase 1:** the material reward for switching off a trap, minimap marks, and Delver or gear hooks (phase 2).
+
+## 9b. Phase 2 notes
+
+- **Biome weights:** each `BIOMES` row has a `traps` table. The Temple favours darts, the Crypt gongs, the Forge flame jets and fire walls. The Caves and Rootdeep lean on spike plates. Caps per floor: 1 gong, 2 dart runs, 2 fire walls, spike plates at 60% of the budget.
+- **Darts:** a dart plate needs straight one-wide corridor on both sides along its axis. The run is followed up to 8 cells each way, and the launcher end is picked at random. Brutes, elites, and bosses spring the plate too, which can shoot their own pack.
+- **Gong:** only the Warden trips the wire. A rung gong is stored as `TRAP_SPENT + id` (7000+, no spoils). A cut wire or a shut valve is stored as `TRAP_BASE + id` and drops spoils: a normal kill's gold and its 40% material roll, under the trap's id, restored on resume like kill loot. A strike cuts the wire if it reaches the nearest point of the wire inside the strike arc.
+- **UI:** orange diamonds on the minimap and the floor map (`rt.trapMarks`), dimmed once put out. The trainer's Delver rows list trap sense, map marks, and the valve turn.
 
 ## 10. Open points
 
