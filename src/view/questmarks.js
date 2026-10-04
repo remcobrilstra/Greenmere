@@ -7,14 +7,12 @@ import { loadLibrary } from "./townmodels.js";
 
 const YELLOW = 0xffd24a;
 let _mat = null;
-let _dark = null;
 
 function mats() {
   if (!_mat) {
     _mat = new THREE.MeshLambertMaterial({ color: YELLOW, emissive: 0xffb820, emissiveIntensity: 0.75, flatShading: true, side: THREE.DoubleSide });
-    _dark = new THREE.MeshLambertMaterial({ color: 0x3a2416, flatShading: true, side: THREE.DoubleSide });
   }
-  return { gold: _mat, dark: _dark };
+  return { gold: _mat };
 }
 
 function part(group, geo, mat, x, y, z, rz) {
@@ -55,16 +53,6 @@ export function buildQuestMark() {
   part(ask, new THREE.OctahedronGeometry(0.1, 0), m.gold, 0, 0, 0);
   group.add(ask);
 
-  // A dark rim behind each glyph (offset away from the viewer) keeps it legible on sky.
-  for (const glyph of [bang, ask]) {
-    const rim = glyph.clone();
-    rim.traverse((o) => {
-      if (o.isMesh) o.material = m.dark;
-    });
-    rim.scale.setScalar(1.18);
-    rim.position.set(0, -0.04, -0.06);
-    glyph.add(rim);
-  }
   group.scale.setScalar(1.4);
   // Smoother Blender-built glyphs (nature.glb) replace the code-built ones once loaded.
   glyphs().then((lib) => {
@@ -72,12 +60,7 @@ export function buildQuestMark() {
     for (const [glyph, name] of [[bang, "qm_bang"], [ask, "qm_ask"]]) {
       if (!lib[name]) continue;
       for (const o of glyph.children.slice()) glyph.remove(o);
-      const geo = lib[name];
-      part(glyph, geo, m.gold, 0, 0, 0);
-      const rim = new THREE.Mesh(geo, m.dark);
-      rim.scale.setScalar(1.18);
-      rim.position.set(0, -0.04, -0.06);
-      glyph.add(rim);
+      part(glyph, lib[name], m.gold, 0, 0, 0);
     }
   });
   bang.visible = false;
