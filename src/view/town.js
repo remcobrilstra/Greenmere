@@ -103,6 +103,23 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     return terrainHeight(x, z);
   }
 
+  // Smooth value noise on a lattice of `cell` metres (bilinear over hash2).
+  function smoothNoise(x, z, cell) {
+    const gx = x / cell;
+    const gz = z / cell;
+    const ix = Math.floor(gx);
+    const iz = Math.floor(gz);
+    let fx = gx - ix;
+    let fz = gz - iz;
+    fx = fx * fx * (3 - 2 * fx);
+    fz = fz * fz * (3 - 2 * fz);
+    const a = hash2(ix, iz);
+    const b = hash2(ix + 1, iz);
+    const c = hash2(ix, iz + 1);
+    const d = hash2(ix + 1, iz + 1);
+    return (a + (b - a) * fx) * (1 - fz) + (c + (d - c) * fx) * fz;
+  }
+
   function paintTerrain(geo) {
     const g = geo.toNonIndexed();
     const p = g.attributes.position;
@@ -110,7 +127,10 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     const low = new THREE.Color(0x2c6b2a);
     const mid = new THREE.Color(0x3f9a34);
     const high = new THREE.Color(0x8ed15a);
-    const patch = new THREE.Color(0x3c6e2e);
+    const meadow = new THREE.Color(0x6aa83e);
+    const dry = new THREE.Color(0x8fa24a);
+    const forest = new THREE.Color(0x2a5226);
+    const moss = new THREE.Color(0x3c5a2a);
     const col = new THREE.Color();
     for (let i = 0; i < p.count; i += 3) {
       const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3;
@@ -120,8 +140,17 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       const ht = Math.max(0, Math.min(1, (h + 3) / 11));
       col.copy(low).lerp(mid, ht);
       col.lerp(high, Math.max(0, ht - 0.55) * 1.5);
-      if (n > 0.8) col.lerp(patch, 0.55);
-      const f = 0.9 + n * 0.18;
+      // Broad meadow patches, with drier yellow-green spots in the open.
+      const big = smoothNoise(x, -y, 14);
+      const small = smoothNoise(x + 40, -y - 17, 5);
+      col.lerp(meadow, Math.max(0, big - 0.45) * 0.9);
+      col.lerp(dry, Math.max(0, small - 0.72) * 1.4);
+      // Darker, mossier floor under the forest beyond the clearing.
+      const r = Math.hypot(x, y);
+      const woods = Math.max(0, Math.min(1, (r - (FOREST_CLEAR_R - 3)) / 8));
+      col.lerp(forest, woods * 0.55);
+      col.lerp(moss, woods * Math.max(0, small - 0.55) * 0.9);
+      const f = 0.95 + n * 0.08;
       col.multiplyScalar(f);
       col.r = Math.min(1, col.r);
       col.g = Math.min(1, col.g);
@@ -320,10 +349,12 @@ export function buildTown(scene, addCollider, addBoxCollider) {
     pushTree(Math.cos(a) * rad, Math.sin(a) * rad, 1, false);
   }
 
-  stampInstances(pineTrunk, pines, true);
-  stampInstances(pineCanopy, pines, true);
-  stampInstances(decTrunk, decs, true);
-  stampInstances(decCanopy, decs, true);
+  const treeMeshes = {
+    pineTrunk: stampInstances(pineTrunk, pines, true),
+    pineCanopy: stampInstances(pineCanopy, pines, true),
+    decTrunk: stampInstances(decTrunk, decs, true),
+    decCanopy: stampInstances(decCanopy, decs, true)
+  };
 
   function scatter(count, avoidR, minDist, makeItem) {
     const items = [];
@@ -370,7 +401,7 @@ export function buildTown(scene, addCollider, addBoxCollider) {
       sz: s * (0.9 + rand() * 0.3)
     }, tint());
   });
-  const scatterMeshes = { bush: stampInstances(bushGeo, bushes, true) };
+  const scatterMeshes = Object.assign({ bush: stampInstances(bushGeo, bushes, true) }, treeMeshes);
 
   const rocks = scatter(230, FOREST_CLEAR_R - 2, 2.2, (x, z) => {
     const s = rand() > 0.86 ? 1.4 + rand() * 1.1 : 0.35 + rand() * 0.85;

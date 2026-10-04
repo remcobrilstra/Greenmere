@@ -113,6 +113,7 @@ def build_nature(export=True, bake=True, samples=128):
     kit.r = random.Random(0x7a7)
     build_nature_parts(kit)
     build_glyphs_and_clouds(kit)
+    build_trees(kit)
     scn = scene_for("nature")
     objs = []
     x = 0.0
@@ -123,10 +124,13 @@ def build_nature(export=True, bake=True, samples=128):
         objs.append(o)
     if bake:
         # each piece alone on a ground plane, so it shades itself
+        partner = {"nat_pineTrunk": "nat_pineCanopy", "nat_pineCanopy": "nat_pineTrunk",
+                   "nat_decTrunk": "nat_decCanopy", "nat_decCanopy": "nat_decTrunk"}
         for o in objs:
             for o2 in objs:
-                o2.hide_render = o2 is not o
-            bake_ao(scn, o, None, strength=0.45, gamma=0.8, distance=0.6, samples=samples)
+                o2.hide_render = o2 is not o and partner.get(o.name) != o2.name
+            tree = o.name in partner
+            bake_ao(scn, o, None, strength=0.55 if tree else 0.45, gamma=0.8, distance=1.4 if tree else 0.6, samples=samples)
         for o in objs:
             o.hide_render = False
     else:
@@ -188,3 +192,63 @@ def build_glyphs_and_clouds(kit):
     for i, lay in enumerate(layouts):
         for k, (x, y, z, r) in enumerate(lay):
             blob(kit, "cloud%d" % i, r, sky, x, y, z, 1.15, 0.8, 1.0, noise=0.12, subdiv=1, flat=-0.35, seed=60 + i * 10 + k)
+
+# ---------------------------------------------------------------- trees
+
+PINE = [0x1b5c32, 0x21743c, 0x2f8f45, 0x14532d, 0x256b38]
+PINE_TIP = [0x3ea84a, 0x4fae4c]
+BROAD = [0x2f8f45, 0x3ea84a, 0x4a9a3e, 0x67c85a, 0x21743c, 0x8ed15a]
+BARK = [0x4a3020, 0x5a3a24, 0x3a2416]
+
+def star_tier(kit, role, r, h, y, n, droop, colfn, seed):
+    """A pine tier: a star-edged skirt (alternate long and short points), a cone to the top."""
+    rr = random.Random(seed)
+    ring = []
+    for i in range(n * 2):
+        a = i / (n * 2) * math.pi * 2 + rr.uniform(-0.05, 0.05)
+        rad = r if i % 2 == 0 else r * 0.72
+        ring.append(kit.frame @ Vector((math.cos(a) * rad, y - (droop if i % 2 == 0 else droop * 0.4), -math.sin(a) * rad)))
+    apex = kit.frame @ Vector((rr.uniform(-0.04, 0.04), y + h, rr.uniform(-0.04, 0.04)))
+    under = kit.frame @ Vector((0, y - droop * 0.2 + 0.18, 0))
+    R = kit.role(role)
+    base = len(R["v"])
+    R["v"].extend(ring + [apex, under])
+    m = len(ring)
+    for i in range(m):
+        j = (i + 1) % m
+        for tri, up in (((i, j, m), True), ((j, i, m + 1), False)):
+            p0, p1, p2 = (R["v"][base + k] for k in tri)
+            nrm = (p1 - p0).cross(p2 - p0).normalized()
+            R["f"].append(tuple(base + k for k in tri))
+            R["c"].append(hexc(colfn(nrm, up)))
+
+def build_trees(kit):
+    # pine: four tiers on a straight trunk, the same height as the code pine (~5.3)
+    def pine_col(n, up):
+        if not up:
+            return shade(kit.pick(PINE), 0.7)
+        return kit.pick(PINE_TIP) if n.y > 0.6 and kit.r.random() < 0.35 else kit.pick(PINE)
+    for k, (r, h, y) in enumerate([(1.75, 1.6, 1.55), (1.4, 1.5, 2.45), (1.05, 1.35, 3.3), (0.66, 1.2, 4.15)]):
+        star_tier(kit, "pineCanopy", r, h, y, 7, 0.32 - k * 0.04, pine_col, 90 + k)
+    kit.cylr("pineTrunk", 0.18, 0.4, 2.35, 7, BARK, 0, 1.175, 0)
+    for k in range(4):
+        a = k / 4 * math.pi * 2 + 0.3
+        kit.box("pineTrunk", 0.16, 0.18, 0.5, BARK, math.cos(a) * 0.38, 0.06, -math.sin(a) * 0.38, ry=a + math.pi / 2, rx=0.25)
+    # broadleaf: a crown of blobs over a flared trunk with two branch stubs
+    def leaf_col(n, p):
+        c = kit.pick(BROAD)
+        if n.y < -0.35:
+            return shade(c, 0.66)
+        if n.y > 0.55 and kit.r.random() < 0.4:
+            return mix(c, 0xb6e36a, 0.35)
+        return c
+    crown = [(0, 2.7, 0, 1.3, 1.3, 0.85, 1.15), (0.6, 3.35, 0.25, 0.9, 1, 1, 1), (-0.62, 3.15, -0.3, 0.78, 1, 0.95, 1),
+             (0.15, 3.75, -0.45, 0.66, 1, 1, 1), (-0.35, 2.55, 0.65, 0.62, 1, 0.8, 1)]
+    for k, (x, y, z, r, sx, sy, sz) in enumerate(crown):
+        blob(kit, "decCanopy", r, leaf_col, x, y, z, sx, sy, sz, noise=0.2, subdiv=0 if k else 1, seed=120 + k)
+    kit.cylr("decTrunk", 0.26, 0.5, 1.75, 7, BARK, 0, 0.875, 0)
+    for k in range(5):
+        a = k / 5 * math.pi * 2
+        kit.box("decTrunk", 0.18, 0.2, 0.6, BARK, math.cos(a) * 0.45, 0.07, -math.sin(a) * 0.45, ry=a + math.pi / 2, rx=0.22)
+    kit.cylr("decTrunk", 0.07, 0.14, 0.9, 6, BARK, 0.35, 1.85, 0.05, rz=-0.7)
+    kit.cylr("decTrunk", 0.06, 0.12, 0.8, 6, BARK, -0.3, 1.8, -0.1, rz=0.65, rx=0.2)
