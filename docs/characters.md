@@ -91,6 +91,11 @@ twist and lunge, aim, the hearth channel) write on top of the mixer each frame, 
   `src/view/townfolk.js` gives each villager a cloned skeleton and one skinned mesh
   merged from its pieces, painted from its look; `poseVillager` retargets the limb
   groups onto the bones, so every work loop carries over. One draw per villager.
+- Villagers play authored clips (idle, walk, and the work loops hammer, stir, tally,
+  wipe, drill, chat, rest, sit, sitdrink, drink, warm) baked on the folk rig.
+- The relic charm is rebuilt with the Warden (a gold cage around a glowing crystal).
+- Animals (beyond the humans plan): `tools/blender/critters.py` builds a cat, a dog
+  and a hen on their own skeletons with clips; `src/view/skinkit.js` plays them.
 
 ## Phases
 

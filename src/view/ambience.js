@@ -1,13 +1,15 @@
 // Town ambience meshes: chimney smoke and the animals, flat-shaded Lambert.
 // Smoke is one InstancedMesh; each puff swells, drifts, and shrinks away.
-// Animals are built from code first and re-skinned from the Blender part
-// library (assets/models/animals.glb, tools/blender/animals.py) once it loads,
-// painted from each animal's coat. Rig and poses are the same either way.
+// Animals are built from code first, then skinned from assets/models/critters.glb
+// (tools/blender/critters.py, view/skinkit.js) with authored clips (walk, idle, sit,
+// sleep; the hen pecks), painted from each animal's coat. Without it, the part
+// library (assets/models/animals.glb, tools/blender/animals.py) re-skins the code rig.
 
 import * as THREE from "three";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
 import { loadPartLibrary, paintParts, swapGeometry } from "./partlib.js";
+import { loadSkinKits, buildSkinned, play as playSkin, clipLength } from "./skinkit.js";
 
 const PUFFS_PER_CHIMNEY = 7;
 const PUFF_LIFE = 6.5;
@@ -85,9 +87,43 @@ export function animalPartsReady() {
   return animalReady;
 }
 
+// Skinned animals (tools/blender/critters.py, assets/models/critters.glb): one rig and
+// body per species with clips; each animal gets its own skeleton copy and mixer. The
+// part library below is the fallback.
+let critters = null;
+
 function requestAnimalLib() {
   if (animalAsked) return;
   animalAsked = true;
+  loadSkinKits("./assets/models/critters.glb", "cr_").then((kits) => {
+    if (!kits.cat || !kits.dog || !kits.hen) throw new Error("critters.glb is missing a species");
+    critters = kits;
+    animalMat = lambert({ side: THREE.DoubleSide });
+    for (const a of animalWaiting.splice(0)) skinAnimal(a);
+    animalMarkReady(true);
+  }).catch((err) => {
+    console.warn("[ambience] critters.glb did not load; using the animal parts", err);
+    loadAnimalParts();
+  });
+}
+
+function skinAnimal(a) {
+  const sk = buildSkinned(critters[a.kind], ["body"], animalPalette(a.coat, a.coatDark), animalMat);
+  sk.mesh.name = "critterSkin";
+  if (a.kind === "hen") {
+    a.root.add(sk.mesh);
+    a.body.visible = false;
+    a.head.visible = false;
+  } else {
+    a.body.add(sk.mesh);
+    a.body.children[0].visible = false;
+    for (const leg of a.legs) leg.children[0].visible = false;
+    a.tail.children[0].visible = false;
+  }
+  a.skin = sk;
+}
+
+function loadAnimalParts() {
   loadPartLibrary("./assets/models/animals.glb", "ap_").then((lib) => {
     animalLib = lib;
     animalMat = lambert({ side: THREE.DoubleSide });
@@ -123,7 +159,8 @@ function reskinAnimal(a) {
 }
 
 function dress(a) {
-  if (animalLib) reskinAnimal(a);
+  if (critters) skinAnimal(a);
+  else if (animalLib) reskinAnimal(a);
   else {
     animalWaiting.push(a);
     requestAnimalLib();
@@ -230,6 +267,21 @@ export function buildDog(seed, coat) {
 
 // Pose an animal. moving 0..1, phase for gait, time for idle, rest: sit/sleep.
 export function poseAnimal(a, phase, moving, time, rest) {
+  poseAnimalParts(a, phase, moving, time, rest);
+  const sk = a.skin;
+  if (!sk) return;
+  const m = Math.max(0, Math.min(1, moving));
+  const cyc = ((phase / (Math.PI * 2)) % 1 + 1) % 1;
+  const resting = a.kind !== "hen" && rest && m < 0.5 ? (rest === "sleep" ? "sleep" : "sit") : null;
+  playSkin(sk, [
+    ["walk", m, cyc * clipLength(sk, "walk")],
+    [resting || "idle", 1 - m, time % clipLength(sk, resting || "idle")]
+  ]);
+  // the hen's bob lives on its (hidden) body mesh
+  if (a.kind === "hen") sk.mesh.position.y = a.body.position.y;
+}
+
+function poseAnimalParts(a, phase, moving, time, rest) {
   if (a.kind === "hen") {
     const peck = moving < 0.5 ? Math.max(0, Math.sin(time * 4.5)) : 0;
     a.head.rotation.x = peck * 0.9;

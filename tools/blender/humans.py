@@ -1020,7 +1020,7 @@ def wd_slot_lookup(slot_hex=None):
     return slot_of
 
 
-def hm_armature(fig, name, coll):
+def hm_armature(fig, name, coll, bones=None):
     for o in (bpy.data.objects.get(name),):
         if o is not None:
             bpy.data.objects.remove(o, do_unlink=True)
@@ -1033,7 +1033,7 @@ def hm_armature(fig, name, coll):
     rig.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT')
     eb = {}
-    for bname, h, t, par in HM_BONES:
+    for bname, h, t, par in (bones or HM_BONES):
         b = arm.edit_bones.new(bname)
         b.head = hm_g2b(fig.j[h])
         b.tail = hm_g2b(fig.j[t])
@@ -1046,11 +1046,12 @@ def hm_armature(fig, name, coll):
     return rig
 
 
-def hm_mesh(fig, name, coll, rig, slots=False, slot_names=None, slot_hex=None):
+def hm_mesh(fig, name, coll, rig, slots=False, slot_names=None, slot_hex=None, bones=None):
     """The figure as one mesh weighted to `rig`. slots=True writes colour-slot codes into
     the "base" attribute (for bake_slot_ao); otherwise plain colours into "Col"."""
+    bones = bones or HM_BONES
     children = {}
-    for bn in HM_BONES:
+    for bn in bones:
         if bn[3]:
             children.setdefault(bn[3], []).append(bn)
     slot_of = wd_slot_lookup(slot_hex) if slots else None
@@ -1060,7 +1061,7 @@ def hm_mesh(fig, name, coll, rig, slots=False, slot_names=None, slot_hex=None):
         base = len(verts)
         for p in part["v"]:
             verts.append(hm_g2b(p))
-            groups.append(hm_weights(fig, p, part["rule"], HM_BONES, children))
+            groups.append(hm_weights(fig, p, part["rule"], bones, children))
         for f, c in zip(part["f"], part["c"]):
             faces.append(tuple(base + i for i in f))
             cols.append(c)
@@ -1084,7 +1085,7 @@ def hm_mesh(fig, name, coll, rig, slots=False, slot_names=None, slot_hex=None):
     me.color_attributes.active_color = attr
     ob = bpy.data.objects.new(name, me)
     coll.objects.link(ob)
-    for bname, *_ in HM_BONES:
+    for bname, *_ in bones:
         ob.vertex_groups.new(name=bname)
     for i, w in enumerate(groups):
         for bname, wt in w.items():
@@ -1691,7 +1692,7 @@ def wd_mirror(pose):
     return out
 
 
-def wd_action(rig, name, keys):
+def wd_action(rig, name, keys, track=None):
     full = rig.name + "_" + name
     act = bpy.data.actions.get(full)
     if act is not None:
@@ -1704,8 +1705,9 @@ def wd_action(rig, name, keys):
             b.rotation_mode = 'QUATERNION'
             b.rotation_quaternion = wd_q(rig, b.name, WD_REST.get(b.name, []) + pose.get(b.name, []))
             b.keyframe_insert("rotation_quaternion", frame=frame, group=b.name)
-    track = rig.animation_data.nla_tracks.new()
-    track.name = name
+    tr = rig.animation_data.nla_tracks.new()
+    tr.name = track or name
+    track = tr
     track.strips.new(name, int(keys[0][0]), act)
     rig.animation_data.action = None
     return act

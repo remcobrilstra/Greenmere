@@ -1228,3 +1228,4 @@ exec(compile(open(os.path.join(HERE, "dungeon.py")).read(), os.path.join(HERE, "
 exec(compile(open(os.path.join(HERE, "foes.py")).read(), os.path.join(HERE, "foes.py"), "exec"), globals())
 exec(compile(open(os.path.join(HERE, "icons.py")).read(), os.path.join(HERE, "icons.py"), "exec"), globals())
 exec(compile(open(os.path.join(HERE, "humans.py")).read(), os.path.join(HERE, "humans.py"), "exec"), globals())
+exec(compile(open(os.path.join(HERE, "critters.py")).read(), os.path.join(HERE, "critters.py"), "exec"), globals())
