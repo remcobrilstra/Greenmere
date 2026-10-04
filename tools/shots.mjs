@@ -28,7 +28,13 @@ const VIEWS = {
   square: "at=0,-6,0&cam=0.6,0.5,20",
   gate: "at=0,-29.5,0&cam=0.45,0.32,11",
   hearth: "at=3.4,-24.5,0&cam=-0.5,0.62,12",
-  "store-upstairs": "at=-17,1,0&level=1&cam=1.57,0.9,12"
+  "store-upstairs": "at=-17,1,0&level=1&cam=1.57,0.9,12",
+  // One floor per biome (src/sim/biomes.js bands), framed from the arrival landing.
+  "d-cave": "floor=2&seed=3&cam=0.7,0.75,17",
+  "d-temple": "floor=12&seed=3&cam=0.7,0.75,17",
+  "d-root": "floor=22&seed=3&cam=0.7,0.75,17",
+  "d-crypt": "floor=32&seed=3&cam=0.7,0.75,17",
+  "d-forge": "floor=42&seed=3&cam=0.7,0.75,17"
 };
 
 function buildingViews() {
@@ -85,6 +91,8 @@ async function shoot(page, base, query, file) {
   await page.goto(base + "/index.html?dev=1&" + query, { waitUntil: "load", timeout: 90000 });
   await page.waitForFunction(() => window.__game && window.__game.rt && window.__game.rt.townModelsReady, null, { timeout: 60000 });
   await page.evaluate(() => window.__game.rt.townModelsReady);
+  // A dungeon floor re-dresses itself once its biome's Blender kit is in (blocked on "before").
+  await page.waitForFunction(() => { const d = window.__game.rt.dungeonRoot; return !d || d.userData.dressedWithKit; }, null, { timeout: 15000 }).catch(() => {});
   // A few frames so shadows and the cutaway settle.
   await page.evaluate(() => new Promise((r) => { let n = 0; const f = () => (++n > 6 ? r() : requestAnimationFrame(f)); f(); }));
   await page.screenshot({ path: file, timeout: 60000 });

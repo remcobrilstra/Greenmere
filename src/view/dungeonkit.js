@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { loadLibrary } from "./townmodels.js";
 
 // Low-poly kit for the Underwood: one triangle builder that bakes many small parts
 // into a single flat-shaded, vertex-coloured geometry, plus the biome props and set
@@ -168,6 +169,18 @@ export function makeBuilder() {
     }
   }
 
+  // A loaded kit piece (non-indexed, vertex-coloured, local base at y = 0) at the
+  // current placement.
+  function piece(geo) {
+    const p = geo.attributes.position.array;
+    const c = geo.attributes.color ? geo.attributes.color.array : null;
+    for (let i = 0; i < p.length; i += 3) {
+      pos.push(wx(p[i], p[i + 2]), fy + p[i + 1] * fs, wz(p[i], p[i + 2]));
+      if (c) col.push(c[i], c[i + 1], c[i + 2]);
+      else col.push(1, 1, 1);
+    }
+  }
+
   function count() {
     return pos.length / 9;
   }
@@ -180,7 +193,7 @@ export function makeBuilder() {
     return geo;
   }
 
-  return { at, tri, quad, lump, box, lathe, ring, disc, count, geometry };
+  return { at, tri, quad, lump, box, lathe, ring, disc, piece, count, geometry };
 }
 
 function pick(list, rand) {
@@ -300,3 +313,57 @@ export function writeProp(kind, solid, glow, theme, rand, wallH) {
 }
 
 export { pick };
+
+// ---------- Blender kits ----------
+// One file per biome, assets/models/dungeon-<key>.glb (tools/blender/dungeon.py):
+// wall0..3 (a 4 m face, rock at z < 0, room at +z), cornerOut, cornerIn, a few
+// variants of each prop kind ("urn0", "urn1"), scatter0..2, and "<piece>Glow" for the
+// emissive parts. Until a biome's file is in, buildFloorMesh uses the writers above.
+
+export const KIT_KEYS = ["cave", "temple", "root", "crypt", "forge"];
+const kits = new Map();
+
+export function loadDungeonKit(key) {
+  if (!kits.has(key)) {
+    const entry = { lib: null, variants: new Map(), ready: null };
+    entry.ready = loadLibrary("dungeon-" + key, "dk_" + key + "_").then((lib) => {
+      entry.lib = lib;
+      return entry;
+    }).catch((err) => {
+      console.warn("[dungeon] " + key + " kit did not load; keeping the code-built dressing", err);
+      return null;
+    });
+    kits.set(key, entry);
+  }
+  return kits.get(key).ready;
+}
+
+export function preloadDungeonKits() {
+  for (const key of KIT_KEYS) loadDungeonKit(key);
+}
+
+// The loaded kit for a biome, or null while it is still on its way (or failed).
+export function dungeonKit(key) {
+  const entry = kits.get(key);
+  return entry && entry.lib ? entry : null;
+}
+
+// Piece names "<base>0", "<base>1", ... present in the kit.
+export function kitVariants(kit, base) {
+  let list = kit.variants.get(base);
+  if (!list) {
+    list = [];
+    for (let i = 0; kit.lib[base + i]; i++) list.push(base + i);
+    kit.variants.set(base, list);
+  }
+  return list;
+}
+
+// Stamp a piece (and its glow part, if any) at the builders' current placement.
+export function stampPiece(kit, name, solid, glow) {
+  const geo = kit.lib[name];
+  if (geo) solid.piece(geo);
+  const lit = kit.lib[name + "Glow"];
+  if (lit) glow.piece(lit);
+  return !!geo;
+}

@@ -3,7 +3,10 @@ import { mulberry32, hash2 } from "../sim/rng.js";
 import { mixSeed, tileToWorld } from "../sim/floorgen.js";
 import { paintFacesWith, mergeParts, lambert } from "./materials.js";
 import { dungeonTheme } from "./lights.js";
-import { makeBuilder, writeProp, pick } from "./dungeonkit.js";
+import { makeBuilder, writeProp, pick, preloadDungeonKits, loadDungeonKit, dungeonKit, kitVariants, stampPiece } from "./dungeonkit.js";
+
+// The biome kits load in the background from the start, so the first delve has them.
+preloadDungeonKits();
 
 const TILE = 4;
 // Rootdeep's palette is the original Underwood beast; other biomes pass their own.
@@ -553,95 +556,10 @@ export function buildFloorMesh(plan) {
   wb.quad([-extentX - far, rimH, -extentZ], [-extentX, rimH, -extentZ], [-extentX, rimH, extentZ], [-extentX - far, rimH, extentZ], rimHex, -extentX - 1, rimH - 1, 0);
   wb.quad([extentX, rimH, -extentZ], [extentX + far, rimH, -extentZ], [extentX + far, rimH, extentZ], [extentX, rimH, extentZ], rimHex, extentX + 1, rimH - 1, 0);
 
-  // ---------- Wall dressing (no collision, not an occluder) ----------
-  for (let f = 0; f < floorFaces.length; f++) {
-    const face = floorFaces[f];
-    const nx = DIRS[face.d][0];
-    const nz = DIRS[face.d][1];
-    // Yaw that turns local +z into the face normal (out of the rock, into the room).
-    const yaw = Math.atan2(nx, nz);
-    const ex = (face.e[0][0] + face.e[2][0]) / 2;
-    const ez = (face.e[0][1] + face.e[2][1]) / 2;
-    const h = face.h;
-    if (organic) {
-      const n = rand() < 0.6 ? 1 : 2;
-      for (let k = 0; k < n; k++) {
-        const along = (rand() - 0.5) * 2.6;
-        const depth = 0.9 + rand() * 0.5;
-        const tall = 0.9 + rand() * 1.9;
-        db.at(ex, 0, ez, yaw, 1);
-        db.lump(along, tall / 2, -depth / 2 + 0.28, 1.3 + rand() * 0.8, tall, depth, 0.14, rand, theme.rock, pick(theme.wallTop, rand));
-      }
-      if (key === "root" && rand() < 0.45) {
-        db.at(ex, 0, ez, yaw, 1);
-        db.lump((rand() - 0.5) * 1.6, 0.22, 0.05, 3.2, 0.4, 0.45, 0.1, rand, theme.root);
-        const tx = (rand() - 0.5) * 2.4;
-        db.lathe(tx, 0.08, [[0, h - 2.4 - rand()], [0.14, h - 0.6], [0.2, h + 0.05]], 5, theme.root, rand);
-      }
-      if (rand() < 0.14) {
-        const a = (rand() - 0.5) * 2.2;
-        const mx = ex + nx * 0.55 + nz * a;
-        const mz = ez + nz * 0.55 + nx * a;
-        const spin = rand() * 6;
-        db.at(mx, 0, mz, spin, 0.8);
-        gb.at(mx, 0, mz, spin, 0.8);
-        writeProp(key === "cave" && rand() < 0.3 ? "crystal" : "mushroom", db, gb, theme, rand, baseH);
-      }
-      continue;
-    }
-    // Built biomes: plinth, cornice, a pilaster on every edge start.
-    db.at(ex, 0, ez, yaw, 1);
-    db.box(0, 0.22, 0.1, 4, 0.44, 0.36, theme.trim[1] || theme.trim[0], theme.trim[0]);
-    db.box(0, h - 0.16, 0.12, 4.1, 0.32, 0.44, theme.trim[0], pick(theme.wallTop, rand));
-    db.box(-1.85, h / 2, 0.14, 0.5, h - 0.3, 0.42, theme.wall[2] || theme.wall[0]);
-    const roll = rand();
-    if ((key === "temple" || key === "crypt") && roll < 0.16) {
-      const cloth = pick(theme.cloth, rand);
-      db.box(0.15, h - 1.45, 0.08, 1.2, 1.9, 0.06, cloth);
-      db.box(0.15, h - 2.43, 0.09, 1.25, 0.1, 0.07, theme.trim[0]);
-    } else if (key === "temple" && roll < 0.42) {
-      const n = 2 + Math.floor(rand() * 3);
-      for (let k = 0; k < n; k++) {
-        const len = 0.8 + rand() * 1.8;
-        db.box(-1.4 + rand() * 2.8, h - len / 2 - 0.3, 0.05, 0.14, len, 0.06, pick(theme.root, rand));
-      }
-    } else if (key === "forge" && roll < 0.35) {
-      gb.at(ex, 0, ez, yaw, 1);
-      gb.box((rand() - 0.5) * 1.6, 0.025, 0.42, 2.4, 0.03, 0.22, 0);
-      gb.box((rand() - 0.5) * 2.4, 0.9 + rand() * 0.8, 0.02, 0.1, 1.2 + rand(), 0.05, 0);
-    } else if (key === "crypt" && roll < 0.3) {
-      gb.at(ex, 0, ez, yaw, 1);
-      db.box(0.6, 1.25, 0.15, 0.5, 0.08, 0.3, theme.trim[0]);
-      db.lathe(0.6, 0.15, [[0.04, 1.29], [0.04, 1.5]], 5, [0xe7d7b4], rand);
-      gb.lathe(0.6, 0.15, [[0.035, 1.5], [0, 1.62]], 4, [0], rand);
-    }
-  }
-
-  // ---------- Floor scatter (no collision) ----------
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (!isFloor(c, r)) continue;
-      if ((c === plan.entrance.col && r === plan.entrance.row) || (c === plan.stairs.col && r === plan.stairs.row)) continue;
-      const w = tileToWorld(c, r, cols, rows);
-      const roll = rand();
-      if (roll < 0.3) {
-        db.at(w.x, 0, w.z, 0, 1);
-        const n = 2 + Math.floor(rand() * 3);
-        const hexes = key === "forge" ? [0x241c18, 0x2f363e] : organic ? theme.rock : theme.floorAlt;
-        for (let k = 0; k < n; k++) {
-          const s = 0.12 + rand() * 0.16;
-          db.lump((rand() - 0.5) * 3.2, s * 0.3, (rand() - 0.5) * 3.2, s * 1.4, s * 0.6, s, 0.2, rand, hexes);
-        }
-      } else if (key === "crypt" && roll < 0.38) {
-        db.at(w.x + (rand() - 0.5) * 2.6, 0, w.z + (rand() - 0.5) * 2.6, rand() * 6, 1);
-        db.box(0, 0.04, 0, 0.5, 0.06, 0.07, 0xe7d7b4);
-        db.box(0.1, 0.04, 0.12, 0.07, 0.06, 0.36, 0xd8c8a0);
-        db.lump(-0.28, 0.1, 0.05, 0.18, 0.18, 0.2, 0.1, rand, [0xe7d7b4]);
-      }
-    }
-  }
-
-  // ---------- Props from the plan ----------
+  // ---------- Dressing: wall faces, corners, floor scatter, plan props ----------
+  // None of it collides (props collide through propColliders) and none of it occludes.
+  // Blender kit pieces when the biome's file is in, else the code-built writers; a kit
+  // that lands after the floor is built swaps in place (same seed, same colliders).
   const propColliders = [];
   const props = plan.props || [];
   const glowSpots = [];
@@ -650,16 +568,204 @@ export function buildFloorMesh(plan) {
     const w = tileToWorld(prop.col, prop.row, cols, rows);
     const x = w.x + prop.ox;
     const z = w.z + prop.oz;
-    const pillar = prop.kind === "pillar";
-    const s = pillar ? 1 : 0.85 + rand() * 0.3;
-    const yaw = pillar ? 0 : rand() * Math.PI * 2;
-    db.at(x, 0, z, yaw, s);
-    gb.at(x, 0, z, yaw, s);
-    writeProp(prop.kind, db, gb, theme, rand, baseH);
     propColliders.push({ x, z, r: prop.r || 0.45, tileX: w.x, tileZ: w.z });
     if (prop.kind === "brazier" || prop.kind === "crystal" || prop.kind === "candle" || prop.kind === "mushroom" || prop.kind === "slag") {
       glowSpots.push({ x, z });
     }
+  }
+
+  function dressCode(kb, kg, rand) {
+    // ---------- Wall dressing (no collision, not an occluder) ----------
+    for (let f = 0; f < floorFaces.length; f++) {
+      const face = floorFaces[f];
+      const nx = DIRS[face.d][0];
+      const nz = DIRS[face.d][1];
+      // Yaw that turns local +z into the face normal (out of the rock, into the room).
+      const yaw = Math.atan2(nx, nz);
+      const ex = (face.e[0][0] + face.e[2][0]) / 2;
+      const ez = (face.e[0][1] + face.e[2][1]) / 2;
+      const h = face.h;
+      if (organic) {
+        const n = rand() < 0.6 ? 1 : 2;
+        for (let k = 0; k < n; k++) {
+          const along = (rand() - 0.5) * 2.6;
+          const depth = 0.9 + rand() * 0.5;
+          const tall = 0.9 + rand() * 1.9;
+          kb.at(ex, 0, ez, yaw, 1);
+          kb.lump(along, tall / 2, -depth / 2 + 0.28, 1.3 + rand() * 0.8, tall, depth, 0.14, rand, theme.rock, pick(theme.wallTop, rand));
+        }
+        if (key === "root" && rand() < 0.45) {
+          kb.at(ex, 0, ez, yaw, 1);
+          kb.lump((rand() - 0.5) * 1.6, 0.22, 0.05, 3.2, 0.4, 0.45, 0.1, rand, theme.root);
+          const tx = (rand() - 0.5) * 2.4;
+          kb.lathe(tx, 0.08, [[0, h - 2.4 - rand()], [0.14, h - 0.6], [0.2, h + 0.05]], 5, theme.root, rand);
+        }
+        if (rand() < 0.14) {
+          const a = (rand() - 0.5) * 2.2;
+          const mx = ex + nx * 0.55 + nz * a;
+          const mz = ez + nz * 0.55 + nx * a;
+          const spin = rand() * 6;
+          kb.at(mx, 0, mz, spin, 0.8);
+          kg.at(mx, 0, mz, spin, 0.8);
+          writeProp(key === "cave" && rand() < 0.3 ? "crystal" : "mushroom", kb, kg, theme, rand, baseH);
+        }
+        continue;
+      }
+      // Built biomes: plinth, cornice, a pilaster on every edge start.
+      kb.at(ex, 0, ez, yaw, 1);
+      kb.box(0, 0.22, 0.1, 4, 0.44, 0.36, theme.trim[1] || theme.trim[0], theme.trim[0]);
+      kb.box(0, h - 0.16, 0.12, 4.1, 0.32, 0.44, theme.trim[0], pick(theme.wallTop, rand));
+      kb.box(-1.85, h / 2, 0.14, 0.5, h - 0.3, 0.42, theme.wall[2] || theme.wall[0]);
+      const roll = rand();
+      if ((key === "temple" || key === "crypt") && roll < 0.16) {
+        const cloth = pick(theme.cloth, rand);
+        kb.box(0.15, h - 1.45, 0.08, 1.2, 1.9, 0.06, cloth);
+        kb.box(0.15, h - 2.43, 0.09, 1.25, 0.1, 0.07, theme.trim[0]);
+      } else if (key === "temple" && roll < 0.42) {
+        const n = 2 + Math.floor(rand() * 3);
+        for (let k = 0; k < n; k++) {
+          const len = 0.8 + rand() * 1.8;
+          kb.box(-1.4 + rand() * 2.8, h - len / 2 - 0.3, 0.05, 0.14, len, 0.06, pick(theme.root, rand));
+        }
+      } else if (key === "forge" && roll < 0.35) {
+        kg.at(ex, 0, ez, yaw, 1);
+        kg.box((rand() - 0.5) * 1.6, 0.025, 0.42, 2.4, 0.03, 0.22, 0);
+        kg.box((rand() - 0.5) * 2.4, 0.9 + rand() * 0.8, 0.02, 0.1, 1.2 + rand(), 0.05, 0);
+      } else if (key === "crypt" && roll < 0.3) {
+        kg.at(ex, 0, ez, yaw, 1);
+        kb.box(0.6, 1.25, 0.15, 0.5, 0.08, 0.3, theme.trim[0]);
+        kb.lathe(0.6, 0.15, [[0.04, 1.29], [0.04, 1.5]], 5, [0xe7d7b4], rand);
+        kg.lathe(0.6, 0.15, [[0.035, 1.5], [0, 1.62]], 4, [0], rand);
+      }
+    }
+
+    // ---------- Floor scatter (no collision) ----------
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!isFloor(c, r)) continue;
+        if ((c === plan.entrance.col && r === plan.entrance.row) || (c === plan.stairs.col && r === plan.stairs.row)) continue;
+        const w = tileToWorld(c, r, cols, rows);
+        const roll = rand();
+        if (roll < 0.3) {
+          kb.at(w.x, 0, w.z, 0, 1);
+          const n = 2 + Math.floor(rand() * 3);
+          const hexes = key === "forge" ? [0x241c18, 0x2f363e] : organic ? theme.rock : theme.floorAlt;
+          for (let k = 0; k < n; k++) {
+            const s = 0.12 + rand() * 0.16;
+            kb.lump((rand() - 0.5) * 3.2, s * 0.3, (rand() - 0.5) * 3.2, s * 1.4, s * 0.6, s, 0.2, rand, hexes);
+          }
+        } else if (key === "crypt" && roll < 0.38) {
+          kb.at(w.x + (rand() - 0.5) * 2.6, 0, w.z + (rand() - 0.5) * 2.6, rand() * 6, 1);
+          kb.box(0, 0.04, 0, 0.5, 0.06, 0.07, 0xe7d7b4);
+          kb.box(0.1, 0.04, 0.12, 0.07, 0.06, 0.36, 0xd8c8a0);
+          kb.lump(-0.28, 0.1, 0.05, 0.18, 0.18, 0.2, 0.1, rand, [0xe7d7b4]);
+        }
+      }
+    }
+    writePlanProps(null, kb, kg, rand);
+  }
+
+  // Yaw that puts a corner piece's local +z on face a's room normal and local +x on
+  // face b's (local +x lands on (cos, -sin) of the yaw), whichever order fits.
+  function cornerYaw(ax, az, bx, bz) {
+    return bx === az && bz === -ax ? Math.atan2(ax, az) : Math.atan2(bx, bz);
+  }
+
+  function dressKit(kit, kb, kg, rand) {
+    // Walls: half the faces get the plain segment, the rest share the dressed ones.
+    const walls = kitVariants(kit, "wall");
+    for (let f = 0; f < floorFaces.length && walls.length; f++) {
+      const face = floorFaces[f];
+      const nx = DIRS[face.d][0];
+      const nz = DIRS[face.d][1];
+      const ex = (face.e[0][0] + face.e[2][0]) / 2;
+      const ez = (face.e[0][1] + face.e[2][1]) / 2;
+      const roll = rand();
+      const name = walls.length > 1 && roll >= 0.5 ? walls[1 + Math.min(walls.length - 2, Math.floor(((roll - 0.5) / 0.5) * (walls.length - 1)))] : walls[0];
+      const s = organic ? 0.92 + rand() * 0.16 : 1;
+      kb.at(ex, 0, ez, Math.atan2(nx, nz), s);
+      kg.at(ex, 0, ez, Math.atan2(nx, nz), s);
+      stampPiece(kit, name, kb, kg);
+    }
+    // Corners: convex where a rock cell shows two perpendicular faces to the room,
+    // concave where a floor cell has rock on two perpendicular sides.
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const floor = isFloor(c, r);
+        if (!floor && !near[r * cols + c]) continue;
+        const w = tileToWorld(c, r, cols, rows);
+        for (let d = 0; d < 2; d++) {
+          for (let e = 2; e < 4; e++) {
+            const ax = DIRS[d][0];
+            const az = DIRS[d][1];
+            const bx = DIRS[e][0];
+            const bz = DIRS[e][1];
+            const fa = isFloor(c + ax, r + az);
+            const fb = isFloor(c + bx, r + bz);
+            const fd = isFloor(c + ax + bx, r + az + bz);
+            let name;
+            let yaw;
+            if (!floor && fa && fb && fd) {
+              name = "cornerOut";
+              yaw = cornerYaw(ax, az, bx, bz);
+            } else if (floor && !fa && !fb && !fd) {
+              name = "cornerIn";
+              yaw = cornerYaw(-ax, -az, -bx, -bz);
+            } else continue;
+            const vx = w.x + (ax + bx) * H;
+            const vz = w.z + (az + bz) * H;
+            const s = organic ? 0.9 + rand() * 0.2 : 1;
+            kb.at(vx, 0, vz, yaw, s);
+            kg.at(vx, 0, vz, yaw, s);
+            stampPiece(kit, name, kb, kg);
+          }
+        }
+      }
+    }
+    // Floor scatter.
+    const scatter = kitVariants(kit, "scatter");
+    for (let r = 0; r < rows && scatter.length; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!isFloor(c, r)) continue;
+        if ((c === plan.entrance.col && r === plan.entrance.row) || (c === plan.stairs.col && r === plan.stairs.row)) continue;
+        if (rand() >= 0.32) continue;
+        const w = tileToWorld(c, r, cols, rows);
+        const x = w.x + (rand() - 0.5) * 2.6;
+        const z = w.z + (rand() - 0.5) * 2.6;
+        const yaw = rand() * Math.PI * 2;
+        kb.at(x, 0, z, yaw, 1);
+        kg.at(x, 0, z, yaw, 1);
+        stampPiece(kit, pick(scatter, rand), kb, kg);
+      }
+    }
+    writePlanProps(kit, kb, kg, rand);
+  }
+
+  function writePlanProps(kit, kb, kg, rand) {
+    for (let i = 0; i < props.length; i++) {
+      const prop = props[i];
+      const w = tileToWorld(prop.col, prop.row, cols, rows);
+      const x = w.x + prop.ox;
+      const z = w.z + prop.oz;
+      const pillar = prop.kind === "pillar";
+      const s = pillar ? 1 : 0.85 + rand() * 0.3;
+      const yaw = pillar ? 0 : rand() * Math.PI * 2;
+      kb.at(x, 0, z, yaw, s);
+      kg.at(x, 0, z, yaw, s);
+      const variants = kit ? kitVariants(kit, prop.kind) : [];
+      if (variants.length) stampPiece(kit, pick(variants, rand), kb, kg);
+      else writeProp(prop.kind, kb, kg, theme, rand, baseH);
+    }
+  }
+
+  const dressSeed = mixSeed(plan.runSeed || 1, (plan.floorIndex || 1) + 0x6b1d);
+  function dressGeometry(kit) {
+    const kb = makeBuilder();
+    const kg = makeBuilder();
+    const drand = mulberry32(dressSeed);
+    if (kit) dressKit(kit, kb, kg, drand);
+    else dressCode(kb, kg, drand);
+    return { solid: kb.count() ? kb.geometry() : null, glow: kg.count() ? kg.geometry() : null };
   }
 
   // ---------- Treasure chests ----------
@@ -751,6 +857,40 @@ export function buildFloorMesh(plan) {
   }
   glowMesh(gb, theme.accent, 0.9, "dungeonGlow");
   glowMesh(goldB, 0xe2ba60, 0.85, "dungeonRunes");
+
+  const dressMat = lambert({ side: THREE.DoubleSide });
+  const dressGlowMat = new THREE.MeshLambertMaterial({
+    color: theme.accent,
+    emissive: theme.accent,
+    emissiveIntensity: 0.9,
+    flatShading: true,
+    side: THREE.DoubleSide
+  });
+  const dressSolid = new THREE.Mesh(new THREE.BufferGeometry(), dressMat);
+  dressSolid.castShadow = true;
+  dressSolid.receiveShadow = true;
+  dressSolid.name = "dungeonDressing";
+  const dressGlow = new THREE.Mesh(new THREE.BufferGeometry(), dressGlowMat);
+  dressGlow.castShadow = false;
+  dressGlow.receiveShadow = false;
+  dressGlow.name = "dungeonDressingGlow";
+  root.add(dressSolid, dressGlow);
+  let disposed = false;
+  function applyDressing(kit) {
+    const geo = dressGeometry(kit);
+    dressSolid.geometry.dispose();
+    dressSolid.geometry = geo.solid || new THREE.BufferGeometry();
+    dressGlow.geometry.dispose();
+    dressGlow.geometry = geo.glow || new THREE.BufferGeometry();
+    root.userData.dressedWithKit = !!kit;
+  }
+  const kitNow = dungeonKit(key);
+  applyDressing(kitNow);
+  if (!kitNow) {
+    loadDungeonKit(key).then((kit) => {
+      if (kit && !disposed) applyDressing(kit);
+    });
+  }
 
   function beam(x, z, r0, r1, height, hex, opacity, name) {
     const geo = new THREE.CylinderGeometry(r1, r0, height, 10, 1, true);
@@ -1085,6 +1225,7 @@ export function buildFloorMesh(plan) {
   root.userData.claimSlot = claimSlot;
   root.userData.syncActors = syncActors;
   root.userData.dispose = function () {
+    disposed = true;
     if (root.parent) root.parent.remove(root);
     disposeObject(root);
   };
