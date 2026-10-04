@@ -1225,3 +1225,4 @@ exec(compile(open(os.path.join(HERE, "animals.py")).read(), os.path.join(HERE, "
 exec(compile(open(os.path.join(HERE, "nature.py")).read(), os.path.join(HERE, "nature.py"), "exec"), globals())
 exec(compile(open(os.path.join(HERE, "hero.py")).read(), os.path.join(HERE, "hero.py"), "exec"), globals())
 exec(compile(open(os.path.join(HERE, "dungeon.py")).read(), os.path.join(HERE, "dungeon.py"), "exec"), globals())
+exec(compile(open(os.path.join(HERE, "foes.py")).read(), os.path.join(HERE, "foes.py"), "exec"), globals())

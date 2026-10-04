@@ -49,6 +49,7 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/view/dungeon.js` | PR-03 | `buildFloorMesh(plan)`. Does not sample `terrainHeight`. |
 | `src/sim/biomes.js` | Dungeon | `BIOMES` table (layout knobs per 10-floor band), `biomeFor`, `biomeIndex`, `biomeDepth`, `biomeEntry`. Pure data. |
 | `src/view/dungeonkit.js` | Dungeon | `makeBuilder` (baked flat-shaded triangles), the code-built biome prop writers, and the Blender biome kits (`assets/models/dungeon-<key>.glb`, `tools/blender/dungeon.py`): `loadDungeonKit`, `kitVariants`, `stampPiece`. `buildFloorMesh` dresses every wall face, corner, prop and floor scatter from the kit (meshes `dungeonDressing`, `dungeonDressingGlow`); until the kit is in it uses the writers, then re-dresses in place. |
+| `src/view/foes.js` | Dungeon | The five foe archetypes: Blender-built per biome (`assets/models/foes-<key>.glb`, `tools/blender/foes.py`) as parts with pivots, merged per archetype with a part index per vertex so each pack stays one instanced mesh; the vertex shader swings parts from per-foe `aAnim` (walk phase and amount, wind-up and lunge, flinch) read off combat state by `makeFoeAnimator`, and lights `<part>Glow` pieces. The code-built bodies (`codeFoeGeometry`) stand in until a set loads. |
 | `src/play/space.js` | PR-03 | Town or dungeon, `descendFloor`, `arriveTown`. |
 | `src/play/combat.js` | PR-03 | Windups and strikes. Numbers come from `src/sim`. |
 | `src/sim/save.js` | PR-04 | Schema and `migrate` only. |
@@ -107,6 +108,8 @@ The town's art (building exteriors and interiors, furniture, yards, the square, 
 1. `node tools/townplan-dump.mjs` writes `tools/blender/townplan.json` from `src/sim/townplan.js`.
 2. In Blender (Scripting tab or the Blender MCP): `p = r"<repo>/tools/blender/greenmere.py"; g = {"__file__": p}; exec(open(p).read(), g); g["build"]()` (or `g["build"](["smith"])`). Styles per building live in `STYLES` there; furniture and props live in `tools/blender/furnish.py`, one function per townplan `type`. Ambient occlusion is baked into vertex colours; output is `assets/models/<id>.glb`, meshopt compressed.
 Character and nature libraries: `g["build_villagers"]()`, `g["build_animals"]()`, `g["build_nature"]()` (rocks, bushes, flowers, grass, mushrooms, trees, clouds, quest glyphs) and `g["build_hero"]()` (with `preview_hero()`). Villager parts: `g["build_villagers"]()` writes `assets/models/villager.glb`; `g["preview_villagers"]()` lines up painted examples in Blender.
+
+Foes: `g["build_foes"]()` (or `g["build_foes"](["crypt"])`) writes `assets/models/foes-<key>.glb`; `g["preview_foes"]("crypt")` and `g["look_foes"]("crypt")` to look. Parts are named `fo_<key>_<archetype>_<part>` with the node origin on the joint; the motion rules per part live in `src/view/foes.js`.
 
 Dungeon kits: `g["build_dungeon"]()` (or `g["build_dungeon"](["crypt"])`) writes `assets/models/dungeon-<key>.glb` per biome; `g["preview_dungeon"]("crypt")` builds without baking and `g["look_dungeon"]("crypt")` frames the laid-out pieces. Pieces: `wall0..3` (a 4 m face, rock at z < 0, room at +z; built biomes 3.6 m tall), `cornerOut`, `cornerIn`, prop variants per floorgen kind (`urn0`, `urn1`, `pillar0`), `scatter0..2`, and `<piece>Glow` for the emissive parts. Palettes mirror `DUNGEON_THEMES` in `src/view/lights.js`.
 

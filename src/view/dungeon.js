@@ -1,60 +1,18 @@
 import * as THREE from "three";
 import { mulberry32, hash2 } from "../sim/rng.js";
 import { mixSeed, tileToWorld } from "../sim/floorgen.js";
-import { paintFacesWith, mergeParts, lambert } from "./materials.js";
+import { lambert } from "./materials.js";
 import { dungeonTheme } from "./lights.js";
 import { makeBuilder, writeProp, pick, preloadDungeonKits, loadDungeonKit, dungeonKit, kitVariants, stampPiece } from "./dungeonkit.js";
 
-// The biome kits load in the background from the start, so the first delve has them.
+import { FOE_DEFAULT, preloadFoeSets, loadFoeSet, foeSet, riggedFoeGeometry, codeFoeGeometry, foeMaterials, addAnimBuffer, makeFoeAnimator } from "./foes.js";
+
+// The biome kits and foe sets load in the background from the start, so the first
+// delve has them.
 preloadDungeonKits();
+preloadFoeSets();
 
 const TILE = 4;
-// Rootdeep's palette is the original Underwood beast; other biomes pass their own.
-const FOE_DEFAULT = {
-  body: [0x3a2416, 0x5a3a24, 0x6b4428],
-  skin: [0x8e2e28, 0x6e2e28, 0xa34a3a],
-  muzzle: [0xe0a878, 0xd4a03a],
-  sac: [0x8fb84a, 0xc6d46a, 0x6a9a32],
-  crest: "antlers",
-  crestHex: [0x5a3a24, 0x6b4428]
-};
-
-// Biome crest on the back or head: the quickest read of "this is a temple beast".
-// (x, y, z) is the crest anchor; local −z is the face.
-function addCrest(parts, f, rand, y, z, s) {
-  const hex = f.crestHex;
-  function cone(r, h, x, py, pz, tiltX, tiltZ, sides) {
-    const g = new THREE.ConeGeometry(r * s, h * s, sides || 5);
-    g.rotateX(tiltX || 0);
-    g.rotateZ(tiltZ || 0);
-    g.translate(x * s, py, pz);
-    parts.push(paintFacesWith(g, hex, rand));
-  }
-  if (f.crest === "tuft") {
-    for (let i = 0; i < 3; i++) cone(0.07, 0.22, 0, y + 0.06, z + (i - 1) * 0.13 * s, -0.5, 0, 4);
-  } else if (f.crest === "horns") {
-    cone(0.06, 0.3, -0.14, y + 0.14 * s, z - 0.04 * s, -0.35, 0.55);
-    cone(0.06, 0.3, 0.14, y + 0.14 * s, z - 0.04 * s, -0.35, -0.55);
-  } else if (f.crest === "antlers") {
-    for (let side = -1; side <= 1; side += 2) {
-      const g = new THREE.CylinderGeometry(0.025 * s, 0.035 * s, 0.32 * s, 4);
-      g.rotateZ(side * -0.5);
-      g.translate(side * 0.12 * s, y + 0.14 * s, z);
-      parts.push(paintFacesWith(g, hex, rand));
-      cone(0.03, 0.16, side * 0.2, y + 0.24 * s, z - 0.06 * s, -0.6, side * -0.2, 4);
-    }
-  } else if (f.crest === "spines") {
-    for (let i = 0; i < 4; i++) cone(0.045, 0.26, 0, y + 0.08, z + (i - 1.5) * 0.12 * s, 0.35, 0, 4);
-  } else if (f.crest === "embers") {
-    for (let i = 0; i < 3; i++) {
-      const g = new THREE.BoxGeometry(0.12 * s, 0.16 * s, 0.1 * s);
-      g.rotateY(0.6);
-      g.translate((i - 1) * 0.12 * s, y + 0.08, z + (i - 1) * 0.06 * s);
-      parts.push(paintFacesWith(g, hex, rand));
-    }
-  }
-}
-
 const _dummy = new THREE.Object3D();
 const _nearWhite = new THREE.Color(0xffffff);
 const _overlayMat = new THREE.LineBasicMaterial({ color: 0xe2ba60, fog: false });
@@ -87,133 +45,6 @@ function disposeObject(root) {
       }
     }
   });
-}
-
-function makeSkirmisherGeo(rand, f) {
-  const parts = [];
-  const body = new THREE.BoxGeometry(0.72, 0.34, 0.48);
-  body.translate(0, 0.42, 0);
-  parts.push(paintFacesWith(body, f.body, rand));
-  for (let i = 0; i < 4; i++) {
-    const leg = new THREE.CylinderGeometry(0.07, 0.09, 0.26, 5);
-    const sx = (i & 1) ? 0.22 : -0.22;
-    const sz = (i & 2) ? 0.14 : -0.16;
-    leg.translate(sx, 0.13, sz);
-    parts.push(paintFacesWith(leg, [0x241c18, 0x3a2a22], rand));
-  }
-  const head = new THREE.IcosahedronGeometry(0.2, 0);
-  head.translate(0, 0.74, -0.02);
-  parts.push(paintFacesWith(head, f.skin, rand));
-  // Local −z is the face. The muzzle sits on that axis by construction.
-  const muzzle = new THREE.BoxGeometry(0.1, 0.08, 0.16);
-  muzzle.translate(0, 0.7, -0.24);
-  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
-  addCrest(parts, f, rand, f.crest === "horns" || f.crest === "antlers" ? 0.8 : 0.59, f.crest === "horns" || f.crest === "antlers" ? -0.02 : 0.08, 1);
-  return mergeParts(parts);
-}
-
-function makeBruteGeo(rand, f) {
-  const parts = [];
-  const body = new THREE.BoxGeometry(1.15, 0.72, 0.78);
-  body.translate(0, 0.78, 0);
-  parts.push(paintFacesWith(body, f.body, rand));
-  for (let i = 0; i < 4; i++) {
-    const leg = new THREE.CylinderGeometry(0.11, 0.14, 0.42, 5);
-    const sx = (i & 1) ? 0.34 : -0.34;
-    const sz = (i & 2) ? 0.18 : -0.2;
-    leg.translate(sx, 0.2, sz);
-    parts.push(paintFacesWith(leg, [0x241c18, 0x3a2a22], rand));
-  }
-  const head = new THREE.BoxGeometry(0.46, 0.36, 0.4);
-  head.translate(0, 1.32, -0.04);
-  parts.push(paintFacesWith(head, f.skin, rand));
-  const muzzle = new THREE.BoxGeometry(0.28, 0.14, 0.22);
-  muzzle.translate(0, 1.22, -0.32);
-  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
-  addCrest(parts, f, rand, f.crest === "horns" || f.crest === "antlers" ? 1.42 : 1.14, f.crest === "horns" || f.crest === "antlers" ? -0.04 : 0.12, 1.7);
-  return mergeParts(parts);
-}
-
-function makeSpitterGeo(rand, f) {
-  const parts = [];
-  const body = new THREE.BoxGeometry(0.7, 0.4, 0.55);
-  body.translate(0, 0.46, 0.06);
-  parts.push(paintFacesWith(body, f.skin, rand));
-  for (let i = 0; i < 4; i++) {
-    const leg = new THREE.CylinderGeometry(0.06, 0.08, 0.24, 5);
-    const sx = (i & 1) ? 0.22 : -0.22;
-    const sz = (i & 2) ? 0.16 : -0.08;
-    leg.translate(sx, 0.12, sz);
-    parts.push(paintFacesWith(leg, [0x241c18, 0x3a2a22], rand));
-  }
-  const sac = new THREE.SphereGeometry(0.22, 6, 5);
-  sac.translate(0, 0.48, -0.38);
-  parts.push(paintFacesWith(sac, f.sac, rand));
-  const muzzle = new THREE.BoxGeometry(0.1, 0.08, 0.16);
-  muzzle.translate(0, 0.5, -0.58);
-  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
-  addCrest(parts, f, rand, 0.66, 0.16, 0.9);
-  return mergeParts(parts);
-}
-
-function makeShadeGeo(rand, f) {
-  const parts = [];
-  const slate = f.body;
-  const leg = new THREE.CylinderGeometry(0.12, 0.13, 0.44, 5);
-  const boot = new THREE.BoxGeometry(0.18, 0.12, 0.28);
-  const leftLeg = leg.clone();
-  leftLeg.translate(-0.16, 0.36, 0);
-  const rightLeg = leg.clone();
-  rightLeg.translate(0.16, 0.36, 0);
-  parts.push(paintFacesWith(leftLeg, slate, rand));
-  parts.push(paintFacesWith(rightLeg, [0x241c18, 0x3a2a22], rand));
-  const leftBoot = boot.clone();
-  leftBoot.translate(-0.16, 0.1, -0.04);
-  const rightBoot = boot.clone();
-  rightBoot.translate(0.16, 0.1, -0.04);
-  parts.push(paintFacesWith(leftBoot, [0x241c18], rand));
-  parts.push(paintFacesWith(rightBoot, [0x241c18], rand));
-  const tunic = new THREE.BoxGeometry(0.86, 0.66, 0.44);
-  tunic.translate(0, 0.96, 0);
-  parts.push(paintFacesWith(tunic, slate, rand));
-  const belt = new THREE.BoxGeometry(0.9, 0.1, 0.48);
-  belt.translate(0, 0.66, 0);
-  parts.push(paintFacesWith(belt, [0xd4a03a, 0xe2ba60], rand));
-  const head = new THREE.IcosahedronGeometry(0.26, 0);
-  head.translate(0, 1.48, 0);
-  parts.push(paintFacesWith(head, [0x8d93a0, 0x6e7882], rand));
-  const muzzle = new THREE.BoxGeometry(0.1, 0.1, 0.14);
-  muzzle.translate(0, 1.44, -0.28);
-  parts.push(paintFacesWith(muzzle, [0xd4a03a], rand));
-  const geo = mergeParts(parts);
-  geo.scale(0.85, 0.85, 0.85);
-  return geo;
-}
-
-function makeBossGeo(rand, f) {
-  const parts = [];
-  const moss = f.body;
-  const body = new THREE.BoxGeometry(1.45, 0.95, 0.9);
-  body.translate(0, 1.05, 0);
-  parts.push(paintFacesWith(body, moss, rand));
-  const band = new THREE.BoxGeometry(1.5, 0.14, 0.96);
-  band.translate(0, 0.72, 0);
-  parts.push(paintFacesWith(band, [0xd4a03a, 0xe2ba60], rand));
-  for (let i = 0; i < 4; i++) {
-    const leg = new THREE.CylinderGeometry(0.16, 0.2, 0.55, 5);
-    const sx = (i & 1) ? 0.42 : -0.42;
-    const sz = (i & 2) ? 0.22 : -0.24;
-    leg.translate(sx, 0.28, sz);
-    parts.push(paintFacesWith(leg, [0x241c18, 0x3a2416], rand));
-  }
-  const head = new THREE.BoxGeometry(0.62, 0.48, 0.52);
-  head.translate(0, 1.78, -0.06);
-  parts.push(paintFacesWith(head, f.skin, rand));
-  const muzzle = new THREE.BoxGeometry(0.36, 0.16, 0.28);
-  muzzle.translate(0, 1.66, -0.42);
-  parts.push(paintFacesWith(muzzle, f.muzzle, rand));
-  addCrest(parts, f, rand, 2.0, -0.06, 2.4);
-  return mergeParts(parts);
 }
 
 function telegraphMat(color) {
@@ -983,8 +814,30 @@ export function buildFloorMesh(plan) {
 
   const packs = {};
   const foePal = theme.foe || FOE_DEFAULT;
-  function addPack(name, geo, muzzle, ringGeo, capacity) {
+  const animator = makeFoeAnimator();
+  const _anim = [0, 0, 0, 0];
+  // Blender-built and rigged when the biome's foe set is in, else the code-built body.
+  function packGeometry(name, set) {
+    return (set && riggedFoeGeometry(set, name)) || codeFoeGeometry(name, rand, foePal);
+  }
+  function dressPack(pack, name, geo) {
+    pack.anim = addAnimBuffer(geo, pack.capacity);
+    const mats = foeMaterials(geo, name);
+    const body = pack.body;
+    if (body.geometry !== geo) {
+      body.geometry.dispose();
+      body.material.dispose();
+      if (body.customDepthMaterial) body.customDepthMaterial.dispose();
+      body.geometry = geo;
+    }
+    body.material = mats.lit;
+    body.customDepthMaterial = mats.depth;
+    body.userData.rigged = geo.userData.pivots.some((v) => v !== 0);
+  }
+  const foeSetNow = foeSet(key);
+  function addPack(name, muzzle, ringGeo, capacity) {
     if (!(capacity > 0)) return;
+    const geo = packGeometry(name, foeSetNow);
     const body = new THREE.InstancedMesh(geo, lambert(), capacity);
     body.castShadow = true;
     body.receiveShadow = true;
@@ -1005,15 +858,27 @@ export function buildFloorMesh(plan) {
     nearWhiteInstances(ring);
     const used = [];
     for (let i = 0; i < capacity; i++) used.push(i < buckets[name].length);
-    packs[name] = { body, ring, capacity, used };
+    packs[name] = { body, ring, capacity, used, anim: null };
+    dressPack(packs[name], name, geo);
   }
 
   const skirmCap = buckets.skirmisher.length + (bossFloor ? 16 : 0);
-  addPack("skirmisher", makeSkirmisherGeo(rand, foePal), new THREE.Vector3(0, 0.7, -0.24), makeRing(0.35, 1.15), skirmCap);
-  addPack("brute", makeBruteGeo(rand, foePal), new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length);
-  addPack("spitter", makeSpitterGeo(rand, foePal), new THREE.Vector3(0, 0.5, -0.58), makeRing(0.3, 1.05), buckets.spitter.length);
-  addPack("shade", makeShadeGeo(rand, foePal), new THREE.Vector3(0, 1.44 * 0.85, -0.28 * 0.85), makeRing(0.3, 1.15), buckets.shade.length);
-  addPack("boss", makeBossGeo(rand, foePal), new THREE.Vector3(0, 1.66, -0.42), makeWedge(2.4), buckets.boss.length);
+  addPack("skirmisher", new THREE.Vector3(0, 0.7, -0.24), makeRing(0.35, 1.15), skirmCap);
+  addPack("brute", new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length);
+  addPack("spitter", new THREE.Vector3(0, 0.5, -0.58), makeRing(0.3, 1.05), buckets.spitter.length);
+  addPack("shade", new THREE.Vector3(0, 1.44 * 0.85, -0.28 * 0.85), makeRing(0.3, 1.15), buckets.shade.length);
+  addPack("boss", new THREE.Vector3(0, 1.66, -0.42), makeWedge(2.4), buckets.boss.length);
+  if (!foeSetNow) {
+    loadFoeSet(key).then((set) => {
+      if (!set || disposed) return;
+      for (const name of Object.keys(packs)) {
+        const geo = riggedFoeGeometry(set, name);
+        if (geo) dressPack(packs[name], name, geo);
+      }
+      root.userData.foesReady = true;
+      syncActors(actors);
+    });
+  }
 
   let bossDonut = null;
   if (buckets.boss.length) {
@@ -1150,6 +1015,10 @@ export function buildFloorMesh(plan) {
       if (!pack || e.slot >= pack.capacity) continue;
       const alive = e.hp > 0 ? 1 : 0;
       writeInstance(pack.body, e.slot, e.x, 0, e.z, e.yaw || 0, alive);
+      if (pack.anim) {
+        animator.sample(e, e.archetype, now, _anim);
+        pack.anim.setXYZW(e.slot, _anim[0], _anim[1], _anim[2], _anim[3]);
+      }
       if (alive) dying.delete(e);
       else if (!dying.has(e)) {
         dying.set(e, primed ? now : -1);
@@ -1173,6 +1042,7 @@ export function buildFloorMesh(plan) {
       const pack = packs[names[n]];
       if (!pack) continue;
       pack.body.instanceMatrix.needsUpdate = true;
+      if (pack.anim) pack.anim.needsUpdate = true;
       if (pack.ring) pack.ring.instanceMatrix.needsUpdate = true;
     }
     if (bossDonut) bossDonut.instanceMatrix.needsUpdate = true;
@@ -1212,6 +1082,7 @@ export function buildFloorMesh(plan) {
   }
 
   root.userData.plan = plan;
+  root.userData.foesReady = !!foeSetNow;
   root.userData.floorMesh = floorMesh;
   root.userData.wallMesh = wallMesh;
   root.userData.occluders = wallMesh ? [wallMesh] : [];
