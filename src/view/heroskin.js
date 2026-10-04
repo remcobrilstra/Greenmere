@@ -39,9 +39,10 @@ export function attachWardenSkin(hero, gltf, material) {
   const meshes = {};
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      const key = o.name.startsWith("wd_gear") ? "gear" : o.name.startsWith("wd_base") ? "base" : null;
-      if (!key) return;
+      if (!o.name.startsWith("wd_")) return;
+      const key = o.name.slice(3);
       o.material = material;
+      o.visible = false;
       o.castShadow = true;
       o.receiveShadow = true;
       o.frustumCulled = false;
@@ -59,7 +60,7 @@ export function attachWardenSkin(hero, gltf, material) {
       meshes[key] = o;
     }
   });
-  const skeleton = (meshes.base || meshes.gear).skeleton;
+  const skeleton = (meshes.core || Object.values(meshes)[0]).skeleton;
   // GLTFLoader sanitizes node names ("thigh.L" arrives as "thighL"); accept either.
   const bone = (name) => skeleton.bones.find((b) => b.name === name || b.name === name.replace(/[.[\]:/]/g, ""));
   root.updateMatrixWorld(true);
@@ -115,7 +116,7 @@ export function attachWardenSkin(hero, gltf, material) {
     chest.b.scale.set(chest.s0.x, chest.s0.y * hero.torso.scale.y, chest.s0.z);
     root.updateMatrixWorld(true);
     // the renderer refreshed the skeletons before this hook; refresh them for this pose
-    for (const k in meshes) meshes[k].skeleton.update();
+    for (const k in meshes) if (meshes[k].visible) meshes[k].skeleton.update();
   }
 
   // The sword and shield groups move from the code arms onto the hand and forearm
@@ -142,15 +143,16 @@ export function attachWardenSkin(hero, gltf, material) {
     codeArm.quaternion.copy(saved);
   }
 
-  let active = null;
-  function show(key) {
-    if (active === key) return;
-    for (const k in meshes) meshes[k].visible = k === key;
-    active = key;
-  }
-  function paint(pal, worn) {
-    const key = worn && meshes.gear ? "gear" : "base";
-    const m = meshes[key];
+  // ---- dressing ----
+  // Which pieces show, and in whose colours, from the worn looks (view/gearlook.js),
+  // mirroring the tiers of the piece-built Warden (view/hero.js libDress). Glowing
+  // pieces take the glow material and the slot's glow colour.
+  const GLOW_ALWAYS = new Set(["cape_hem", "runes", "halo", "halo_hood"]);
+  const GLOW_IF = new Set(["gem", "gem_big", "circlet_gem", "circlet_gem_hood", "greave_rings", "pendant", "pendant_big"]);
+  const painted = new Map();
+  function paintPiece(m, pal, key) {
+    if (painted.get(m) === key) return;
+    painted.set(m, key);
     const code = m.userData.code;
     const col = m.geometry.attributes.color;
     const arr = col.array;
@@ -162,7 +164,79 @@ export function attachWardenSkin(hero, gltf, material) {
       arr[i * 3 + 2] = c.b * k;
     }
     col.needsUpdate = true;
-    show(key);
+  }
+  // looks: { body, head, feet, trinket } (gear looks or null); palette(look) -> slot colours;
+  // mats: { matte, glow }.
+  function dress(looks, palette, mats) {
+    const show = new Map();
+    const put = (name, look) => show.set(name, look || null);
+    const k = looks.body;
+    const h = looks.head;
+    const f = looks.feet;
+    const t = looks.trinket;
+    put("core");
+    put("trousers");
+    put("gloves");
+    const helm = !!(h && h.tier === "heirloom");
+    const hood = !!k && !helm;
+    if (k) {
+      const relic = k.tier === "relic";
+      put("coat", k);
+      put("mantle", k);
+      if (hood) put("hood", k);
+      if (k.tier === "heirloom" || k.rarity >= 1) {
+        if (relic) {
+          put("pauldrons_big", k);
+          put("horns", k);
+          put("cape_long", k);
+          put("cape_hem", k);
+        } else {
+          put("pauldrons", k);
+          put("cape", k);
+        }
+      }
+      put(relic ? "gem_big" : "gem", k);
+      if (relic) put("runes", k);
+    } else put("linen");
+    if (!hood && !helm) put("hair");
+    if (h) {
+      if (helm) put("helm", h);
+      else {
+        const sfx = hood ? "_hood" : "";
+        put("circlet" + sfx, h);
+        if (h.rarity >= 1) put("circlet_gem" + sfx, h);
+        if (h.tier === "relic") {
+          put("crown" + sfx, h);
+          put("halo" + sfx, h);
+        }
+      }
+    }
+    if (f) {
+      put("boots", f);
+      if (f.tier === "heirloom" || f.rarity >= 1) put("kneecops", f);
+      if (f.rarity >= 2) {
+        put("greaves", f);
+        put("greave_rings", f);
+      }
+      if (f.tier === "relic") put("spikes", f);
+    } else put("wraps");
+    if (t && t.tier !== "relic") {
+      put("necklace", t);
+      put(t.rarity >= 1 ? "pendant_big" : "pendant", t);
+    }
+    for (const name in meshes) {
+      const m = meshes[name];
+      const on = show.has(name);
+      m.visible = on;
+      if (!on) continue;
+      const look = show.get(name);
+      const glow = GLOW_ALWAYS.has(name) || (GLOW_IF.has(name) && !!(look && look.glow));
+      m.material = glow ? mats.glow : mats.matte;
+      m.castShadow = !glow;
+      const hex = glow ? (look && look.glow) || 0xffffff : 0;
+      const pal = glow ? palette(look).map(() => new THREE.Color(hex)) : palette(look);
+      paintPiece(m, pal, glow ? "g" + hex : JSON.stringify(look || 0));
+    }
   }
 
   // ---- clips (tools/blender/humans.py wd_clips) ----
@@ -276,5 +350,5 @@ export function attachWardenSkin(hero, gltf, material) {
   hero.sword.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(X, -0.55));
   hero.shield.scale.setScalar(0.85);
   retarget();
-  return { root, meshes, paint, retarget, update, bone, clips: Object.keys(acts) };
+  return { root, meshes, dress, retarget, update, bone, clips: Object.keys(acts) };
 }

@@ -511,7 +511,7 @@ export function buildHero(scene) {
     const looks = {};
     for (const slot of ["weapon", "offhand", "head", "body", "feet", "trinket"]) looks[slot] = gearLook(eq[slot]);
     if (lib) libDress(looks);
-    if (skin) skin.paint(libPalette(looks.body), !!looks.body);
+    if (skin) skin.dress(looks, libPalette, MATS);
     if (!lib) {
       dressBody(looks.body);
       dressHead(looks.head, !!looks.body);

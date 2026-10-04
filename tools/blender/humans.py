@@ -59,6 +59,7 @@ HM_CLOTH_D = [0x1c3f8c, 0x1a3a82]
 HM_TRIM = [0xd4a03a, 0xc99533, 0xdcaa48]
 HM_STEEL = [0xc5d0dc, 0xb7c3cf, 0xd0d9e3]
 HM_LEATHER = [0x5a3a24, 0x4f3320, 0x63412a]
+HM_GLOW = [0xfff2c0]
 
 
 def hm_tone(pal, rnd):
@@ -262,7 +263,7 @@ def hm_head_cage(S):
     return verts, faces, regions, n
 
 
-def hm_head(fig, hood=False):
+def hm_head(fig, hood=False, hair=True):
     """A box-modelled low-poly head from hand-placed loops (one subdivision when the style
     asks for it), eyes and brows set on the face, ears, hair as a fitted cap."""
     S, j, rnd = fig.S, fig.j, fig.rnd
@@ -313,8 +314,17 @@ def hm_head(fig, hood=False):
         for s in (-1, 1):
             kit.box("stache", h * 0.13, h * 0.04, h * 0.04, HM_HAIR, mo.x + s * h * 0.065, mo.y, mo.z, rz=s * 0.25)
         fig.from_kit(kit, ("rigid", "head"))
-    if not hood:
+    if hair and not hood:
         hm_hair(fig, U, S["hair"], h, S)
+
+
+def hm_head_frame(fig):
+    """(U, h): head-unit placement as hm_head uses it (chin y = 0, crown y = 1)."""
+    S, j = fig.S, fig.j
+    h = S["head"]
+    base = j["neckTop"] + Vector((0, -h * 0.12, -h * 0.02))
+    sc = h * 1.02
+    return (lambda x, y, z: base + Vector((x * sc, y * sc, z * sc))), h
 
 
 def hm_subdivide(verts, faces, levels):
@@ -904,6 +914,7 @@ WD_SLOT_HEX = {
     "steel": HM_STEEL + [shade(HM_STEEL[0], 0.8)],
     "leather": HM_LEATHER + [shade(HM_LEATHER[0], 0.7)],
     "boot": HM_BOOT + [shade(HM_BOOT[0], 0.7)],
+    "glow": HM_GLOW,
 }
 
 
@@ -999,37 +1010,373 @@ def hm_mesh(fig, name, coll, rig, slots=False):
     return ob
 
 
-def build_warden(export=True, bake=True, samples=64, style="warden"):
+# ---------------------------------------------------------------- Warden pieces (phase 2)
+#
+# Every piece is its own mesh on the shared skeleton, "wd_<piece>". view/heroskin.js
+# shows and paints them from the worn looks (body, head, feet, trinket); pieces in
+# WD_GLOW_PIECES may be drawn self-lit in the slot's glow colour.
+
+def wd_fig(style):
+    return HmFig(HM_STYLES[style])
+
+
+def wd_core(f):
+    hm_body(f)
+    hm_head(f, hood=True)          # the face without hair; hair is its own piece
+
+
+def wd_hair(f):
+    U, h = hm_head_frame(f)
+    hm_hair(f, U, f.S["hair"], h, f.S)
+
+
+def wd_linen(f):
+    hm_clothes_part(f, "tunic")
+
+
+def wd_trousers(f):
+    hm_clothes_part(f, "trousers")
+
+
+def wd_wraps(f):
+    for t in "LR":
+        hm_boot(f, t, HM_BOOT, cuff=HM_WRAPS)
+
+
+def wd_gloves(f):
+    for t in "LR":
+        hm_glove(f, t, HM_WRAPS)
+
+
+def hm_clothes_part(fig, part):
+    """One part of the linen outfit: "tunic" (with belt) or "trousers"."""
+    S, j, rnd = fig.S, fig.j, fig.rnd
+    b = S["build"] * 1.2
+    k = (S["height"] - S["head"]) / (1.98 - 0.36)
+    if part == "tunic":
+        J = {"pelvis": j["pelvis"], "belly": j["belly"], "chest": j["chest"], "collar": j["neck"] + Vector((0, -0.02, 0)),
+             "skirt": j["pelvis"] + Vector((0, -0.16 * k, 0)), "hem": j["pelvis"] + Vector((0, -0.3 * k, 0.005))}
+        R = {"pelvis": (0.185 * b, 0.135 * b), "belly": (0.17 * b, 0.128 * b), "chest": (0.198 * b, 0.143 * b), "collar": 0.085 * b,
+             "skirt": (0.215 * b, 0.165 * b), "hem": (0.235 * b, 0.19 * b)}
+        E = [("pelvis", "belly"), ("belly", "chest"), ("chest", "collar"), ("pelvis", "skirt"), ("skirt", "hem")]
+        opens = [(J["hem"], Vector((0, -1, 0)), 0.3), (J["collar"], Vector((0, 1, 0)), 0.12)]
+        for t in "LR":
+            J["sh" + t] = j["sh" + t]
+            J["sl" + t] = j["sh" + t].lerp(j["el" + t], 0.55)
+            R["sh" + t] = 0.088 * b
+            R["sl" + t] = 0.075 * b
+            E += [("chest", "sh" + t), ("sh" + t, "sl" + t)]
+            opens.append((J["sl" + t], (j["el" + t] - j["sh" + t]).normalized(), 0.1))
+        v, f = hm_skin_shell("tunic", J, E, R, "pelvis", levels=1, open_ends=opens)
+        fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(HM_LINEN if c.y > j["pelvis"].y - 0.25 * k else HM_LINEN_D, rnd)), ("skirt", None))
+        kit = Kit(0)
+        kit.r = rnd
+        dk_lathe(kit, "belt", [(0.19 * b, j["pelvis"].y + 0.02), (0.195 * b, j["pelvis"].y + 0.075)], 12, HM_WRAPS, 0, 0, cap=False)
+        kit.box("belt", 0.07, 0.06, 0.02, HM_TRIM, 0, j["pelvis"].y + 0.048, -0.145 * b)
+        fig.from_kit(kit, ("rigid", "hips"))
+    else:
+        for t in "LR":
+            J = {"hip": j["hip" + t] + Vector((0, 0.02, 0)), "th": j["hip" + t].lerp(j["kn" + t], 0.4), "kn": j["kn" + t],
+                 "ca": j["kn" + t].lerp(j["an" + t], 0.3), "bt": j["kn" + t].lerp(j["an" + t], 0.55)}
+            R = {"hip": 0.105 * b, "th": 0.094 * b, "kn": 0.07 * b, "ca": 0.072 * b, "bt": 0.06 * b}
+            v, f = hm_skin_shell("legs", J, [("hip", "th"), ("th", "kn"), ("kn", "ca"), ("ca", "bt")], R, "hip", levels=1,
+                                 open_ends=[(J["hip"], Vector((0, 1, 0)), 0.14), (J["bt"], Vector((0, -1, 0)), 0.1)])
+            fig.add(v, f, hm_paint(fig, v, f, lambda c, n: hm_tone(HM_TROUSERS, rnd)), ("auto", None))
+
+
+def wd_coat(f):
+    """Gambeson with the tabard painted on (cloth panel, trim edges, dark sides), belt, pouch, emblem."""
+    S, j, rnd = f.S, f.j, f.rnd
+    b = S["build"] * 1.2
+    k = (S["height"] - S["head"]) / (1.98 - 0.36)
+    J = {"pelvis": j["pelvis"], "belly": j["belly"], "chest": j["chest"], "collar": j["neck"] + Vector((0, -0.01, 0)),
+         "skirt": j["pelvis"] + Vector((0, -0.2 * k, 0)), "hem": j["pelvis"] + Vector((0, -0.4 * k, 0.01))}
+    R = {"pelvis": (0.19 * b, 0.14 * b), "belly": (0.178 * b, 0.136 * b), "chest": (0.205 * b, 0.15 * b), "collar": 0.09 * b,
+         "skirt": (0.225 * b, 0.175 * b), "hem": (0.25 * b, 0.2 * b)}
+    E = [("pelvis", "belly"), ("belly", "chest"), ("chest", "collar"), ("pelvis", "skirt"), ("skirt", "hem")]
+    opens = [(J["hem"], Vector((0, -1, 0)), 0.32), (J["collar"], Vector((0, 1, 0)), 0.12)]
+    for t in "LR":
+        J["sh" + t] = j["sh" + t]
+        J["ua" + t] = j["sh" + t].lerp(j["el" + t], 0.5)
+        J["el" + t] = j["el" + t]
+        J["cf" + t] = j["el" + t].lerp(j["wr" + t], 0.55)
+        R.update({"sh" + t: 0.09 * b, "ua" + t: 0.074 * b, "el" + t: 0.064 * b, "cf" + t: 0.062 * b})
+        E += [("chest", "sh" + t), ("sh" + t, "ua" + t), ("ua" + t, "el" + t), ("el" + t, "cf" + t)]
+        opens.append((J["cf" + t], (j["wr" + t] - j["el" + t]).normalized(), 0.09))
+    half = 0.13 * b
+    hem_y = J["hem"].y + 0.05
+    def tabard(c, n):
+        if c.y < hem_y:
+            return hm_tone(HM_TRIM, rnd)
+        if abs(c.x) < half and c.y < j["neck"].y - 0.04:
+            return hm_tone(HM_TRIM, rnd) if abs(c.x) > half - 0.035 else hm_tone(HM_CLOTH, rnd)
+        return hm_tone(HM_CLOTH_D, rnd)
+    v, fc = hm_skin_shell("gambeson", J, E, R, "pelvis", levels=1, open_ends=opens)
+    f.add(v, fc, hm_paint(f, v, fc, tabard), ("skirt", None))
+    kit = Kit(0)
+    kit.r = rnd
+    kit.box("emblem", 0.11, 0.11, 0.03, HM_TRIM, 0, j["chest"].y, -0.15 * b - 0.012, rz=math.pi / 4)
+    f.from_kit(kit, ("rigid", "chest"))
+    dk_lathe(kit, "belt", [(0.2 * b, j["pelvis"].y + 0.02), (0.205 * b, j["pelvis"].y + 0.08)], 12, HM_LEATHER, 0, 0, cap=False)
+    kit.box("belt", 0.08, 0.07, 0.02, HM_TRIM, 0, j["pelvis"].y + 0.05, -0.2 * b - 0.03)
+    kit.box("belt", 0.09, 0.1, 0.06, HM_LEATHER, 0.17 * b, j["pelvis"].y - 0.03, -0.1 * b)
+    f.from_kit(kit, ("rigid", "hips"))
+
+
+def wd_hood(f):
+    S, j, rnd = f.S, f.j, f.rnd
+    h = S["head"]
+    c = j["neckTop"].lerp(j["crown"], 0.52)
+    kit = Kit(0)
+    kit.r = rnd
+    blob(kit, "hood", 1.0, lambda n, p: hm_tone(HM_CLOTH, rnd), c.x, c.y + 0.01, c.z + 0.02, h * 0.53, h * 0.6, h * 0.56, noise=0.04, subdiv=2, seed=9)
+    R = kit.roles["hood"]
+    keep, keepc = [], []
+    for fc, col in zip(R["f"], R["c"]):
+        cen = sum((R["v"][i] for i in fc), Vector()) / 3
+        rel = cen - c
+        if rel.z < -h * 0.18 and abs(rel.x) < h * 0.3 and -h * 0.42 < rel.y < h * 0.3:
+            continue
+        keep.append(fc)
+        keepc.append(col)
+    R["f"], R["c"] = keep, keepc
+    ring(kit, "hood", h * 0.34, 0.02, HM_TRIM, c.x, c.y - h * 0.05, c.z - h * 0.42, rx=0.12, sx=0.86, sy=1.12, segs=14, sides=4)
+    f.from_kit(kit, ("rigid", "head"))
+
+
+def wd_mantle(f):
+    j, b = f.j, f.S["build"] * 1.2
+    kit = Kit(0)
+    kit.r = f.rnd
+    dk_lathe(kit, "mantle", [(0.27 * b, j["chest"].y + 0.02), (0.2 * b, j["neck"].y - 0.02), (0.1 * b, j["neck"].y + 0.03)], 14,
+             [HM_CLOTH, HM_CLOTH, HM_CLOTH_D], 0, 0, cap=False)
+    f.from_kit(kit, ("rigid", "chest"))
+
+
+def wd_pauldrons(f, big=False, horns=False):
+    j, rnd, b = f.j, f.rnd, f.S["build"] * 1.2
+    sc = 1.3 if big else 1.0
+    kit = Kit(0)
+    kit.r = rnd
+    for t, s in (("L", -1), ("R", 1)):
+        p = j["sh" + t] + Vector((s * 0.02 * sc, 0.04 * sc, 0))
+        if horns:
+            for k, (dy, dz) in enumerate(((0.06, -0.04), (0.02, 0.06))):
+                kit.cone("horn", 0.035, 0.2, 5, HM_TRIM, p.x + s * 0.12 * sc, p.y + dy + 0.08, p.z + dz, rz=-s * 0.9, rx=dz * 3)
+        else:
+            blob(kit, "pauldron", 0.13 * b * sc, lambda n, pp: hm_tone(HM_STEEL, rnd) if n.y > -0.2 else shade(HM_STEEL[0], 0.8),
+                 p.x, p.y, p.z, 1.05, 0.62, 1.1, noise=0.0, subdiv=1, seed=1)
+            ring(kit, "pauldron", 0.12 * b * sc, 0.016 * sc, HM_TRIM, p.x, p.y - 0.035 * sc, p.z, rz=s * 0.35, sz=1.05, segs=12, sides=4)
+            if big:
+                ring(kit, "pauldron", 0.09 * b * sc, 0.014 * sc, HM_TRIM, p.x, p.y + 0.02 * sc, p.z, rz=s * 0.35, sz=1.05, segs=12, sides=4)
+        f.from_kit(kit, ("rigid", "shoulder." + t))
+
+
+def wd_cape(f, long=False, hem_only=False):
+    j, rnd, b = f.j, f.rnd, f.S["build"]
+    rows, cols = (8, 6) if long else (6, 6)
+    top, mid = j["capeTop"], j["capeMid"]
+    lowp = j["capeLow"] + (Vector((0, -0.38, 0.06)) if long else Vector())
+    v, fc, c = [], [], []
+    for r in range(rows + 1):
+        t = r / rows
+        p = top.lerp(mid, t * 2) if t < 0.5 else mid.lerp(lowp, (t - 0.5) * 2)
+        w = 0.2 * b + 0.14 * t
+        for q in range(cols + 1):
+            u = q / cols * 2 - 1
+            v.append(Vector((u * w, p.y, p.z + 0.06 * (1 - u * u) + 0.02)))
+    for r in range(rows):
+        for q in range(cols):
+            a = r * (cols + 1) + q
+            last = r == rows - 1
+            if hem_only and not last:
+                continue
+            if last and not hem_only and long:
+                continue          # the relic hem is its own glowing piece
+            fc.append((a, a + 1, a + cols + 2, a + cols + 1))
+            c.append(HM_GLOW[0] if hem_only else (hm_tone(HM_CLOTH_D, rnd) if not last else HM_TRIM[0]))
+    f.add(v, fc, c, ("cape", None))
+
+
+def wd_gem(f, big=False, runes=False):
+    j, b = f.j, f.S["build"] * 1.2
+    z = -0.15 * b - 0.03
+    kit = Kit(0)
+    kit.r = f.rnd
+    if runes:
+        for i, (x, y, rz) in enumerate(((-0.07, 0.1, 0.5), (0.07, 0.1, -0.5), (-0.08, -0.1, -0.5), (0.08, -0.1, 0.5), (0, -0.2, 0))):
+            kit.box("runes", 0.02, 0.09, 0.012, HM_GLOW, x, j["chest"].y + y, z - 0.004, rz=rz)
+    else:
+        r = 0.05 if big else 0.032
+        octa(kit, "gem", r, HM_STEEL, 0, j["chest"].y, z - r * 0.4, 0.8, 1.15, 0.55)
+    f.from_kit(kit, ("rigid", "chest"))
+
+
+def wd_helm(f):
+    """The heirloom helm: a steel cap with a gold brow band, nasal and crest."""
+    U, h = hm_head_frame(f)
+    kit = Kit(0)
+    kit.r = f.rnd
+    c = U(0, 0.62, -0.01)
+    blob(kit, "helm", 1.0, lambda n, p: hm_tone(HM_STEEL, f.rnd) if n.y > -0.3 else shade(HM_STEEL[0], 0.75),
+         c.x, c.y, c.z, h * 0.5, h * 0.5, h * 0.52, noise=0.0, subdiv=2, seed=4)
+    R = kit.roles["helm"]
+    keep, keepc = [], []
+    for fc, col in zip(R["f"], R["c"]):
+        cen = sum((R["v"][i] for i in fc), Vector()) / 3
+        if cen.y < c.y - h * 0.08 and cen.z < c.z + h * 0.1:
+            continue          # open below the brow at the front and sides
+        if cen.y < c.y - h * 0.32:
+            continue
+        keep.append(fc)
+        keepc.append(col)
+    R["f"], R["c"] = keep, keepc
+    b = U(0, 0.6, 0)
+    ring(kit, "helm", h * 0.47, 0.025, HM_TRIM, b.x, b.y, b.z + h * 0.02, rx=math.pi / 2, sz=1.05, segs=18, sides=4)
+    n = U(0, 0.5, -0.47)
+    kit.box("helm", h * 0.06, h * 0.26, h * 0.04, HM_STEEL, n.x, n.y, n.z)
+    t = U(0, 1.02, 0.02)
+    kit.box("helm", h * 0.05, h * 0.12, h * 0.7, HM_TRIM, t.x, t.y, t.z)
+    f.from_kit(kit, ("rigid", "head"))
+
+
+def wd_circlet(f, hood=False, part="circlet"):
+    U, h = hm_head_frame(f)
+    j = f.j
+    kit = Kit(0)
+    kit.r = f.rnd
+    if hood:
+        c = j["neckTop"].lerp(j["crown"], 0.52)
+        at = c + Vector((0, h * 0.18, 0.0))
+        rx, rz = h * 0.5, h * 0.53
+    else:
+        at = U(0, 0.74, -0.01)
+        rx, rz = h * 0.44, h * 0.43
+    if part == "circlet":
+        ring(kit, "c", rx, 0.02, HM_TRIM, at.x, at.y, at.z, rx=math.pi / 2, sy=rz / rx, segs=18, sides=4)
+    elif part == "gem":
+        octa(kit, "c", h * 0.06, HM_STEEL, at.x, at.y + h * 0.02, at.z - rz - 0.01, 0.8, 1.2, 0.6)
+    elif part == "crown":
+        for i in range(7):
+            a = (i / 7) * math.pi * 2
+            kit.cone("c", h * 0.045, h * 0.16, 4, HM_TRIM, at.x + math.sin(a) * rx, at.y + h * 0.09, at.z - math.cos(a) * rz)
+    elif part == "halo":
+        ring(kit, "c", h * 0.34, 0.016, HM_GLOW, at.x, at.y + h * 0.42, at.z + h * 0.05, rx=math.pi / 2 - 0.25, segs=20, sides=4)
+    f.from_kit(kit, ("rigid", "head"))
+
+
+def wd_boots(f):
+    for t in "LR":
+        hm_boot(f, t, HM_LEATHER, cuff=HM_TRIM, top=0.25)
+
+
+def wd_kneecops(f):
+    j, b = f.j, f.S["build"]
+    kit = Kit(0)
+    kit.r = f.rnd
+    for t in "LR":
+        k = j["kn" + t] + Vector((0, 0.01, -0.07 * b))
+        blob(kit, "knee", 0.052 * b, lambda n, p: hm_tone(HM_STEEL, f.rnd) if n.z < 0 else shade(HM_STEEL[0], 0.7), k.x, k.y, k.z, 1.0, 1.15, 0.42, noise=0.0, subdiv=1, seed=2)
+        f.from_kit(kit, ("rigid", "shin." + t))
+
+
+def wd_greaves(f, rings=False, spikes=False):
+    j, b = f.j, f.S["build"]
+    kit = Kit(0)
+    kit.r = f.rnd
+    for t, s in (("L", -1), ("R", 1)):
+        top = j["kn" + t].lerp(j["an" + t], 0.12)
+        low = j["kn" + t].lerp(j["an" + t], 0.62)
+        mid = top.lerp(low, 0.5)
+        if rings:
+            ring(kit, "g", 0.085 * b, 0.014, HM_GLOW, mid.x, mid.y, mid.z, rx=math.pi / 2, segs=12, sides=4)
+        elif spikes:
+            for k in range(3):
+                p = top.lerp(low, 0.2 + k * 0.3)
+                kit.cone("g", 0.025, 0.12, 4, HM_TRIM, p.x + s * 0.09 * b, p.y, p.z, rz=-s * math.pi / 2)
+        else:
+            # a curved steel plate over the front of the shin
+            seg = 6
+            pts = []
+            for i in range(seg + 1):
+                a = -1.2 + 2.4 * i / seg
+                pts.append((math.sin(a) * 0.088 * b, -math.cos(a) * 0.088 * b))
+            for i in range(seg):
+                (x0, z0), (x1, z1) = pts[i], pts[i + 1]
+                v = [Vector((top.x + x0, top.y, top.z + z0)), Vector((top.x + x1, top.y, top.z + z1)),
+                     Vector((low.x + x1 * 0.85, low.y, low.z + z1 * 0.85)), Vector((low.x + x0 * 0.85, low.y, low.z + z0 * 0.85))]
+                kit.role("g")["v"].extend(v)
+                n0 = len(kit.role("g")["v"]) - 4
+                kit.role("g")["f"].append((n0, n0 + 1, n0 + 2, n0 + 3))
+                kit.role("g")["c"].append(hexc(hm_tone(HM_STEEL, f.rnd)))
+            ring(kit, "g", 0.09 * b, 0.012, HM_TRIM, top.x, top.y, top.z, rx=math.pi / 2, segs=12, sides=4)
+        f.from_kit(kit, ("rigid", "shin." + t))
+
+
+def wd_necklace(f, pendant=None):
+    j, b = f.j, f.S["build"] * 1.2
+    kit = Kit(0)
+    kit.r = f.rnd
+    n = j["neck"] + Vector((0, -0.05, 0))
+    if pendant is None:
+        ring(kit, "n", 0.1 * b, 0.009, HM_LEATHER, n.x, n.y, n.z - 0.01, rx=math.pi / 2 + 0.35, sz=1.1, segs=14, sides=4)
+    else:
+        r = 0.045 if pendant == "big" else 0.03
+        octa(kit, "n", r, HM_STEEL, n.x, n.y - 0.12, n.z - 0.15 * b - 0.01, 0.8, 1.2, 0.5)
+    f.from_kit(kit, ("rigid", "chest"))
+
+
+# piece name -> builder; the game decides what shows (view/heroskin.js)
+WD_PIECES = {
+    "core": wd_core, "hair": wd_hair, "linen": wd_linen, "trousers": wd_trousers, "wraps": wd_wraps, "gloves": wd_gloves,
+    "coat": wd_coat, "hood": wd_hood, "mantle": wd_mantle,
+    "pauldrons": wd_pauldrons, "pauldrons_big": lambda f: wd_pauldrons(f, big=True), "horns": lambda f: wd_pauldrons(f, big=True, horns=True),
+    "cape": wd_cape, "cape_long": lambda f: wd_cape(f, long=True), "cape_hem": lambda f: wd_cape(f, long=True, hem_only=True),
+    "gem": wd_gem, "gem_big": lambda f: wd_gem(f, big=True), "runes": lambda f: wd_gem(f, runes=True),
+    "helm": wd_helm,
+    "circlet": wd_circlet, "circlet_hood": lambda f: wd_circlet(f, hood=True),
+    "circlet_gem": lambda f: wd_circlet(f, part="gem"), "circlet_gem_hood": lambda f: wd_circlet(f, hood=True, part="gem"),
+    "crown": lambda f: wd_circlet(f, part="crown"), "crown_hood": lambda f: wd_circlet(f, hood=True, part="crown"),
+    "halo": lambda f: wd_circlet(f, part="halo"), "halo_hood": lambda f: wd_circlet(f, hood=True, part="halo"),
+    "boots": wd_boots, "kneecops": wd_kneecops, "greaves": wd_greaves,
+    "greave_rings": lambda f: wd_greaves(f, rings=True), "spikes": lambda f: wd_greaves(f, spikes=True),
+    "necklace": wd_necklace, "pendant": lambda f: wd_necklace(f, pendant="small"), "pendant_big": lambda f: wd_necklace(f, pendant="big"),
+}
+# what each piece is baked against (it shades itself and these)
+WD_BAKE_WITH = ["core", "trousers", "coat", "hood", "pauldrons", "cape", "boots", "gloves"]
+
+
+def build_warden(export=True, bake=True, samples=64, style="warden", only=None):
     keep = bpy.context.window.scene
     scn = scene_for("warden")
     bpy.context.window.scene = scn
-    base = HmFig(HM_STYLES[style])
-    hm_body(base)
-    hm_head(base, hood=False)
-    hm_clothes_base(base)
-    gear = HmFig(HM_STYLES[style])
-    hm_body(gear)
-    hm_head(gear, hood=True)
-    hm_heirloom(gear)
-    rig = hm_armature(base, "wd_rig", scn.collection)
-    objs = [hm_mesh(base, "wd_base", scn.collection, rig, slots=True),
-            hm_mesh(gear, "wd_gear", scn.collection, rig, slots=True)]
+    ref = wd_fig(style)
+    rig = hm_armature(ref, "wd_rig", scn.collection)
+    objs = {}
+    for name, fn in WD_PIECES.items():
+        if only and name not in only:
+            continue
+        f = wd_fig(style)
+        fn(f)
+        if not f.parts:
+            continue
+        objs[name] = hm_mesh(f, "wd_" + name, scn.collection, rig, slots=True)
     bpy.context.view_layer.update()
     if bake:
-        for o in objs:
-            for o2 in objs:
-                o2.hide_render = o2 is not o
+        for name, o in objs.items():
+            for n2, o2 in objs.items():
+                o2.hide_render = not (o2 is o or (n2 in WD_BAKE_WITH and not (name == "linen" and n2 == "coat")))
             bake_slot_ao(scn, o, samples)
-        for o in objs:
+        for o in objs.values():
             o.hide_render = False
     scn.render.fps = WD_FPS
-    line = {"id": "warden", "tris": {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs},
+    line = {"id": "warden", "pieces": len(objs), "tris": sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs.values()),
             "clips": wd_clips(rig)}
     if export:
         path = os.path.join(REPO, "assets", "models", "warden.glb")
         for o in scn.collection.all_objects:
             o.select_set(False)
-        for o in [rig] + objs:
+        for o in [rig] + list(objs.values()):
             o.select_set(True)
         import contextlib, io
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1041,7 +1388,6 @@ def build_warden(export=True, bake=True, samples=64, style="warden"):
         line["kb"] = round(os.path.getsize(path) / 1024)
     bpy.context.window.scene = keep
     return line
-
 
 
 # ---------------------------------------------------------------- clips
