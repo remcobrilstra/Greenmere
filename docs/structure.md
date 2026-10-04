@@ -36,7 +36,7 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/rng.js` | PR-00 | `mulberry32`, `hash2`. |
 | `src/sim/terrain.js` | PR-00 | `terrainHeight`, `smoothstep`. |
 | `src/view/materials.js` | PR-00 | `paintFaces`, `mergeParts`, `lambert`, `makeMat`. |
-| `src/view/hero.js` | PR-00 | Code-built Warden. Local forward is −z. |
+| `src/view/hero.js` | PR-00 | The Warden. Local forward is −z. Built from code, then from the Blender piece library (`assets/models/hero.glb`, `tools/blender/hero.py`) once loaded: base and every gear tier painted from `gearLook`, same rig groups, buckets and materials; `nose` and `toe` stay code-built. `hero.ready` resolves after the switch. |
 | `src/view/town.js` | PR-00 | Terrain, 3,050 trees, scatter, camp, `townRoot`. Owns `mulberry32(0x6e11e5)`. |
 | `src/view/lights.js` | PR-00 | Sun, hemisphere, ambient, fog, `applyTownLight`. |
 | `src/play/camera.js` | PR-00 | `placeCamera`, `cameraPlanarBasis`, town `groundY`. |
@@ -103,6 +103,6 @@ The town's art (building exteriors and interiors, furniture, yards, the square, 
 
 1. `node tools/townplan-dump.mjs` writes `tools/blender/townplan.json` from `src/sim/townplan.js`.
 2. In Blender (Scripting tab or the Blender MCP): `p = r"<repo>/tools/blender/greenmere.py"; g = {"__file__": p}; exec(open(p).read(), g); g["build"]()` (or `g["build"](["smith"])`). Styles per building live in `STYLES` there; furniture and props live in `tools/blender/furnish.py`, one function per townplan `type`. Ambient occlusion is baked into vertex colours; output is `assets/models/<id>.glb`, meshopt compressed.
-Villager parts: `g["build_villagers"]()` writes `assets/models/villager.glb`; `g["preview_villagers"]()` lines up painted examples in Blender.
+Character and nature libraries: `g["build_villagers"]()`, `g["build_animals"]()`, `g["build_nature"]()` (rocks, bushes, flowers, grass, mushrooms, trees, clouds, quest glyphs) and `g["build_hero"]()` (with `preview_hero()`). Villager parts: `g["build_villagers"]()` writes `assets/models/villager.glb`; `g["preview_villagers"]()` lines up painted examples in Blender.
 
 3. `node tools/shots.mjs` renders every building view headless and writes `shots/sheet.png`; `--ab` adds a before column (models blocked), `--test` runs the self-test, `--time=0.9` shoots at night. Raw views take any dev query (`q:at=x,z&cam=yaw,pitch,dist`); `&hide=hero` hides the Warden for close looks; `&near=<name>` drops it beside a named town object (`hen-0-0`, `cat-moss`, a villager id). Needs Playwright (found in the npx cache, or `npx playwright install chromium`).

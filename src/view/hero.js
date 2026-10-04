@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { makeMat, mergeParts } from "./materials.js";
 import { gearLook } from "./gearlook.js";
+import { loadPartLibrary, paintParts } from "./partlib.js";
 
 // The Warden, code-built. Local forward is −z. Groups keep the pivots that
 // movement and combat animate (legs at the hips, arms at the shoulders, the
@@ -14,12 +15,20 @@ import { gearLook } from "./gearlook.js";
 // three shared materials (matte, metal, glow) and merged per rig group and
 // material, so a fully dressed Warden stays a handful of draw calls.
 // hero.tick(dt) animates the relic extras (orbiting charm, motes, glow pulse).
+//
+// Blender-built pieces: once assets/models/hero.glb (tools/blender/hero.py)
+// loads, the base and every gear layer are built from it instead, painted from
+// the same looks (slot-coded vertex colours with baked shading), on the same rig
+// groups, buckets and materials. `nose` and `toe` stay code-built. hero.ready
+// resolves after the switch (or if the library fails, keeping the code pieces).
 
 const LINEN = 0xcfc3a4;
 const LINEN_DARK = 0xa89878;
 const TROUSERS = 0x3a2a22;
 const WRAPS = 0x6b4a32;
 const HAIR = 0x4a3020;
+const HERO_SLOTS = ["skin", "skinShade", "hair", "linen", "linenDark", "trousers", "wraps", "eye",
+  "cloth", "dark", "leather", "trim", "steel", "glow", "boot", "lip"];
 
 function darker(hex, k) {
   const c = new THREE.Color(hex).multiplyScalar(k);
@@ -72,6 +81,116 @@ export function buildHero(scene) {
     }
     buckets.clear();
   }
+  // ---- Blender library pieces ----
+  let lib = null;
+  let lastEquipped = null;
+  function libPalette(k) {
+    const hex = {
+      skin: 0xe0a878, skinShade: darker(0xe0a878, 0.86), hair: HAIR, linen: LINEN, linenDark: LINEN_DARK, trousers: TROUSERS,
+      wraps: WRAPS, eye: 0x1a1a1a, lip: 0xa0584a,
+      cloth: k ? k.cloth : LINEN, dark: k ? k.dark : LINEN_DARK, leather: k ? k.leather : WRAPS, trim: k ? k.trim : 0x7d838a,
+      steel: k ? k.steel : 0xa9b2bc, glow: (k && k.glow) || 0xffffff,
+      boot: k ? (k.tier === "heirloom" ? 0x241c18 : darker(k.leather, 0.6)) : WRAPS
+    };
+    return HERO_SLOTS.map((s) => new THREE.Color(hex[s]));
+  }
+  // One piece into its group's buckets; glowMode paints it all in the glow colour on the glow material.
+  function piece(group, name, k, glowMode) {
+    const pal = libPalette(k);
+    const glowPal = glowMode ? HERO_SLOTS.map(() => new THREE.Color((k && k.glow) || 0xffffff)) : null;
+    for (const kind of ["matte", "metal", "glow"]) {
+      const key = name + "__" + kind;
+      if (!lib[key]) continue;
+      const bucket = glowMode ? "glow" : kind;
+      const geo = paintParts(lib, [key], glowMode || kind === "glow" ? (glowPal || HERO_SLOTS.map(() => new THREE.Color((k && k.glow) || 0xffffff))) : pal, 0, 0, 0);
+      const bk = group.uuid + "|" + bucket;
+      let b = buckets.get(bk);
+      if (!b) buckets.set(bk, b = { group, mat: MATS[bucket], parts: [] });
+      b.parts.push(geo);
+    }
+  }
+  function libBase() {
+    for (const leg of [leftLeg, rightLeg]) piece(leg, "leg_base", null, false);
+    piece(torso, "torso_base", null, false);
+    piece(body, "body_base", null, false);
+    for (const arm of [leftArm, rightArm]) piece(arm, "arm_base", null, false);
+    piece(head, "head_base", null, false);
+  }
+  function libDress(looks) {
+    const k = looks.body;
+    if (k) {
+      const relic = k.tier === "relic";
+      const heir = k.tier === "heirloom";
+      piece(body, "body_tunic", k, false);
+      piece(body, "body_hem", k, relic);
+      piece(torso, "torso_tunic", k, false);
+      piece(torso, relic ? "torso_gem_big" : "torso_gem", k, !!k.glow);
+      if (relic) piece(torso, "torso_runes", k, true);
+      for (const arm of [leftArm, rightArm]) piece(arm, "arm_tunic", k, false);
+      if (heir || k.rarity >= 1) {
+        const sfx = relic ? "big_" : "";
+        piece(body, "pauldron_" + sfx + "l", k, false);
+        piece(body, "pauldron_" + sfx + "r", k, false);
+        if (relic) {
+          piece(body, "pauldron_relic_l", k, false);
+          piece(body, "pauldron_relic_r", k, false);
+        }
+        piece(cape, "cape_upper", k, false);
+        piece(capeLow, relic ? "cape_lower_long" : "cape_lower", k, false);
+        piece(capeLow, relic ? "cape_hem_long" : "cape_hem", k, relic);
+      }
+      piece(body, "mantle", k, false);
+      piece(head, "head_cowl", k, false);
+    }
+    const h = looks.head;
+    if (h) {
+      if (h.tier === "heirloom") piece(head, "head_heir", h, false);
+      else {
+        const sfx = k ? "_hood" : "";
+        piece(head, "circlet" + sfx, h, false);
+        if (h.rarity >= 1) piece(head, "circlet_gem" + sfx, h, !!h.glow);
+        if (h.tier === "relic") {
+          piece(head, "crown" + sfx, h, false);
+          piece(head, "halo" + sfx, h, true);
+        }
+      }
+    }
+    const f = looks.feet;
+    matToe.color.setHex(f ? (f.tier === "heirloom" ? 0x241c18 : darker(f.leather, 0.6)) : WRAPS);
+    if (f) {
+      for (const [leg, side] of [[leftLeg, "l"], [rightLeg, "r"]]) {
+        piece(leg, "boot", f, false);
+        if (f.tier === "heirloom" || f.rarity >= 1) piece(leg, "kneecop", f, false);
+        if (f.rarity >= 2) {
+          piece(leg, "greave", f, false);
+          piece(leg, "greave_ring", f, !!f.glow);
+        }
+        if (f.tier === "relic") piece(leg, "relic_spikes_" + side, f, false);
+      }
+    }
+    const w = looks.weapon;
+    if (w) {
+      if (w.tier === "heirloom") piece(sword, "sword_heir", w, false);
+      else if (w.tier === "relic") {
+        piece(sword, "sword_relic", w, false);
+        piece(sword, "sword_relic_glow", w, true);
+      } else {
+        piece(sword, "sword_r" + w.rarity, w, false);
+        if (w.rarity >= 1) piece(sword, "sword_fuller_r" + w.rarity, w, !!w.glow);
+      }
+    }
+    const o = looks.offhand;
+    if (o) piece(shield, o.tier === "plain" ? "shield_plain" : o.tier === "rare" ? "shield_rare" : o.tier === "relic" ? "shield_relic" : "shield_heater", o, false);
+    const t = looks.trinket;
+    if (t) {
+      if (t.tier === "relic") piece(orbit, "orbit_charm", t, false);
+      else {
+        piece(torso, "necklace", t, false);
+        piece(torso, t.rarity >= 1 ? "pendant_big" : "pendant", t, !!t.glow);
+      }
+    }
+  }
+
   function named(parent, geo, mat, x, y, z, name) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
@@ -378,16 +497,20 @@ export function buildHero(scene) {
   }
 
   function dress(equipped) {
+    lastEquipped = equipped;
     const eq = equipped || {};
     clearLayer();
     const looks = {};
     for (const slot of ["weapon", "offhand", "head", "body", "feet", "trinket"]) looks[slot] = gearLook(eq[slot]);
-    dressBody(looks.body);
-    dressHead(looks.head, !!looks.body);
-    dressFeet(looks.feet);
-    dressWeapon(looks.weapon);
-    dressOffhand(looks.offhand);
-    dressTrinket(looks.trinket);
+    if (lib) libDress(looks);
+    else {
+      dressBody(looks.body);
+      dressHead(looks.head, !!looks.body);
+      dressFeet(looks.feet);
+      dressWeapon(looks.weapon);
+      dressOffhand(looks.offhand);
+      dressTrinket(looks.trinket);
+    }
     flush("gear");
     // Motes: five per relic, in its colour.
     let n = 0;
@@ -438,5 +561,26 @@ export function buildHero(scene) {
   scene.add(player);
   void toe;
 
-  return { player, body, leftLeg, rightLeg, leftArm, rightArm, torso, cape, head, nose, sword, shield, dress, tick };
+  // Switch to the Blender pieces once they load: rebuild the base, re-dress what is worn.
+  const ready = loadPartLibrary("./assets/models/hero.glb", "hp_").then((parts) => {
+    lib = parts;
+    for (const g of rigGroups) {
+      for (let i = g.children.length - 1; i >= 0; i--) {
+        const c = g.children[i];
+        if (c.userData.layer === "base") {
+          g.remove(c);
+          c.geometry.dispose();
+        }
+      }
+    }
+    libBase();
+    flush("base");
+    dress(lastEquipped);
+    return true;
+  }).catch((err) => {
+    console.warn("[hero] Warden parts did not load; keeping the code-built Warden", err);
+    return false;
+  });
+
+  return { player, body, leftLeg, rightLeg, leftArm, rightArm, torso, cape, head, nose, sword, shield, dress, tick, ready };
 }

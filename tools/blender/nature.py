@@ -166,9 +166,9 @@ def tube_arc(kit, role, R, r, a0, a1, segs, sides, col, cx, cy, cz=0.0):
         for k in range(sides):
             a = i * sides + k
             b = i * sides + (k + 1) % sides
-            faces.append((a, b, b + sides, a + sides))
-    faces.append(tuple(range(sides - 1, -1, -1)))
-    faces.append(tuple(segs * sides + k for k in range(sides)))
+            faces.append((a, a + sides, b + sides, b))
+    faces.append(tuple(range(sides)))
+    faces.append(tuple(segs * sides + k for k in range(sides - 1, -1, -1)))
     kit._emit(role, pts, faces, col, ["side"] * len(faces), ())
 
 def build_glyphs_and_clouds(kit):

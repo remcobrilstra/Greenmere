@@ -23,4 +23,6 @@ export function attachHeroLook(rt, hero) {
   };
   rt.syncHeroLook = sync;
   sync();
+  // The Blender-built Warden swaps in after load; repaint the portrait then.
+  if (hero.ready) hero.ready.then(() => { if (rt.refreshPortrait) rt.refreshPortrait(); });
 }
