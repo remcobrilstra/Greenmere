@@ -53,13 +53,15 @@ SLOT_GROUPS = {"weapon": {"sword"}, "offhand": {"shield"}, "head": {"head"}, "fe
 SLOT_SKIP = {"head_base", "leg_base", "torso_base", "body_base", "arm_base", "head_cowl", "cape_upper", "cape_lower",
              "cape_lower_long", "cape_hem", "cape_hem_long", "arm_tunic"}
 
-def T(x, y, z):
+# Icon-local matrix helpers (prefixed: this file shares greenmere.py's namespace,
+# where T is the wall thickness).
+def ic_T(x, y, z):
     return Matrix.Translation((x, y, z))
-def Rx(a):
+def ic_Rx(a):
     return Matrix.Rotation(a, 4, 'X')
-def Ry(a):
+def ic_Ry(a):
     return Matrix.Rotation(a, 4, 'Y')
-def Rz(a):
+def ic_Rz(a):
     return Matrix.Rotation(a, 4, 'Z')
 
 def slot_pieces(slot, k):
@@ -78,7 +80,7 @@ def slot_pieces(slot, k):
         if slot in ("weapon", "offhand", "head", "trinket"):
             M = Matrix.Identity(4)
             if piece in ("pendant", "pendant_big"):
-                M = T(0, 0, -0.36) @ Matrix.Diagonal((2.4, 2.4, 2.4, 1)) @ T(0, 0, 0.36)
+                M = ic_T(0, 0, -0.36) @ Matrix.Diagonal((2.4, 2.4, 2.4, 1)) @ ic_T(0, 0, 0.36)
         else:
             M = rig[group]
         out.append((piece, M, glow))
@@ -86,12 +88,12 @@ def slot_pieces(slot, k):
 
 # The whole icon's pose, applied over the pieces (game space).
 SLOT_POSE = {
-    "weapon": Ry(0.35) @ Rz(-math.pi / 4) @ Rx(math.pi / 2),
-    "offhand": Ry(-0.45) @ Rx(0.12) @ Ry(-math.pi / 2),
-    "head": Ry(0.4) @ Rx(0.55),
-    "body": Ry(0.45) @ Rx(0.12),
-    "feet": Ry(0.75) @ Rx(0.12),
-    "trinket": Ry(0.25) @ Rx(-0.85),
+    "weapon": ic_Ry(0.35) @ ic_Rz(-math.pi / 4) @ ic_Rx(math.pi / 2),
+    "offhand": ic_Ry(-0.45) @ ic_Rx(0.12) @ ic_Ry(-math.pi / 2),
+    "head": ic_Ry(0.4) @ ic_Rx(0.55),
+    "body": ic_Ry(0.45) @ ic_Rx(0.12),
+    "feet": ic_Ry(0.75) @ ic_Rx(0.12),
+    "trinket": ic_Ry(0.25) @ ic_Rx(-0.85),
 }
 
 # ---------------------------------------------------------------- props
@@ -226,10 +228,10 @@ PROPS = {
     "emberglass": _emberglass, "hearth": _flame, "mend": _leaf, "focus": _crystal, "quest": _scroll, "rest": _candle,
 }
 PROP_POSE = {
-    "draught-hp": Ry(0.4) @ Rx(0.2), "draught-mp": Ry(0.4) @ Rx(0.2), "oil": Ry(0.5) @ Rx(0.25), "kit": Ry(0.6) @ Rx(0.4),
-    "gold": Ry(0.3) @ Rx(0.45), "heartwood": Ry(0.9) @ Rx(0.3), "slag": Ry(0.5) @ Rx(0.4),
-    "emberglass": Ry(0.4) @ Rx(0.2), "hearth": Ry(0.3) @ Rx(0.5), "mend": Ry(0.3) @ Rz(-0.35), "focus": Ry(0.4) @ Rx(0.15),
-    "quest": Ry(0.35) @ Rz(0.18) @ Rx(0.2), "rest": Ry(0.3) @ Rx(0.2), "rootfiber": Ry(0.3) @ Rx(0.5),
+    "draught-hp": ic_Ry(0.4) @ ic_Rx(0.2), "draught-mp": ic_Ry(0.4) @ ic_Rx(0.2), "oil": ic_Ry(0.5) @ ic_Rx(0.25), "kit": ic_Ry(0.6) @ ic_Rx(0.4),
+    "gold": ic_Ry(0.3) @ ic_Rx(0.45), "heartwood": ic_Ry(0.9) @ ic_Rx(0.3), "slag": ic_Ry(0.5) @ ic_Rx(0.4),
+    "emberglass": ic_Ry(0.4) @ ic_Rx(0.2), "hearth": ic_Ry(0.3) @ ic_Rx(0.5), "mend": ic_Ry(0.3) @ ic_Rz(-0.35), "focus": ic_Ry(0.4) @ ic_Rx(0.15),
+    "quest": ic_Ry(0.35) @ ic_Rz(0.18) @ ic_Rx(0.2), "rest": ic_Ry(0.3) @ ic_Rx(0.2), "rootfiber": ic_Ry(0.3) @ ic_Rx(0.5),
 }
 # Ability icons that are worn pieces in a fixed look.
 ABILITY_GEAR = {

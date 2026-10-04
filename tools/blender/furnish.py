@@ -586,10 +586,11 @@ def p_well(kit, p):
     kit.cylr("props", r - 0.15, r - 0.15, 0.8, seg, {"*": MORTAR}, 0, 0.4, 0)
     kit.cylr("props", r - 0.17, r - 0.17, 0.04, seg, [0x2a4a5c], 0, 0.6, 0)
     kit.cylr("props", r + 0.1, r + 0.12, 0.1, seg, PLINTH, 0, 0.03, 0)
+    # posts tall enough that the eaves clear a head (about 2.3 m)
     for s in (-1, 1):
-        kit.box("props", 0.16, 2.1, 0.16, TIMBER_D, s * (r - 0.05), 1.05, 0)
-        kit.box("props", 0.12, 0.6, 0.12, TIMBER_D, s * (r - 0.3), 1.95, 0, rz=s * 0.7)
-    kit.box("props", r * 2 + 0.3, 0.12, 0.12, TIMBER_M, 0, 1.75, 0)
+        kit.box("props", 0.16, 2.9, 0.16, TIMBER_D, s * (r - 0.05), 1.45, 0)
+        kit.box("props", 0.12, 0.6, 0.12, TIMBER_D, s * (r - 0.3), 2.72, 0, rz=s * 0.7)
+    kit.box("props", r * 2 + 0.3, 0.12, 0.12, TIMBER_M, 0, 2.55, 0)
     kit.cylr("props", 0.08, 0.08, r * 2 - 0.1, 8, TIMBER_L, 0, 1.4, 0, rz=math.pi / 2)
     kit.box("props", 0.05, 0.3, 0.05, IRON, r - 0.05, 1.25, 0.12)
     kit.box("props", 0.2, 0.05, 0.05, IRON, r - 0.05, 1.12, 0.22)
@@ -597,13 +598,13 @@ def p_well(kit, p):
     restore = sub(kit, 0.15, 0.88, 0)
     barrel(kit, "props", 0.13, 0.22)
     restore()
-    # little shingled roof
-    ang = 0.62
-    rw = r * 2 + 0.7
+    # little shingled roof, just wider than the drum
+    ang = 0.55
+    rw = r * 2 + 0.35
     for s in (-1, 1):
-        restore = sub(kit, 0, 2.15, 0, 0 if s > 0 else math.pi)
+        restore = sub(kit, 0, 2.95, 0, 0 if s > 0 else math.pi)
         kit.frame = kit.frame @ Matrix.Rotation(ang, 4, 'X')
-        ln = r + 0.55
+        ln = r + 0.2
         kit.box("props", rw, 0.06, ln, TIMBER_D, 0, 0.03, ln / 2)
         rows = int(ln / 0.16)
         for i in range(rows):
@@ -613,7 +614,7 @@ def p_well(kit, p):
                 kit.box("props", w - 0.015, 0.025, 0.24, tones(0x6e2e28, 0.12, 6), x + w / 2, 0.075, ln - i * 0.16 - 0.1, rx=-0.08)
                 x += w
         restore()
-    kit.box("props", rw + 0.06, 0.12, 0.12, TIMBER_D, 0, 2.2, 0, rx=math.pi / 4)
+    kit.box("props", rw + 0.06, 0.12, 0.12, TIMBER_D, 0, 3.0, 0, rx=math.pi / 4)
 
 def p_stall(kit, p):
     w, d = p["w"], p["d"]
@@ -735,15 +736,20 @@ def p_statue(kit, p):
 def p_bunting(kit, p):
     posts = [[8.4, -6.2], [-9.8, 1.0], [-8.4, -6.8], [9.6, 2.4], [2.6, 10.6], [-2.6, 10.6]]
     flags = [[0xb64034], [0xd4a03a], [0x2d62c8], [0x3e9a36], [0xf4e7c8]]
+    # Each lamp post that carries a string gets a pole on top, so the flags hang well overhead.
+    top = 3.95
+    for x, z in posts:
+        kit.cylr("props", 0.05, 0.07, top - 2.6, 6, TIMBER_D, x, (top + 2.6) / 2, z)
+        kit.ball("props", 0.08, GOLD, x, top + 0.05, z)
     k = 0
     for a, c in ((0, 1), (2, 3), (4, 2), (5, 0)):
         ax, az = posts[a]
         bx, bz = posts[c]
         n = round(math.hypot(bx - ax, bz - az) / 0.55)
-        string_line(kit, "props", ax, az, bx, bz, 2.85, 0.8, n)
+        string_line(kit, "props", ax, az, bx, bz, top - 0.1, 0.55, n)
         for i in range(1, n):
             t = i / n
-            pennant(kit, "props", ax + (bx - ax) * t, 2.7 - math.sin(t * math.pi) * 0.8, az + (bz - az) * t,
+            pennant(kit, "props", ax + (bx - ax) * t, top - 0.25 - math.sin(t * math.pi) * 0.55, az + (bz - az) * t,
                     math.atan2(bx - ax, bz - az), flags[k % 5], 1.1)
             k += 1
 
@@ -904,7 +910,9 @@ def build_sign(kit, b):
     side = d0["side"]
     kit.frame = b.frame(side)
     a = (d0["at"] + DOOR_W / 2 + 0.75) * b.flip(side)
-    y = DOOR_H + 0.55
+    # Board centre just under door height, so the bracket stays below the eave
+    # overhang and the sign reads from the street (view/buildings.js buildSign matches).
+    y = DOOR_H - 0.05
     kit.box("shell", 0.08, 0.08, 1.15, IRON, a, y + 0.42, 0.55)
     kit.box("shell", 0.06, 0.5, 0.06, IRON, a, y + 0.18, 0.08, rx=0.7)
     for zz in (0.25, 0.85):

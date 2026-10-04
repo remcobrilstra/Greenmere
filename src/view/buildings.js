@@ -520,7 +520,10 @@ function buildSign(kit, base, b, door) {
   kit.setFrame(m);
   const flip = sideFlip(door.side);
   const a = (door.at + DOOR_W / 2 + 0.75) * flip;
-  const y = DOOR_H + 0.55;
+  // Board centre just under door height: the bracket stays below the eave
+  // overhang (wall top 3.76, roof edge about 3.3 at 0.5 m out) and the board's
+  // bottom edge clears 2.2 m for anyone walking past.
+  const y = DOOR_H - 0.05;
   kit.box("shell", 0.08, 0.08, 1.15, IRON, a, y + 0.42, 0.55);
   kit.box("shell", 0.06, 0.5, 0.06, IRON, a, y + 0.18, 0.08, 0, 0.7);
   kit.box("shell", 0.02, 0.18, 0.02, IRON, a, y + 0.32, 0.25);
@@ -936,9 +939,9 @@ const PROP = {
   well(kit, p) {
     kit.cyl("props", p.r, p.r + 0.08, 0.85, 10, STONE, 0, 0.42, 0);
     kit.cyl("props", p.r - 0.18, p.r - 0.18, 0.05, 10, [0x2a4a5c], 0, 0.62, 0);
-    for (const s of [-1, 1]) kit.box("props", 0.14, 2.1, 0.14, TIMBER_D, s * (p.r - 0.05), 1.05, 0);
-    kit.box("props", p.r * 2 + 0.2, 0.1, 0.1, TIMBER_M, 0, 1.75, 0);
-    kit.cone("props", p.r + 0.45, 0.8, 4, tone(0x6e2e28), 0, 2.4, 0, Math.PI / 4);
+    for (const s of [-1, 1]) kit.box("props", 0.14, 2.9, 0.14, TIMBER_D, s * (p.r - 0.05), 1.45, 0);
+    kit.box("props", p.r * 2 + 0.2, 0.1, 0.1, TIMBER_M, 0, 2.55, 0);
+    kit.cone("props", p.r + 0.15, 0.7, 4, tone(0x6e2e28), 0, 3.0, 0, Math.PI / 4);
     kit.cyl("props", 0.16, 0.13, 0.24, 7, TIMBER_M, 0.15, 1.3, 0);
     kit.box("props", 0.02, 0.45, 0.02, [0x8a8f93], 0.15, 1.55, 0);
   },
@@ -1024,16 +1027,19 @@ const PROP = {
     const posts = [[8.4, -6.2], [-9.8, 1.0], [-8.4, -6.8], [9.6, 2.4], [2.6, 10.6], [-2.6, 10.6]];
     const flags = [[0xb64034], [0xd4a03a], [0x2d62c8], [0x3e9a36], [0xf4e7c8]];
     const pairs = [[0, 1], [2, 3], [4, 2], [5, 0]];
+    // Poles on the lamp posts carry the strings well overhead.
+    const top = 3.95;
+    for (const [x, z] of posts) kit.cyl("props", 0.05, 0.07, top - 2.6, 6, TIMBER_D, x, (top + 2.6) / 2, z);
     let k = 0;
     for (const [a, c] of pairs) {
       const [ax, az] = posts[a];
       const [bx, bz] = posts[c];
       const n = Math.round(Math.hypot(bx - ax, bz - az) / 0.55);
-      stringLine(kit, "props", ax, az, bx, bz, 2.85, 0.8, n);
+      stringLine(kit, "props", ax, az, bx, bz, top - 0.1, 0.55, n);
       for (let i = 1; i < n; i++) {
         const t = i / n;
-        const sag = Math.sin(t * Math.PI) * 0.8;
-        kit.cone("props", 0.14, 0.3, 3, flags[k++ % 5], ax + (bx - ax) * t, 2.7 - sag, az + (bz - az) * t, Math.atan2(bx - ax, bz - az), 0, Math.PI);
+        const sag = Math.sin(t * Math.PI) * 0.55;
+        kit.cone("props", 0.14, 0.3, 3, flags[k++ % 5], ax + (bx - ax) * t, top - 0.25 - sag, az + (bz - az) * t, Math.atan2(bx - ax, bz - az), 0, Math.PI);
       }
     }
   },

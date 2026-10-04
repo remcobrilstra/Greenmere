@@ -596,8 +596,8 @@ export const PROPS = [
   { type: "stall", x: -6.9, z: -4.6, yaw: faceCenter(-6.9, -4.6), w: 2.6, d: 1.4, awning: 0xb64034 },
   { type: "stall", x: -8.2, z: 5.0, yaw: faceCenter(-8.2, 5.0), w: 2.6, d: 1.4, awning: 0x2d62c8 },
   { type: "stall", x: 7.0, z: 5.4, yaw: faceCenter(7.0, 5.4), w: 2.6, d: 1.4, awning: 0xd4a03a },
-  { type: "bench", x: -3.4, z: 8.2, yaw: 0, w: 2.0, d: 0.55 },
-  { type: "bench", x: 3.4, z: 8.2, yaw: 0, w: 2.0, d: 0.55 },
+  { type: "bench", x: -3.4, z: 8.2, yaw: faceCenter(-3.4, 8.2), w: 2.0, d: 0.55 },
+  { type: "bench", x: 3.4, z: 8.2, yaw: faceCenter(3.4, 8.2), w: 2.0, d: 0.55 },
   { type: "notice", x: -3.2, z: -11.5, yaw: Math.PI / 2, w: 1.6, d: 0.3 },
   { type: "cart", x: 4.4, z: -14.5, yaw: 0.25, w: 1.6, d: 2.8 },
   { type: "woodpile", x: 22.9, z: -2.0, yaw: Math.PI / 2, w: 2.2, d: 0.9 },
@@ -613,8 +613,17 @@ const LAMP_SPOTS = [
   [2.7, -13], [-2.7, -20], [2.7, -27], [-2.7, -33.5],
   [8.4, -6.2], [-8.4, -6.8], [9.6, 2.4], [-9.8, 1.0], [2.6, 10.6], [-2.6, 10.6]
 ];
+// A lamp's arm (local +x) reaches over what it lights: the gate road for the
+// lamps along it, the well for the lamps round the square.
+export function lampYaw(x, z) {
+  const onRoad = Math.abs(x) < 4 && z < -SQUARE_R;
+  const dx = -x;
+  const dz = onRoad ? 0 : -z;
+  return Math.atan2(-dz, dx);
+}
 for (let i = 0; i < LAMP_SPOTS.length; i++) {
-  PROPS.push({ type: "lamp", x: LAMP_SPOTS[i][0], z: LAMP_SPOTS[i][1], r: 0.18 });
+  const [x, z] = LAMP_SPOTS[i];
+  PROPS.push({ type: "lamp", x, z, yaw: lampYaw(x, z), r: 0.18 });
 }
 
 export function propColliders(p) {
