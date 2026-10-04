@@ -38,7 +38,7 @@ HM_STYLES = {
                    jaw=0.86, nose=1.1, eye=0.018, brow=1.2, beard=True, hair="short", head_sub=0),
     # The pick (2026-10-04): the heroic body with the storybook head, a touch smaller so
     # the taller proportions hold.
-    "warden": dict(height=2.02, head=0.34, build=1.08, shoulders=0.235, hands=1.05, feet=1.05, facet=1,
+    "warden": dict(height=2.02, head=0.34, build=1.15, shoulders=0.25, hands=1.08, feet=1.08, facet=1,
                    jaw=0.78, nose=1.0, eye=0.022, brow=1.0, beard=False, hair="swept", head_sub=0),
     "stout": dict(height=1.92, head=0.44, build=1.25, shoulders=0.215, hands=1.3, feet=1.3, facet=1,
                   jaw=0.72, nose=1.25, eye=0.03, brow=0.9, beard=False, hair="mop", head_sub=0),
@@ -1022,9 +1022,203 @@ def build_warden(export=True, bake=True, samples=64, style="warden"):
             bake_slot_ao(scn, o, samples)
         for o in objs:
             o.hide_render = False
-    line = {"id": "warden", "tris": {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs}}
+    scn.render.fps = WD_FPS
+    line = {"id": "warden", "tris": {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs},
+            "clips": wd_clips(rig)}
     if export:
-        p, size = write_glb(scn, [rig] + objs, "warden")
-        line["kb"] = round(size / 1024)
+        path = os.path.join(REPO, "assets", "models", "warden.glb")
+        for o in scn.collection.all_objects:
+            o.select_set(False)
+        for o in [rig] + objs:
+            o.select_set(True)
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            _gltf(filepath=path, export_format='GLB', use_selection=True, use_active_scene=True, export_yup=True,
+                  export_vertex_color='ACTIVE', export_all_vertex_colors=False, export_materials='PLACEHOLDER',
+                  export_normals=False, export_texcoords=False, export_apply=False,
+                  export_animations=True, export_animation_mode='NLA_TRACKS', export_force_sampling=True,
+                  export_meshopt_compression_enable=True)
+        line["kb"] = round(os.path.getsize(path) / 1024)
     bpy.context.window.scene = keep
     return line
+
+
+
+# ---------------------------------------------------------------- clips
+#
+# Poses as rotations about armature axes (Blender: X across, Y forward, Z up), in
+# order, on top of WD_REST (the arms lowered from the A-pose). Positive X swings a
+# hanging limb forward and tips an upright bone back; Z turns toward the left.
+# Every key writes every bone, so a clip always sets the whole skeleton.
+
+WD_FPS = 30
+WD_AX = {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}
+WD_REST = {"upperArm.L": [("Y", -34)], "upperArm.R": [("Y", 34)], "forearm.L": [("X", 14)], "forearm.R": [("X", 14)]}
+
+
+# Elbows and wrists hinge about their own axis: their rest pose is the A-pose, so the
+# body's X would swing the hand outward instead of folding the joint. "X" on them is the
+# bone's local X (its hinge with roll 0), signed so positive folds forward on both sides.
+WD_HINGED = {"forearm.L": -1, "forearm.R": -1, "hand.L": -1, "hand.R": -1}
+
+
+def wd_q(rig, name, steps):
+    inv = rig.data.bones[name].matrix_local.to_3x3().inverted()
+    q = Quaternion()
+    for axis, deg in steps:
+        if axis == "X" and name in WD_HINGED:
+            ax = Vector((WD_HINGED[name], 0, 0))
+        else:
+            ax = (inv @ Vector(WD_AX[axis])).normalized()
+        q = Quaternion(ax, math.radians(deg)) @ q
+    return q
+
+
+def wd_mirror(pose):
+    """Left/right swapped, twists and sideways moves negated."""
+    out = {}
+    for b, steps in pose.items():
+        nb = b.replace(".L", ".#").replace(".R", ".L").replace(".#", ".R")
+        out[nb] = [(a, -d if a in ("Y", "Z") else d) for a, d in steps]
+    return out
+
+
+def wd_action(rig, name, keys):
+    act = bpy.data.actions.get(name)
+    if act is not None:
+        bpy.data.actions.remove(act)
+    act = bpy.data.actions.new(name)
+    rig.animation_data_create()
+    rig.animation_data.action = act
+    for frame, pose in keys:
+        for b in rig.pose.bones:
+            b.rotation_mode = 'QUATERNION'
+            b.rotation_quaternion = wd_q(rig, b.name, WD_REST.get(b.name, []) + pose.get(b.name, []))
+            b.keyframe_insert("rotation_quaternion", frame=frame, group=b.name)
+    track = rig.animation_data.nla_tracks.new()
+    track.name = name
+    track.strips.new(name, int(keys[0][0]), act)
+    rig.animation_data.action = None
+    return act
+
+
+def wd_clips(rig):
+    if rig.animation_data:
+        for t in list(rig.animation_data.nla_tracks):
+            rig.animation_data.nla_tracks.remove(t)
+    # idle: a slow breath, a small weight shift and a glance (3 s)
+    wd_action(rig, "idle", [
+        (0, {}),
+        (45, {"chest": [("X", 2.5)], "spine": [("Z", 1.5)], "head": [("Z", 4), ("X", 1.5)],
+              "upperArm.L": [("Y", -3)], "upperArm.R": [("Y", 3)], "cape.1": [("X", -3)]}),
+        (90, {}),
+    ])
+    # walk: one step cycle over 24 frames, scrubbed from the movement phase. Frame 0 is
+    # the left leg passing forward, 6 the left heel down, 12 the right passing.
+    passL = {"shin.L": [("X", -36)], "foot.L": [("X", 10)], "shin.R": [("X", -5)], "cape.1": [("X", -6)], "cape.2": [("X", -4)]}
+    strideL = {"thigh.L": [("X", 30)], "shin.L": [("X", -6)], "foot.L": [("X", -8)],
+               "thigh.R": [("X", -24)], "shin.R": [("X", -24)], "foot.R": [("X", 14)],
+               "upperArm.L": [("X", -24)], "forearm.L": [("X", 8)], "upperArm.R": [("X", 26)], "forearm.R": [("X", 26)],
+               "spine": [("Z", 2)], "chest": [("Z", 5)], "head": [("Z", -4)], "cape.1": [("X", -10)], "cape.2": [("X", -8)]}
+    wd_action(rig, "walk", [(0, passL), (6, strideL), (12, wd_mirror(passL)), (18, wd_mirror(strideL)), (24, passL)])
+    # run: the same cycle, deeper, leaning in (16 frames)
+    passR = {"thigh.L": [("X", 10)], "shin.L": [("X", -80)], "foot.L": [("X", 15)], "shin.R": [("X", -12)],
+             "spine": [("X", -10)], "head": [("X", 8)], "cape.1": [("X", -22)], "cape.2": [("X", -12)],
+             "upperArm.L": [("X", -5)], "upperArm.R": [("X", 5)], "forearm.L": [("X", 75)], "forearm.R": [("X", 75)]}
+    strideR = {"thigh.L": [("X", 48)], "shin.L": [("X", -14)], "foot.L": [("X", -6)],
+               "thigh.R": [("X", -32)], "shin.R": [("X", -42)], "foot.R": [("X", 22)],
+               "upperArm.L": [("X", -45)], "forearm.L": [("X", 65)], "upperArm.R": [("X", 48)], "forearm.R": [("X", 90)],
+               "spine": [("X", -10), ("Z", 3)], "chest": [("Z", 8)], "head": [("X", 8), ("Z", -6)], "cape.1": [("X", -30)], "cape.2": [("X", -16)]}
+    wd_action(rig, "run", [(0, passR), (4, strideR), (8, wd_mirror(passR)), (12, wd_mirror(strideR)), (16, passR)])
+    # strike: 0.46 s like rt.strikeInfo (wind-up to 0.18, hit at 0.23, settled at 0.46);
+    # the body's turn, lean and lunge come from the code rig
+    wind = {"upperArm.R": [("X", 150), ("Y", -10)], "forearm.R": [("X", 55)], "hand.R": [("X", -25)],
+            "upperArm.L": [("X", 55)], "forearm.L": [("X", 65)], "chest": [("Z", -12), ("X", 3)], "spine": [("Z", -6)],
+            "head": [("Z", 10)], "thigh.R": [("X", -10)], "thigh.L": [("X", 14)], "shin.L": [("X", -10)], "cape.1": [("X", -8)]}
+    hit = {"upperArm.R": [("X", 60), ("Y", 22)], "forearm.R": [("X", 12)], "hand.R": [("X", 10)],
+           "upperArm.L": [("X", 25)], "forearm.L": [("X", 50)], "chest": [("Z", 14), ("X", -6)], "spine": [("Z", 8), ("X", -4)],
+           "head": [("Z", -8)], "thigh.R": [("X", 30)], "shin.R": [("X", -16)], "thigh.L": [("X", -18)], "cape.1": [("X", -16)]}
+    wd_action(rig, "strike", [(0, {}), (5.4, wind), (6.9, hit), (9, hit), (13.8, {})])
+    # hearth: both arms to the sky, the head lifted, a slow sway (2 s loop)
+    sky = {"upperArm.L": [("X", 165), ("Y", -10)], "upperArm.R": [("X", 165), ("Y", 10)], "forearm.L": [("X", 6)], "forearm.R": [("X", 6)],
+           "hand.L": [("X", 20)], "hand.R": [("X", 20)], "head": [("X", 16)], "chest": [("X", 5)], "cape.1": [("X", -6)]}
+    sky2 = {"upperArm.L": [("X", 170), ("Y", -14)], "upperArm.R": [("X", 170), ("Y", 14)], "forearm.L": [("X", 2)], "forearm.R": [("X", 2)],
+            "hand.L": [("X", 26)], "hand.R": [("X", 26)], "head": [("X", 20)], "chest": [("X", 7)], "cape.1": [("X", -10)]}
+    wd_action(rig, "hearth", [(0, sky), (30, sky2), (60, sky)])
+    # mend: hands drawn in to the chest, head bowed, breathing (1.6 s loop)
+    pray = {"upperArm.L": [("X", 42), ("Y", -22)], "upperArm.R": [("X", 42), ("Y", 22)], "forearm.L": [("X", 100)], "forearm.R": [("X", 100)],
+            "head": [("X", -16)], "spine": [("X", -5)], "chest": [("X", -3)]}
+    pray2 = {"upperArm.L": [("X", 46), ("Y", -24)], "upperArm.R": [("X", 46), ("Y", 24)], "forearm.L": [("X", 106)], "forearm.R": [("X", 106)],
+             "head": [("X", -19)], "spine": [("X", -6)], "chest": [("X", -1)]}
+    wd_action(rig, "mend", [(0, pray), (24, pray2), (48, pray)])
+    # flinch: knocked back from a hit and recovering (0.3 s)
+    jolt = {"spine": [("X", 9)], "chest": [("X", 6)], "head": [("X", 14), ("Z", 6)], "upperArm.L": [("X", 22)], "upperArm.R": [("X", 18)],
+            "forearm.L": [("X", 40)], "forearm.R": [("X", 35)], "thigh.L": [("X", -8)], "shin.L": [("X", -12)], "cape.1": [("X", -14)]}
+    wd_action(rig, "flinch", [(0, {}), (2, jolt), (9, {})])
+    for b in rig.pose.bones:
+        b.rotation_quaternion = (1, 0, 0, 0)
+    return [t.name for t in rig.animation_data.nla_tracks]
+
+
+def render_clips(frames=None, out_dir=None, w=520, h=640):
+    """Workbench renders of the Warden clips at chosen frames, for a contact sheet."""
+    out_dir = out_dir or os.path.join(REPO, "shots", "heroes", "clips")
+    os.makedirs(out_dir, exist_ok=True)
+    frames = frames or [("idle", 45), ("walk", 6), ("walk", 12), ("run", 4), ("strike", 5), ("strike", 7),
+                        ("hearth", 30), ("mend", 24), ("flinch", 2)]
+    scn = bpy.data.scenes["gm_warden"]
+    bpy.context.window.scene = scn
+    rig = scn.objects["wd_rig"]
+    gear = scn.objects["wd_gear"]
+    scn.objects["wd_base"].hide_render = True
+    rig.hide_render = True
+    gear.data.color_attributes.active_color = gear.data.color_attributes["base"]
+    # preview colours: paint the slot codes with the heirloom look
+    pal = hero_palette(PREVIEW_OUTFITS[1][1])
+    if "preview" in gear.data.color_attributes:
+        gear.data.color_attributes.remove(gear.data.color_attributes["preview"])
+    src = gear.data.color_attributes["Col"].data
+    n = len(src)
+    vals = [0.0] * (n * 4)
+    src.foreach_get("color", vals)
+    out = []
+    for i in range(n):
+        slot = HERO_SLOTS[min(15, int(vals[i * 4] * 16))]
+        c = hexc(pal[slot])
+        k = vals[i * 4 + 1]
+        out += (c[0] * k, c[1] * k, c[2] * k, 1.0)
+    pv = gear.data.color_attributes.new("preview", 'FLOAT_COLOR', 'CORNER')
+    pv.data.foreach_set("color", out)
+    gear.data.color_attributes.active_color = pv
+    scn.render.engine = 'BLENDER_WORKBENCH'
+    sh = scn.display.shading
+    sh.light = 'STUDIO'
+    sh.color_type = 'VERTEX'
+    sh.show_shadows = True
+    scn.render.resolution_x, scn.render.resolution_y = w, h
+    if scn.world is None:
+        scn.world = bpy.data.worlds.new("hm_world")
+    scn.world.color = (0.08, 0.09, 0.1)
+    cam = bpy.data.objects.get("wd_cam")
+    if cam is None:
+        cam = bpy.data.objects.new("wd_cam", bpy.data.cameras.new("wd_cam"))
+        scn.collection.objects.link(cam)
+    scn.camera = cam
+    target = Vector((0, 0, 1.05))
+    yaw = math.radians(230)
+    cam.location = target + Vector((-math.sin(yaw) * 4.6, -math.cos(yaw) * 4.6, 0.6))
+    cam.rotation_euler = (target - cam.location).normalized().to_track_quat('-Z', 'Y').to_euler()
+    cam.data.lens = 50
+    rig.animation_data.use_nla = False
+    files = []
+    for name, f in frames:
+        rig.animation_data.action = bpy.data.actions[name]
+        scn.frame_set(int(f))
+        path = os.path.join(out_dir, "%s-%02d.png" % (name, int(f)))
+        scn.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+        files.append(path)
+    rig.animation_data.action = None
+    rig.animation_data.use_nla = True
+    gear.data.color_attributes.active_color = gear.data.color_attributes["Col"]
+    return files

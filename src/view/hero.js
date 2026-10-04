@@ -543,8 +543,10 @@ export function buildHero(scene) {
   const _mp = new THREE.Vector3();
   const _ms = new THREE.Vector3();
   const _mq = new THREE.Quaternion();
-  function tick(dt) {
+  // motion: rt.heroMotion (play/move.js, play/heroanim.js, play/herolook.js) for the clips.
+  function tick(dt, motion) {
     clock += dt || 0;
+    if (skin) skin.update(dt || 0, motion);
     if (worn.orbit) {
       orbit.rotation.y = clock * 1.6;
       orbit.position.y = 1.25 + Math.sin(clock * 2.2) * 0.12;

@@ -17,6 +17,7 @@ export function attachMovement(rt) {
   const _wish = new THREE.Vector3();
   let walkPhase = 0;
   let animBlend = 0;
+  let sprintBlend = 0;
   let time = 0;
 
   function bucketAt(gx, gz) {
@@ -175,6 +176,12 @@ export function attachMovement(rt) {
       player.position.y = rt.heroGroundY ? rt.heroGroundY(player.position.x, player.position.z) : rt.groundY(player.position.x, player.position.z);
     }
     animBlend += ((moving ? 1 : 0) - animBlend) * (1 - Math.exp(-8 * dt));
+    // The skinned Warden's clips follow the same step (view/heroskin.js).
+    sprintBlend += ((moving && sprint ? 1 : 0) - sprintBlend) * (1 - Math.exp(-6 * dt));
+    const motion = rt.heroMotion || (rt.heroMotion = {});
+    motion.phase = walkPhase;
+    motion.move = animBlend;
+    motion.sprint = sprintBlend;
     const swing = Math.sin(walkPhase) * 0.9 * animBlend;
     rt.leftLeg.rotation.x = swing;
     rt.rightLeg.rotation.x = -swing;

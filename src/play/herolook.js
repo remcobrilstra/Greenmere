@@ -19,7 +19,10 @@ export function attachHeroLook(rt, hero) {
   rt.poseHero = function (dt) {
     if (prevPose) prevPose(dt);
     sync();
-    hero.tick(dt || 0);
+    const m = rt.heroMotion || (rt.heroMotion = {});
+    m.dying = !!rt.dying;
+    m.hp = rt.vitals ? rt.vitals.hp : 0;
+    hero.tick(dt || 0, m);
   };
   rt.syncHeroLook = sync;
   sync();

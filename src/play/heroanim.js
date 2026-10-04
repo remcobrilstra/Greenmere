@@ -138,6 +138,11 @@ export function attachHeroAnim(rt) {
       toward("lean", -0.08, mendBlend);
     }
 
+    const motion = rt.heroMotion || (rt.heroMotion = {});
+    motion.strike = hit ? hit.s : -1;
+    motion.hearth = hearthBlend;
+    motion.mend = mendBlend;
+
     rt.rightArm.rotation.x = pose.rArmX;
     rt.rightArm.rotation.z = pose.rArmZ;
     rt.leftArm.rotation.x = pose.lArmX;
