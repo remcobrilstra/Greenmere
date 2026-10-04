@@ -12,6 +12,7 @@ import { attachTownfolk } from "./play/townfolk.js";
 import { attachAmbience } from "./play/ambience.js";
 import { attachDialogue } from "./play/dialogue.js";
 import { attachQuests } from "./play/quests.js";
+import { attachLifeStats } from "./play/lifestats.js";
 import { attachCombat } from "./play/combat.js";
 import { attachSpace } from "./play/space.js";
 import { attachHud } from "./ui/hud.js";
@@ -139,6 +140,7 @@ attachTownfolk(rt);
 attachAmbience(rt);
 attachDialogue(rt);
 attachQuests(rt);
+attachLifeStats(rt);
 attachCharacter(rt);
 attachAtlas(rt);
 attachFoeBars(rt);
@@ -427,7 +429,12 @@ if (params.has("test")) {
   if (rt.dev && params.get("hide") === "hero") rt.player.visible = false;
   // ?dev=1&open=store|smith|still|trainer|inn|bank opens that counter's panel.
   if (rt.dev && params.has("open")) {
-    if (params.get("open") === "sheet" && rt.openSheet) rt.openSheet();
+    // &tip=eq:weapon (any data-tip key) shows that tooltip, for shots.
+    if (params.get("open") === "sheet" && rt.openSheet) {
+      rt.openSheet(params.get("tab") || undefined);
+      const anchor = params.has("tip") && rt.sheetNode.querySelector('[data-tip="' + params.get("tip") + '"]');
+      if (anchor) anchor.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    }
     const st = (rt.stations || []).find((s) => s.panel === params.get("open"));
     if (st) rt.openPanel(st.panel, st);
   }

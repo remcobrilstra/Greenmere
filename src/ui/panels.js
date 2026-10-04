@@ -1021,6 +1021,7 @@ export function attachPanels(rt) {
         takeGear(drop);
         drops.splice(i, 1);
         changed = true;
+        if (rt.questEvent) rt.questEvent({ type: "gear", rarity: drop.item.rarity });
         continue;
       }
       if (drop.kind !== "draught") continue;

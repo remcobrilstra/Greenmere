@@ -51,6 +51,7 @@ import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBui
 import { applyTownTime, townDayKeys } from "../view/lights.js";
 import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
 import { upgradeStatus as upgradeStatusRaw } from "../ui/character.js";
+import { emptyStats, normalizeStats, recordStat, playTimeText } from "../sim/lifestats.js";
 import { emptyQuests, dailyOffers, takeQuest, applyEvent, claimQuest, rollover, requestFor, normalizeQuests, isComplete, QUEST_CAP } from "../sim/quests.js";
 import { BUILDINGS, COTTAGES, GATE, HEARTH, TOWN_ARRIVAL, FLOOR_Y, WALL_T, stationWorld, localToWorld, worldToLocal, doorPoint, wallBoxes, buildingAt } from "../sim/townplan.js";
 import { affixDef, gearTotals, lootRng, materialDropCount, rollGearDrop, tryCraft, tryUpgrade, killExtras, extrasRng } from "../sim/items.js";
@@ -895,6 +896,61 @@ export function installSelfTest(rt) {
       tap("Escape");
       check(sheet.hidden && !rt.sheetOpen, "Escape closes the sheet");
       rt.session.pack = [];
+
+      // Sheet tabs, the paper doll's slots, and tooltips.
+      rt.openSheet("character");
+      const dollSlots = sheet.querySelectorAll('.doll-stage [data-tip^="eq:"]');
+      check(dollSlots.length === 6 && !!sheet.querySelector(".doll-stage .doll-frame"), "the doll stands between six worn slots (" + dollSlots.length + ")");
+      const tipNode = document.getElementById("sheet-tip");
+      const weaponCell = sheet.querySelector('[data-tip="eq:weapon"]');
+      weaponCell.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      check(!!tipNode && !tipNode.hidden && tipNode.textContent.indexOf("ilvl") >= 0 && tipNode.textContent.indexOf("base damage") >= 0, "a worn slot's tooltip lists the piece's numbers");
+      weaponCell.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      check(tipNode.hidden, "the tooltip goes when focus leaves");
+      const mightRow = sheet.querySelector('[data-tip="a:might"]');
+      check(!!mightRow && mightRow.textContent.indexOf(String(Math.round(heroStats(rt.session).might))) >= 0, "the attribute column shows Might as heroStats has it");
+      sheet.querySelector('[data-tab="ledger"]').click();
+      const ledgerPane = sheet.querySelector('[data-pane="ledger"]');
+      check(rt.sheetTab === "ledger" && !!ledgerPane && !ledgerPane.hidden && ledgerPane.textContent.indexOf("Foes slain") >= 0 && ledgerPane.textContent.indexOf("Time played") >= 0, "the Ledger tab shows the lifetime tally");
+      check(sheet.querySelector('[data-pane="character"]').hidden, "only the chosen tab shows");
+      tap("Escape");
+      tap("KeyI");
+      check(rt.sheetOpen && rt.sheetTab === "pack" && sheet.textContent.indexOf("Pack 0 / 24") >= 0, "I opens the sheet on the pack");
+      tap("KeyI");
+      check(!rt.sheetOpen, "I again closes it");
+      rt.sheetTab = "character";
+
+      // Lifetime tally: events in, ledger out, kept across a save.
+      const tally = emptyStats();
+      recordStat(tally, { type: "kill", archetype: "brute", elite: true });
+      recordStat(tally, { type: "kill", archetype: "boss", boss: true });
+      recordStat(tally, { type: "floor", floor: 7 });
+      recordStat(tally, { type: "floor", floor: 3 });
+      recordStat(tally, { type: "gold", amount: 12 });
+      recordStat(tally, { type: "gear", rarity: 2 });
+      recordStat(tally, { type: "sell" });
+      recordStat(tally, { type: "unsell" });
+      check(tally.kills === 2 && tally.elites === 1 && tally.bosses === 1 && tally.killsBy.brute === 1 && tally.killsBy.boss === 1, "kills count by kind, elites, and guardians");
+      check(tally.deepestFloor === 7 && tally.goldFound === 12 && tally.gearByRarity[2] === 1 && tally.sold === 0, "depth keeps the deepest; gold, gear, and sales add up");
+      const odd = normalizeStats({ kills: -4, playSeconds: "x", delveSeconds: 99, killsBy: { brute: 2.7 }, gearByRarity: [1, "2"] });
+      check(odd.kills === 0 && odd.playSeconds === 0 && odd.delveSeconds === 0 && odd.killsBy.brute === 2 && odd.gearByRarity[1] === 2, "a hand-edited tally clamps instead of breaking");
+      check(playTimeText(3725) === "1h 02m" && playTimeText(65) === "1m 05s" && playTimeText(9) === "9s", "play time reads as h/m/s");
+      const devWas = rt.session.devRun;
+      rt.session.devRun = false;
+      const killsWas = rt.session.stats.kills;
+      rt.questEvent({ type: "kill", archetype: "shade", floor: 1 });
+      check(rt.session.stats.kills === killsWas + 1, "a kill in play lands in the tally");
+      const statsDoc = rt.captureSaveDoc();
+      check(statsDoc.hero.stats && statsDoc.hero.stats.kills === killsWas + 1, "the tally is written with the hero");
+      statsDoc.hero.stats.kills = 4242;
+      rt.applySaveDoc(statsDoc);
+      check(rt.session.stats.kills === 4242, "the tally loads back from a ledger");
+      rt.session.stats.kills = killsWas;
+      rt.session.devRun = true;
+      rt.questEvent({ type: "kill", archetype: "shade", floor: 1 });
+      check(rt.session.stats.kills === killsWas, "dev floors count nothing");
+      rt.session.devRun = devWas;
+      check(!freshSave().hero.stats.kills && migrate({ schemaVersion: 2, hero: {} }).hero.stats.kills === 0, "old ledgers start with an empty tally");
 
       // Below ground: the guide states the loot rules; pickups float their amount.
       const depthWas = rt.session.bestDepth;

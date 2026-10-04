@@ -2,6 +2,7 @@ import { generateFloor, mixSeed } from "../sim/floorgen.js";
 import * as balance from "../sim/balance.js";
 import { freshGame as blankGame, migrate, SCHEMA } from "../sim/save.js";
 import { emptyQuests, normalizeQuests } from "../sim/quests.js";
+import { emptyStats, normalizeStats } from "../sim/lifestats.js";
 import { applyTownLight, applyDungeonLight, dungeonTheme } from "../view/lights.js";
 import { buildFloorMesh, buildColliderOverlay } from "../view/dungeon.js";
 import { tileToWorld } from "../sim/floorgen.js";
@@ -33,6 +34,7 @@ export function attachSpace(rt) {
     equipped: null,
     townUnlocks: { store: true, smith: true, trainer: true, stall: false },
     quests: emptyQuests(),
+    stats: emptyStats(),
     blade: null,
     might: 10,
     guard: 10,
@@ -186,6 +188,7 @@ export function attachSpace(rt) {
     session.townUnlocks = hero.townUnlocks;
     session.stash = doc.stash;
     session.quests = normalizeQuests(doc.quests);
+    session.stats = normalizeStats(hero.stats);
     session.nextUid = doc.nextUid;
     session.blade = session.equipped && session.equipped.weapon ? session.equipped.weapon : null;
     if (rt.clearBuyback) rt.clearBuyback();
@@ -229,7 +232,8 @@ export function attachSpace(rt) {
         hp: rt.vitals ? rt.vitals.hp : 160,
         mp: rt.vitals ? rt.vitals.mp : 80,
         bestDepth: session.bestDepth,
-        townUnlocks: session.townUnlocks
+        townUnlocks: session.townUnlocks,
+        stats: session.stats
       },
       stash: session.stash,
       quests: session.quests,
@@ -339,6 +343,7 @@ export function attachSpace(rt) {
     if (rt.fillPools) rt.fillPools();
     rt.vitals.deathLock = false;
     rt.vitals.deathLockT = 0;
+    if (!dev && rt.questEvent) rt.questEvent({ type: "delve", floor: session.run.floorIndex });
     buildAndShow(dev ? "dev" : "gate");
   }
 
@@ -423,6 +428,7 @@ export function attachSpace(rt) {
       if (rt.questEvent) rt.questEvent({ type: "extract", floor: floorIndex });
       session.bestDepth = Math.max(session.bestDepth || 0, floorIndex);
     } else if (reason === "death") {
+      if (rt.questEvent && run) rt.questEvent({ type: "death", floor: floorIndex });
       session.pack = [];
       session.purse = 0;
     }

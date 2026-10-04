@@ -70,7 +70,9 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/quests.js` | Quests | Daily notices, keeper requests, objectives, events, claims, rollover, save normalization. Pure. |
 | `src/play/quests.js` | Quests | `rt.questEvent`, take, claim, abandon, today's date. |
 | `src/ui/questlog.js` | Quests | Tracker plaque for carried quests. |
-| `src/ui/character.js` | Town | XP bar in the vitals plaque, the character sheet (I / C / portrait), loot-rule reminders. |
+| `src/ui/character.js` | Town | XP bar in the vitals plaque; the character sheet (C / portrait; I opens the Pack tab) with tabs Character (paper doll between the six worn slots, attributes, combat numbers, training, wealth), Pack (24-cell grid, loot rules), Ledger (lifetime tally); hover or focus tooltips with gear numbers and worn-vs-carried comparisons. Dev: `?dev=1&open=sheet&tab=ledger&tip=eq:weapon`. |
+| `src/sim/lifestats.js` | Town | `emptyStats`, `normalizeStats`, `recordStat`, `playTimeText`: the lifetime tally saved as `hero.stats` (time played, delves, kills by kind, falls, deepest floor, spoils, crafts, sales, quests). Pure. |
+| `src/play/lifestats.js` | Town | Feeds the tally from `rt.questEvent` and `rt.claimQuest`, counts play time by wall clock. Dev floors count nothing. |
 | `src/ui/atlas.js` | Dungeon | Explored-tile memory for the current floor (`rt.explored`, `rt.tileSeen`) and the full floor map plaque (M). |
 | `src/ui/foebars.js` | Dungeon | Health bars over wounded foes (below full only): lag chunk, ward strip, elite edge, named boss bar. |
 | `src/ui/hurtfx.js` | Combat | Red screen-edge flash on damage (scaled to the hit), low-health pulse, sets `rt.camShake`. |

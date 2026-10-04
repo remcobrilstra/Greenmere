@@ -3,6 +3,7 @@
 
 import { heirloomEquipped } from "./items.js";
 import { emptyQuests, normalizeQuests } from "./quests.js";
+import { emptyStats, normalizeStats } from "./lifestats.js";
 
 // Schema 2 adds `quests` (daily notices and keeper requests). The storage key
 // keeps its v1 name so existing ledgers are found and migrated in place.
@@ -45,7 +46,8 @@ export function freshGame() {
       hp: 160,
       mp: 80,
       bestDepth: 0,
-      townUnlocks: { store: true, smith: true, trainer: true, stall: false }
+      townUnlocks: { store: true, smith: true, trainer: true, stall: false },
+      stats: emptyStats()
     },
     stash: [],
     quests: emptyQuests(),
@@ -194,6 +196,7 @@ function normalizeV1(doc) {
   out.hero.hp = clampInt(hero.hp, 0, 1e7, out.hero.hp);
   out.hero.mp = clampInt(hero.mp, 0, 1e7, out.hero.mp);
   out.hero.pack = copyList(hero.pack, 24);
+  out.hero.stats = normalizeStats(hero.stats);
   out.stash = copyList(doc && doc.stash, 48);
   out.nextUid = clampInt(doc && doc.nextUid, 1, 1e9, 1);
   out.savedAt = Number.isFinite(doc && doc.savedAt) && doc.savedAt > 0 ? Math.floor(doc.savedAt) : 0;
