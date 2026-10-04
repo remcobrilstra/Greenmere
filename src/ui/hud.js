@@ -15,9 +15,20 @@ export function mapAngleFromPlanar(dir) {
   return Math.atan2(dir.x, -dir.z);
 }
 
+// Keys for the action slots: [key code, ability index, label]. The main bar holds
+// Strike, Ward, Mend, Draught, Focus; Extract (index 3, held) sits in its own bar
+// shown below ground. Index 5 (empty) and 7 (sprint, Shift) have no slot.
+export const ACTION_KEYS = [
+  ["Digit1", 0, "1"], ["Digit2", 1, "2"], ["Digit3", 2, "3"], ["Digit4", 4, "4"], ["Digit5", 6, "5"], ["KeyX", 3, "X"]
+];
+export const EXTRACT_KEY = "KeyX";
+
+export function keyForSlot(index) {
+  const row = ACTION_KEYS.find((r) => r[1] === index);
+  return row ? row[2] : "";
+}
+
 export function attachHud(rt) {
-  document.getElementById("blurb").textContent =
-    rt.TREE_COUNT.toLocaleString("en-US") + " trees";
 
   const abilities = [
     { id: "strike", name: "Strike", cost: 0, cd: 0.55, say: "You cut the air." },
@@ -31,11 +42,14 @@ export function attachHud(rt) {
   ];
   const cdLeft = abilities.map(() => 0);
   const vitals = { hp: 126, hpMax: 160, mp: 48, mpMax: 80 };
-  const slots = Array.from(document.querySelectorAll("#actionbar .slot"));
+  // Slots by ability index (sparse: abilities without a slot have none).
+  const slots = [];
+  for (const node of document.querySelectorAll("#actionbar .slot, #extractbar .slot")) slots[Number(node.dataset.index)] = node;
+  const extractBar = document.getElementById("extractbar");
   // Rendered icons over the drawn ones (the SVG stays when the sheet has no icon).
   slots.forEach((slot, i) => {
-    const art = abilities[i] && abilities[i].id !== "empty" ? icon(abilities[i].id) : null;
-    const svg = slot.querySelector("svg");
+    const art = slot && abilities[i] && abilities[i].id !== "empty" ? icon(abilities[i].id) : null;
+    const svg = slot && slot.querySelector("svg");
     if (art && svg) svg.replaceWith(art);
   });
   rt.hearthT = 0;
@@ -145,6 +159,7 @@ export function attachHud(rt) {
   function syncCooldowns() {
     applyRankStats();
     for (let i = 0; i < slots.length; i++) {
+      if (!slots[i]) continue;
       const total = abilities[i].cd;
       const p = total > 0 ? cdLeft[i] / total : 0;
       slots[i].style.setProperty("--p", (Math.max(0, Math.min(1, p)) * 100).toFixed(2));
@@ -559,7 +574,7 @@ export function attachHud(rt) {
       if (cdLeft[i] > 0) cdLeft[i] = Math.max(0, cdLeft[i] - dt);
     }
     if (rt.hearthT > 0) rt.hearthT = Math.max(0, rt.hearthT - dt / 1.1);
-    slots[7].classList.toggle("lit", !!(rt.keys.ShiftLeft || rt.keys.ShiftRight));
+    if (extractBar) extractBar.hidden = rt.space !== "dungeon";
     syncCooldowns();
     if (castUntil && performance.now() > castUntil) {
       castLine.textContent = "";
@@ -582,15 +597,19 @@ export function attachHud(rt) {
     stationOwnsLine = false;
     keyPrompt.hidden = true;
     castLine.textContent = "";
-    for (let i = 0; i < slots.length; i++) slots[i].classList.remove("deny", "cooling", "lit");
+    for (const slot of slots) if (slot) slot.classList.remove("deny", "cooling", "lit");
     syncVitals();
     syncCooldowns();
   }
-  document.getElementById("actionbar").addEventListener("click", (e) => {
-    const btn = e.target.closest(".slot");
-    if (!btn) return;
-    tryAbility(Number(btn.dataset.index));
-  });
+  for (const id of ["actionbar", "extractbar"]) {
+    const bar = document.getElementById(id);
+    if (!bar) continue;
+    bar.addEventListener("click", (e) => {
+      const btn = e.target.closest(".slot");
+      if (!btn) return;
+      tryAbility(Number(btn.dataset.index));
+    });
+  }
   keyPrompt.addEventListener("click", () => {
     if (!stationPrompt || stationBarred) return;
     if (rt.interactStation) rt.interactStation();

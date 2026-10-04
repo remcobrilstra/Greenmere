@@ -312,7 +312,9 @@ window.addEventListener("beforeunload", () => {
 let last = performance.now();
 let fpsAccum = 0;
 let fpsFrames = 0;
+// Frame rate, bottom left, in dev only.
 const fpsEl = document.getElementById("fps");
+if (fpsEl) fpsEl.hidden = !rt.dev;
 function takeDt(now) {
   // rAF timestamps can trail performance.now(); a negative step would run the sim backwards.
   const dt = Math.max(0, Math.min(0.033, (now - last) / 1000));
@@ -330,7 +332,7 @@ function frame(now) {
   fpsAccum += dt;
   fpsFrames++;
   if (fpsAccum >= 0.4) {
-    fpsEl.textContent = Math.round(fpsFrames / fpsAccum) + " fps";
+    if (fpsEl && !fpsEl.hidden) fpsEl.textContent = Math.round(fpsFrames / fpsAccum) + " fps";
     fpsAccum = 0;
     fpsFrames = 0;
   }

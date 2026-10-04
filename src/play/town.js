@@ -73,7 +73,7 @@ export function attachTown(rt) {
     const st = rt.stairsState ? rt.stairsState() : null;
     if (st && st.near) {
       if (st.blocked) rt.setStationPrompt("The guardian bars the stairs", { sub: "Defeat the floor's boss to descend", barred: true });
-      else rt.setStationPrompt("Descend to floor " + st.next, { sub: "or hold 4 to extract with your loot" });
+      else rt.setStationPrompt("Descend to floor " + st.next, { sub: "or hold X to extract with your loot" });
       return;
     }
     rt.setStationPrompt("");

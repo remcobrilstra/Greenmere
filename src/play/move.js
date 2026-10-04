@@ -1,3 +1,4 @@
+import { ACTION_KEYS, EXTRACT_KEY } from "../ui/hud.js";
 import * as THREE from "three";
 import { walkSpeed, sprintSpeed } from "../sim/balance.js";
 import { HALF } from "../sim/terrain.js";
@@ -238,20 +239,21 @@ export function bindKeys(rt) {
     if (typing) return;
     rt.keys[e.code] = true;
     if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
-    if (!e.repeat && e.code.length === 6 && e.code.startsWith("Digit") && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const n = e.code.charCodeAt(5) - 49;
-      if (n >= 0 && n < 8) {
-        if (n === 3 && rt.space === "dungeon") rt.extractKey = true;
-        // A Mend started from the key is a hold: letting go of 3 breaks it.
-        rt.mendKey = n === 2;
-        rt.tryAbility(n);
-        rt.mendKey = false;
-      }
+    const bound = !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey ? ACTION_KEYS.find((r) => r[0] === e.code) : null;
+    if (bound) {
+      const n = bound[1];
+      // Extract has its own bar, below ground only.
+      if (n === 3 && rt.space !== "dungeon") return;
+      if (n === 3) rt.extractKey = true;
+      // A Mend started from the key is a hold: letting go of 3 breaks it.
+      rt.mendKey = n === 2;
+      rt.tryAbility(n);
+      rt.mendKey = false;
     }
   });
   window.addEventListener("keyup", (e) => {
     rt.keys[e.code] = false;
-    if (e.code === "Digit4" && rt.releaseExtract) rt.releaseExtract();
+    if (e.code === EXTRACT_KEY && rt.releaseExtract) rt.releaseExtract();
     if (e.code === "Digit3" && rt.releaseMend) rt.releaseMend();
   });
   window.addEventListener("blur", () => {

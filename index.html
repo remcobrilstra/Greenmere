@@ -182,45 +182,51 @@
       text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
     }
     #minimap {
+      position: fixed;
+      z-index: 2;
       top: 16px;
       right: 16px;
-      width: 196px;
+      width: 184px;
       display: flex;
       flex-direction: column;
-      align-items: stretch;
-      gap: 4px;
-      padding: 8px 8px 7px;
+      align-items: center;
+      pointer-events: none;
     }
     #minimap .eyebrow {
-      padding-left: 4px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      order: 2;
+      position: relative;
+      z-index: 1;
+      max-width: 100%;
+      margin-top: -12px;
+      padding: 3px 12px 4px;
+      line-height: 1.35;
+      text-align: center;
+      text-wrap: balance;
     }
-    .map-frame { position: relative; width: 100%; aspect-ratio: 1; }
-    #map-canvas { display: block; width: 100%; height: 100%; background: #1e4a28; }
+    .map-frame { position: relative; width: 100%; aspect-ratio: 1; border-radius: 50%; }
+    #map-canvas { display: block; width: 100%; height: 100%; border-radius: 50%; background: #1e4a28; }
     .north {
       position: absolute;
-      top: 5px;
+      top: 7px;
       left: 50%;
       transform: translateX(-50%);
       color: #e2ba60;
       font-size: 12px;
       letter-spacing: 0.08em;
-      text-shadow: 0 1px 0 #1a120c;
+      text-shadow: 0 1px 0 #1a120c, 0 0 4px #1a120c;
     }
-    .map-meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      min-width: 0;
+    #fps {
+      position: fixed;
+      z-index: 5;
+      left: 10px;
+      bottom: 8px;
       margin: 0;
-      padding: 0 4px;
-      font-size: 12px;
-      letter-spacing: 0.04em;
+      font: 12px/1 Consolas, "Courier New", monospace;
       color: #e7d7b4;
+      text-shadow: 0 1px 2px #000;
+      pointer-events: none;
     }
-    .map-meta span { min-width: 0; }
+    #fps[hidden] { display: none; }
     #blurb {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -249,14 +255,16 @@
       text-shadow: 0 1px 2px rgba(20, 14, 8, 0.9);
     }
     #cast-line:empty { visibility: hidden; }
-    #actionbar {
+    .bar-row { display: flex; align-items: flex-end; justify-content: center; gap: 10px; max-width: 100%; }
+    #actionbar, #extractbar {
       display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(44px, 62px);
       gap: 5px;
-      width: min(528px, 100%);
       padding: 6px;
       pointer-events: auto;
     }
+    #extractbar[hidden] { display: none; }
     .slot {
       position: relative;
       display: flex;
@@ -838,7 +846,7 @@
     }
     .gear-cell .icon { width: 50px; height: 50px; }
     #panel .gear-cell .icon { width: 44px; height: 44px; }
-    #actionbar .slot .icon { width: 38px; height: 38px; margin-bottom: -3px; }
+    #extractbar .slot .icon, #actionbar .slot .icon { width: 38px; height: 38px; margin-bottom: -3px; }
     .chip .icon { width: 18px; height: 18px; margin: -2px 0; }
     #panel .quest-head .icon { width: 24px; height: 24px; }
     #panel .vault-sum .icon { width: 34px; height: 34px; }
@@ -1043,7 +1051,7 @@
       #minimap .eyebrow { letter-spacing: 0.14em; font-size: 10px; }
       .slot { min-height: 50px; padding-top: 12px; }
       .slot svg { width: 20px; height: 20px; }
-      .slot .name, .hint, .map-meta { font-size: 11px; }
+      .slot .name, .hint { font-size: 11px; }
       #cast-line { font-size: 13px; }
     }
     @media (max-width: 520px) {
@@ -1057,7 +1065,6 @@
       .bar em { font-size: 10px; }
       #minimap { width: 118px; }
       #minimap .eyebrow { letter-spacing: 0.08em; font-size: 9px; }
-      .map-meta { flex-direction: column; align-items: center; gap: 0; }
     }
     /* ==== Hearthwood theme ====
        Visual layer only (fonts, colour, borders, shadows); sizes stay with the rules above
@@ -1066,7 +1073,7 @@
     #hud { font-variant-numeric: lining-nums; }
 
     /* Frames */
-    .plaque, #actionbar, #key-prompt, #barks .bark {
+    .plaque, #actionbar, #extractbar, #key-prompt, #barks .bark {
       background: var(--frame-bg);
       border: 1px solid #000;
       box-shadow: var(--frame-shadow);
@@ -1110,7 +1117,10 @@
       border-color: var(--brass);
       box-shadow: 0 0 0 2px var(--wood-3), 0 0 0 3px var(--brass-lo), inset 0 0 12px rgba(0, 0, 0, 0.7);
     }
-    #map-canvas { box-shadow: 0 0 0 1px var(--brass-lo), 0 0 0 3px var(--wood-3); }
+    /* The round minimap: a brass ring, a dark band, a fine outer line */
+    .map-frame { box-shadow: 0 0 0 2px var(--brass), 0 0 0 5px var(--wood-2), 0 0 0 6px var(--brass-lo), 0 8px 24px rgba(0, 0, 0, 0.45); }
+    #map-canvas { box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.55); }
+    #minimap .eyebrow { background: var(--grain), linear-gradient(180deg, rgba(43, 29, 18, 0.96), rgba(20, 13, 8, 0.95)); border: 1px solid #000; box-shadow: inset 0 0 0 1px var(--brass-lo), 0 4px 10px rgba(0, 0, 0, 0.4); color: var(--brass-hi); }
 
     /* Bars: recessed track, glossy fill */
     .bar {
@@ -1143,8 +1153,8 @@
     .slot .name { color: var(--ink-2); }
 
     /* Action bar: lighter faces so the cooldown sweep reads; sweep has a bright leading edge and a countdown */
-    #actionbar .slot { background: radial-gradient(circle at 50% 35%, #4a3523, #22170e 80%); }
-    #actionbar .slot:active { background: radial-gradient(circle at 50% 35%, #3a2a1c, #160f09 80%); }
+    #actionbar .slot, #extractbar .slot { background: radial-gradient(circle at 50% 35%, #4a3523, #22170e 80%); }
+    #actionbar .slot:active, #extractbar .slot:active { background: radial-gradient(circle at 50% 35%, #3a2a1c, #160f09 80%); }
     .slot .sweep {
       background: conic-gradient(from -90deg,
         rgba(0, 0, 0, 0.8) calc(var(--p) * 1%),
@@ -1251,19 +1261,16 @@
         </div>
       </div>
     </section>
-    <section id="minimap" class="plaque" aria-label="Minimap">
+    <section id="minimap" aria-label="Minimap">
       <p class="eyebrow">The Outer Wood</p>
       <div class="map-frame">
         <canvas id="map-canvas" width="360" height="360" aria-label="Wood around the warden. North is up."></canvas>
         <span class="north">N</span>
       </div>
-      <p class="map-meta">
-        <span id="blurb">— trees</span>
-        <span id="fps">— fps</span>
-      </p>
     </section>
     <div id="dock">
       <p id="cast-line" role="status"></p>
+      <div class="bar-row">
       <div id="actionbar" role="toolbar" aria-label="Actions">
         <button type="button" class="slot" data-index="0" title="Strike" aria-keyshortcuts="1" aria-label="Strike">
           <span class="key">1</span>
@@ -1283,45 +1290,38 @@
           <span class="sweep"></span>
           <span class="name">Mend</span>
         </button>
-        <button type="button" class="slot" data-index="3" title="Hearth" aria-keyshortcuts="4" aria-label="Hearth">
+        <button type="button" class="slot" data-index="4" title="Draught" aria-keyshortcuts="4" aria-label="Draught">
           <span class="key">4</span>
-          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 22,14 20,14 24,24 8,24 12,14 10,14" fill="#ff8a2a"/><polygon points="16,11 19,18 16,22 13,18" fill="#ffe08a"/></svg>
-          <span class="sweep"></span>
-          <span class="name">Hearth</span>
-        </button>
-        <button type="button" class="slot" data-index="4" title="Draught" aria-keyshortcuts="5" aria-label="Draught">
-          <span class="key">5</span>
           <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="13,3 19,3 18,8 14,8" fill="#d4a03a"/><polygon points="11,8 21,8 23,26 9,26" fill="#8e2e28"/><polygon points="13,14 19,14 20,24 12,24" fill="#d45a4a"/></svg>
           <span class="sweep"></span>
           <span class="name">Draught</span>
         </button>
-        <button type="button" class="slot empty" data-index="5" aria-keyshortcuts="6" aria-label="Empty slot">
-          <span class="key">6</span>
-          <span class="sweep"></span>
-          <span class="name"></span>
-        </button>
-        <button type="button" class="slot" data-index="6" title="Focus" aria-keyshortcuts="7" aria-label="Focus">
-          <span class="key">7</span>
+        <button type="button" class="slot" data-index="6" title="Focus" aria-keyshortcuts="5" aria-label="Focus">
+          <span class="key">5</span>
           <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,8 28,16 16,24 4,16" fill="#f4e7c8"/><polygon points="16,11 23,16 16,21 9,16" fill="#1c3f8c"/><polygon points="16,14 18,16 16,18 14,16" fill="#1a1a1a"/></svg>
           <span class="sweep"></span>
           <span class="name">Focus</span>
         </button>
-        <button type="button" class="slot" data-index="7" title="Sprint. Hold Shift." aria-keyshortcuts="Shift" aria-label="Sprint. Hold Shift.">
-          <span class="key">8</span>
-          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="8,14 18,14 18,18 26,20 26,24 6,24 6,18" fill="#241c18"/><polygon points="8,14 14,8 18,8 18,14" fill="#3a2a22"/></svg>
+      </div>
+      <div id="extractbar" role="toolbar" aria-label="Extract" hidden>
+        <button type="button" class="slot" data-index="3" title="Hearth" aria-keyshortcuts="X" aria-label="Hearth">
+          <span class="key">X</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 22,14 20,14 24,24 8,24 12,14 10,14" fill="#ff8a2a"/><polygon points="16,11 19,18 16,22 13,18" fill="#ffe08a"/></svg>
           <span class="sweep"></span>
-          <span class="name">Sprint</span>
+          <span class="name">Hearth</span>
         </button>
+      </div>
       </div>
       <p class="hint">
         <span><b>WASD</b> or arrows move</span>
         <span><b>Drag</b> to orbit</span>
         <span><b>Wheel</b> zoom</span>
         <span><b>Shift</b> run</span>
-        <span><b>1–8</b> act</span>
+        <span><b>1–5</b> act</span>
       </p>
     </div>
   </div>
+  <p id="fps" hidden>— fps</p>
   <pre id="test-out"></pre>
 
   <script type="importmap">

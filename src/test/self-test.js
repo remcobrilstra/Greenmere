@@ -221,7 +221,7 @@ export function installSelfTest(rt) {
       check(open === 0, name + " is a closed shell (" + open + " open edges)");
     }
 
-    check(slots.length === 8 && abilities.length === 8, "eight action slots");
+    check(slots.filter(Boolean).length === 6 && abilities.length === 8, "six action slots: five on the bar, Extract in its own");
     check(!!document.getElementById("hp-bar") && !!document.getElementById("mp-bar") && !!mapCanvas, "vitals and minimap are in the page");
 
     vitals.hp = 100;
@@ -306,12 +306,11 @@ export function installSelfTest(rt) {
     slots[3].click();
     check(rt.hearthT === 1 && castLine.textContent === "The campfire answers.", "Hearth click rings the campfire");
 
-    keys.ShiftLeft = true;
     tickHud(0.016);
-    check(slots[7].classList.contains("lit"), "Shift lights the Sprint slot");
-    keys.ShiftLeft = false;
-    tickHud(0.016);
-    check(!slots[7].classList.contains("lit"), "releasing Shift clears Sprint");
+    const barSlots = Array.from(document.querySelectorAll("#actionbar .slot")).map((n) => n.querySelector(".key").textContent + ":" + n.querySelector(".name").textContent);
+    check(barSlots.join(",") === "1:Strike,2:Ward,3:Mend,4:Draught,5:Focus", "the action bar holds Strike, Ward, Mend, Draught, Focus on 1 to 5 (" + barSlots.join(",") + ")");
+    check(!document.querySelector("#actionbar .slot.empty") && !document.querySelector('[data-index="7"]'), "no empty slot and no Sprint slot (Shift runs)");
+    check(document.getElementById("extractbar").hidden, "the Extract bar is hidden in town");
 
     resetHero(0, 0, 0);
     const origin = worldToMap(0, 0);
@@ -958,7 +957,7 @@ export function installSelfTest(rt) {
       rt.suspendCombat = true;
       rt.startRun(11, 1);
       rt.tickHud(0.016);
-      check(!guideNode.hidden && guideNode.textContent.indexOf("hold 4") >= 0, "below ground the guide explains extracting");
+      check(!guideNode.hidden && guideNode.textContent.indexOf("hold X") >= 0, "below ground the guide explains extracting");
       let floated = "";
       const pushWas = rt.pushFloater;
       rt.pushFloater = (t) => { floated = t; };
@@ -1508,7 +1507,7 @@ export function installSelfTest(rt) {
     cdLeft[5] = 0;
     const emptySlot = tryAbility(5);
     check(!emptySlot.ok && emptySlot.reason === "empty" && vitals.mp === 5 && cdLeft[5] === 0, "slot 6 is empty and does nothing");
-    check(slots[5].classList.contains("empty") && slots[5].getAttribute("aria-label") === "Empty slot" && !rt.abilityTip(5), "the empty slot is labelled and has no tooltip");
+    check(!slots[5] && !rt.abilityTip(5), "the unused ability has no slot and no tooltip");
     // Debug keys: F2 hides the UI, F3 reports where the Warden is.
     if (rt.setUiHidden && rt.locationReport) {
       window.dispatchEvent(new KeyboardEvent("keydown", { code: "F2", bubbles: true }));
@@ -1652,6 +1651,11 @@ export function installSelfTest(rt) {
     const eyebrowNode = document.querySelector("#minimap .eyebrow");
     check(eyebrowNode && eyebrowNode.textContent === "Floor 1 · Mossy Caves", "minimap eyebrow reads Floor 1 · Mossy Caves");
     check(slots[3].querySelector(".name").textContent === "Extract", "slot 4 is Extract in the dungeon");
+    rt.tickHud(0.016);
+    const xBar = document.getElementById("extractbar");
+    const xBox = xBar.getBoundingClientRect();
+    const mainBox = document.getElementById("actionbar").getBoundingClientRect();
+    check(!xBar.hidden && xBox.left >= mainBox.right && slots[3].querySelector(".key").textContent === "X", "below ground Extract shows in its own bar right of the action bar, on X");
     let dungeonFlatMiss = [];
     rt.dungeonRoot.traverse((o) => {
       if (!o.material) return;
@@ -1902,7 +1906,7 @@ export function installSelfTest(rt) {
     rt.extractKey = false;
     const channel = tryAbility(3);
     check(channel.ok && channel.reason === "channel" && castLine.textContent === "The hearth pulls…", "slot 4 channels Extract");
-    window.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit4", bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyX", bubbles: true }));
     rt.stepCombat(0.05);
     check(rt.space === "dungeon" && rt.session.run, "a click channel ignores a key release");
     rt.cancelExtract();
@@ -2586,7 +2590,7 @@ export function installSelfTest(rt) {
     check(abilities[4].id === "draught" && slots[4].querySelector(".name").textContent === "Draught", "slot 5 is Draught");
     vitals.hp = 100;
     rt.session.pack = [];
-    tap("Digit5");
+    tap("Digit4");
     check(vitals.hp === 100 && castLine.textContent === "You have no draught." && slots[4].classList.contains("deny"), "an empty pack shakes slot 5 and says you have no draught");
     rt.session.pack = [{
       uid: "mp-only",
@@ -2599,7 +2603,7 @@ export function installSelfTest(rt) {
       affixes: [],
       name: "Mana Draught"
     }];
-    tap("Digit5");
+    tap("Digit4");
     check(vitals.hp === 100 && rt.session.pack[0].stack === 1, "slot 5 does not drink a mana draught");
     rt.session.pack = [{
       uid: "hp-1",
@@ -2613,7 +2617,7 @@ export function installSelfTest(rt) {
       name: "Health Draught"
     }];
     cdLeft[4] = 0;
-    tap("Digit5");
+    tap("Digit4");
     check(vitals.hp === 145 && rt.session.pack.length === 0 && cdLeft[4] === 0, "slot 5 drinks one health draught for 45");
     rt.session.pack = [{
       uid: "hp-2",

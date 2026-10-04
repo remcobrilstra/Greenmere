@@ -198,7 +198,7 @@ export function attachCharacter(rt) {
     body.appendChild(el("p", "sheet-line muted", "▲ would raise your numbers if worn.  ·  Stash " + stash + " / 48, safe at the Counting House."));
     body.appendChild(el("p", "section-label", "How loot works"));
     body.appendChild(el("p", "sheet-line", "Gold, materials, and gear drop where foes fall. Walk over them to pick them up; gear needs room in the pack."));
-    body.appendChild(el("p", "sheet-line", "Hold 4 below ground, standing still, to extract: everything you carry comes home."));
+    body.appendChild(el("p", "sheet-line", "Hold X below ground, standing still, to extract: everything you carry comes home."));
     body.appendChild(el("p", "sheet-line", "Fall in the Underwood and you lose your pack and purse. Worn gear, materials, the bank, and the stash are always kept."));
   }
 
@@ -371,8 +371,8 @@ export function attachCharacter(rt) {
     const typing = e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA");
     if (typing || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code === "KeyC") setOpen(!rt.sheetOpen);
-    else if (e.code === "KeyI") {
-      // I opens straight onto the pack.
+    else if (e.code === "KeyI" || e.code === "KeyP") {
+      // I or P opens straight onto the pack.
       if (rt.sheetOpen && rt.sheetTab === "pack") setOpen(false);
       else {
         rt.sheetTab = "pack";

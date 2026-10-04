@@ -18,6 +18,7 @@ import {
   extractSeconds
 } from "../sim/balance.js";
 import { DRAUGHT_HEAL } from "./panels.js";
+import { keyForSlot } from "./hud.js";
 
 function fmt(n) {
   return String(Math.round(n * 100) / 100);
@@ -41,7 +42,7 @@ function draughtCount(rt) {
 // { name, key, meta: [..small facts], body: "what it does", note? }
 export function abilityTip(rt, index) {
   const below = rt.space === "dungeon";
-  const key = String(index + 1);
+  const key = keyForSlot(index);
   switch (index) {
     case 0: {
       const r = rank(rt, "edge");
@@ -76,7 +77,7 @@ export function abilityTip(rt, index) {
         return {
           name: "Extract", key,
           meta: [fmt(extractSeconds(rank(rt, "delver"))) + " s channel"],
-          body: "Hold and stand still to hearth home to Greenmere with your pack and purse.",
+          body: "Hold " + key + " and stand still to hearth home to Greenmere with your pack and purse.",
           note: "Moving or taking a hit breaks it. Falling down here loses what you carry."
         };
       }
@@ -114,7 +115,7 @@ export function abilityTip(rt, index) {
 }
 
 export function attachAbilityTips(rt) {
-  const slots = Array.from(document.querySelectorAll("#actionbar .slot"));
+  const slots = Array.from(document.querySelectorAll("#actionbar .slot, #extractbar .slot"));
   if (!slots.length) return;
   const tip = document.createElement("div");
   tip.id = "ability-tip";
