@@ -1,11 +1,19 @@
 // Villagers: one merged body (torso, head, hair, hat, apron) and four limb
 // pivots, all on one vertex-colour Lambert material. Local forward is −z, like
-// the hero. They are built from code first; once the Blender part library
-// (assets/models/villager.glb, tools/blender/villagers.py) loads, every
-// villager is re-skinned from it, painted from their own `look`. The rig,
-// pivots and poses are the same either way.
+// the hero. They are built from code first, then dressed from Blender:
+//
+// - Skinned (docs/characters.md, phase 3): assets/models/folk.glb from
+//   tools/blender/humans.py build_folk(), the human skeleton and its pieces (body,
+//   hair styles, beard, tunic, dress, apron, trousers, shoes, hats). Each villager
+//   gets its own copy of the skeleton and one skinned mesh merged from the pieces its
+//   look calls for, painted from the look. poseVillager keeps posing the limb groups
+//   and retargets them onto the bones.
+// - Otherwise the older part library (assets/models/villager.glb,
+//   tools/blender/villagers.py) re-skins the code-built body and limbs.
 
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
 import { loadPartLibrary, paintParts, swapGeometry } from "./partlib.js";
@@ -33,6 +41,18 @@ export function villagerPartsReady() {
 function requestLibrary() {
   if (libraryAsked) return;
   libraryAsked = true;
+  loadFolk().then((ok) => {
+    if (ok) {
+      partMat = lambert({ side: THREE.DoubleSide });
+      for (const v of waiting.splice(0)) dressSkinned(v);
+      markReady(true);
+      return;
+    }
+    loadParts();
+  });
+}
+
+function loadParts() {
   loadPartLibrary("./assets/models/villager.glb", "vp_").then((lib) => {
     library = lib;
     partMat = lambert({ side: THREE.DoubleSide });
@@ -42,6 +62,147 @@ function requestLibrary() {
     console.warn("[townfolk] villager parts did not load; keeping the code-built villagers", err);
     markReady(false);
   });
+}
+
+
+// ---------- skinned villagers (folk.glb) ----------
+
+let folk = null;
+const A_POSE = (40 * Math.PI) / 180;
+const FOREARM_BEND = 0.28;
+
+function loadFolk() {
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  return loader.loadAsync("./assets/models/folk.glb").then((gltf) => {
+    const pieces = {};
+    let template = null;
+    gltf.scene.traverse((o) => {
+      if (!o.isSkinnedMesh || !o.name.startsWith("fk_")) return;
+      pieces[o.name.slice(3)] = o.geometry;
+      if (!template) template = o;
+    });
+    if (!template) return false;
+    gltf.scene.updateMatrixWorld(true);
+    const bones = template.skeleton.bones;
+    const rootBone = bones.find((b) => !b.parent || !b.parent.isBone);
+    // rest orientation of every bone in the skeleton's own space (above the root bone)
+    const rest = {};
+    for (const b of bones) {
+      const w0 = b.quaternion.clone();
+      for (let q = b.parent; q && q.isBone; q = q.parent) w0.premultiply(q.quaternion);
+      if (rootBone.parent) w0.premultiply(rootBone.parent.quaternion);
+      rest[b.name] = { l0: b.quaternion.clone(), w0, w0i: w0.clone().invert() };
+    }
+    folk = { pieces, bones, rootBone, inverses: template.skeleton.boneInverses, bindMatrix: template.bindMatrix.clone(), rest };
+    return true;
+  }).catch((err) => {
+    console.warn("[townfolk] folk.glb did not load; falling back to the villager parts", err);
+    return false;
+  });
+}
+
+function folkPieces(look) {
+  const hat = look.hat || "none";
+  const out = ["core", "tunic", "trousers", "shoes"];
+  if (hat === "long") out.push("hair_long");
+  else if (hat === "bun") out.push("hair_bun");
+  else if (hat !== "hood") out.push("hair_short");
+  if (hat === "cap" || hat === "brim" || hat === "hood" || hat === "kerchief") out.push("hat_" + hat);
+  if (look.dress) out.push("dress");
+  if (look.apron) out.push("apron");
+  if (look.beard) out.push("beard");
+  return out;
+}
+
+// One non-indexed geometry from the chosen pieces (they share the skeleton's joints).
+function mergeFolk(names, pal) {
+  const list = names.map((n) => folk.pieces[n]).filter(Boolean);
+  let count = 0;
+  for (const g of list) count += g.index ? g.index.count : g.attributes.position.count;
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const si = new Uint16Array(count * 4);
+  const sw = new Float32Array(count * 4);
+  let o = 0;
+  for (const g of list) {
+    const idx = g.index;
+    const n = idx ? idx.count : g.attributes.position.count;
+    const P = g.attributes.position;
+    const C = g.attributes.color;
+    const I = g.attributes.skinIndex;
+    const W = g.attributes.skinWeight;
+    for (let i = 0; i < n; i++) {
+      const v = idx ? idx.getX(i) : i;
+      const k = o + i;
+      pos[k * 3] = P.getX(v);
+      pos[k * 3 + 1] = P.getY(v);
+      pos[k * 3 + 2] = P.getZ(v);
+      const c = pal[Math.min(pal.length - 1, Math.floor((C ? C.getX(v) : 0) * 16))];
+      const shadeK = C ? C.getY(v) : 1;
+      col[k * 3] = c.r * shadeK;
+      col[k * 3 + 1] = c.g * shadeK;
+      col[k * 3 + 2] = c.b * shadeK;
+      si[k * 4] = I.getX(v); si[k * 4 + 1] = I.getY(v); si[k * 4 + 2] = I.getZ(v); si[k * 4 + 3] = I.getW(v);
+      sw[k * 4] = W.getX(v); sw[k * 4 + 1] = W.getY(v); sw[k * 4 + 2] = W.getZ(v); sw[k * 4 + 3] = W.getW(v);
+    }
+    o += n;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  geo.setAttribute("skinIndex", new THREE.BufferAttribute(si, 4));
+  geo.setAttribute("skinWeight", new THREE.BufferAttribute(sw, 4));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const _fq = new THREE.Quaternion();
+const _fr = new THREE.Quaternion();
+const _corrL = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), A_POSE);
+const _corrR = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -A_POSE);
+const _bend = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), FOREARM_BEND);
+
+function dressSkinned(v) {
+  const geo = mergeFolk(folkPieces(v.look), lookPalette(v.look));
+  const root = folk.rootBone.clone(true);
+  const byName = {};
+  root.traverse((b) => { if (b.isBone) byName[b.name] = b; });
+  const bones = folk.bones.map((b) => byName[b.name]);
+  const mesh = new THREE.SkinnedMesh(geo, partMat);
+  mesh.add(root);
+  mesh.bind(new THREE.Skeleton(bones, folk.inverses), folk.bindMatrix);
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  mesh.name = "folkSkin";
+  v.body.add(mesh);
+  v.torso.visible = false;
+  for (const g of [v.leftArm, v.rightArm, v.leftLeg, v.rightLeg]) g.children[0].visible = false;
+  const find = (name) => byName[name] || byName[name.replace(/[.[\]:/]/g, "")];
+  const link = (group, name, corr) => {
+    const key = find(name) ? find(name).name : name;
+    return { group, b: find(name), r: folk.rest[key], corr };
+  };
+  v.skin = {
+    mesh,
+    links: [link(v.leftLeg, "thigh.L", null), link(v.rightLeg, "thigh.R", null),
+      link(v.leftArm, "upperArm.L", _corrL), link(v.rightArm, "upperArm.R", _corrR)],
+    fixed: [link(null, "forearm.L", null), link(null, "forearm.R", null)]
+  };
+  v.reskinned = true;
+}
+
+// bone = rest · w0⁻¹ · (R · C) · w0: the code group's rotation onto its bone.
+function retargetFolk(v) {
+  for (const l of v.skin.links) {
+    _fr.copy(l.group.quaternion);
+    if (l.corr) _fr.multiply(l.corr);
+    _fq.copy(l.r.w0i).multiply(_fr).multiply(l.r.w0);
+    l.b.quaternion.copy(l.r.l0).multiply(_fq);
+  }
+  for (const l of v.skin.fixed) {
+    _fq.copy(l.r.w0i).multiply(_bend).multiply(l.r.w0);
+    l.b.quaternion.copy(l.r.l0).multiply(_fq);
+  }
 }
 
 function partsFor(look) {
@@ -165,8 +326,9 @@ export function buildVillager(look, seed) {
   const leftArm = limb(armParts(), -0.4, 1.33);
   const rightArm = limb(armParts(), 0.4, 1.33);
   root.scale.setScalar(s);
-  const v = { root, body, leftLeg, rightLeg, leftArm, rightArm, torso, look, reskinned: false };
-  if (library) reskin(v);
+  const v = { root, body, leftLeg, rightLeg, leftArm, rightArm, torso, look, reskinned: false, skin: null };
+  if (folk && partMat) dressSkinned(v);
+  else if (library) reskin(v);
   else {
     waiting.push(v);
     requestLibrary();
@@ -176,6 +338,11 @@ export function buildVillager(look, seed) {
 
 // Pose one villager. phase: walk cycle; blend 0..1 walking; work: arm loop name.
 export function poseVillager(v, phase, blend, time, work) {
+  poseLimbs(v, phase, blend, time, work);
+  if (v.skin) retargetFolk(v);
+}
+
+function poseLimbs(v, phase, blend, time, work) {
   const swing = Math.sin(phase) * 0.75 * blend;
   v.leftLeg.rotation.x = swing;
   v.rightLeg.rotation.x = -swing;

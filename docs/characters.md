@@ -83,8 +83,14 @@ twist and lunge, aim, the hearth channel) write on top of the mixer each frame, 
 - Phase 2 done: 35 pieces (`WD_PIECES`), shown and painted per worn slot and tier by
   `dress()` (coat, hood, mantle, pauldrons, cape, gems and runes; helm, circlets,
   crown and halo; boots, knee cops, greaves and rings, spikes; necklace and pendants).
-  Weapons, shields and the relic charm are still the piece-built ones (`hero.glb`),
-  carried on the hand and forearm bones.
+  Swords and shields per tier are pieces too, modelled in the idle hold on hand.R
+  and forearm.L; the relic charm is still the piece-built one, scaled down.
+- Phase 3 done: `assets/models/folk.glb` (`build_folk`), the same skeleton with
+  villager pieces (body, three hair styles, beard, tunic, dress, apron, trousers,
+  shoes, cap, brim, hood, kerchief) coloured with the villager look slots.
+  `src/view/townfolk.js` gives each villager a cloned skeleton and one skinned mesh
+  merged from its pieces, painted from its look; `poseVillager` retargets the limb
+  groups onto the bones, so every work loop carries over. One draw per villager.
 
 ## Phases
 

@@ -294,28 +294,36 @@ def hm_head(fig, hood=False, hair=True):
     kit.box("mouth", h * 0.14, h * 0.022, h * 0.026, [HM_LIP[0]], m.x, m.y - h * 0.024, m.z + h * 0.004)
     fig.from_kit(kit, ("rigid", "head"))
     if S["beard"]:
-        # beard: the jaw and chin loops pushed out, a moustache over the mouth
-        bf = []
-        loops = HM_HEAD_LOOPS
-        ring = []
-        for li, push in ((0, 0.07), (1, 0.06), (2, 0.04), (3, 0.02)):
-            y, pts = loops[li]
-            row = [(x * hm_loop_k(S, y) * (1.04 + push), z - push * (1 if z < 0 else 0.3)) for x, z in pts[:4]]
-            full = [(-x, z) for x, z in reversed(row[1:])] + row
-            ring.append([U(x, y - (0.05 if li == 0 else 0), z) for x, z in full])
-        bv = [p for r in ring for p in r]
-        w = len(ring[0])
-        for li in range(len(ring) - 1):
-            for k in range(w - 1):
-                a = li * w + k
-                bf.append((a, a + 1, a + 1 + w, a + w))
-        fig.add(bv, bf, [HM_HAIR[k % len(HM_HAIR)] for k in range(len(bf))], ("rigid", "head"))
-        mo = U(0, 0.29, -0.4)
-        for s in (-1, 1):
-            kit.box("stache", h * 0.13, h * 0.04, h * 0.04, HM_HAIR, mo.x + s * h * 0.065, mo.y, mo.z, rz=s * 0.25)
-        fig.from_kit(kit, ("rigid", "head"))
+        hm_beard(fig)
     if hair and not hood:
         hm_hair(fig, U, S["hair"], h, S)
+
+
+def hm_beard(fig):
+    """The jaw and chin loops pushed out into a beard, a moustache over the mouth."""
+    S = fig.S
+    U, h = hm_head_frame(fig)
+    bf = []
+    loops = HM_HEAD_LOOPS
+    rows = []
+    for li, push in ((0, 0.07), (1, 0.06), (2, 0.04), (3, 0.02)):
+        y, pts = loops[li]
+        row = [(x * hm_loop_k(S, y) * (1.04 + push), z - push * (1 if z < 0 else 0.3)) for x, z in pts[:4]]
+        full = [(-x, z) for x, z in reversed(row[1:])] + row
+        rows.append([U(x, y - (0.05 if li == 0 else 0), z) for x, z in full])
+    bv = [p for r in rows for p in r]
+    w = len(rows[0])
+    for li in range(len(rows) - 1):
+        for k in range(w - 1):
+            a = li * w + k
+            bf.append((a, a + 1, a + 1 + w, a + w))
+    fig.add(bv, bf, [HM_HAIR[k % len(HM_HAIR)] for k in range(len(bf))], ("rigid", "head"))
+    kit = Kit(0)
+    kit.r = fig.rnd
+    mo = U(0, 0.29, -0.4)
+    for s_ in (-1, 1):
+        kit.box("stache", h * 0.13, h * 0.04, h * 0.04, HM_HAIR, mo.x + s_ * h * 0.065, mo.y, mo.z, rz=s_ * 0.25)
+    fig.from_kit(kit, ("rigid", "head"))
 
 
 def hm_head_frame(fig):
@@ -918,10 +926,10 @@ WD_SLOT_HEX = {
 }
 
 
-def wd_slot_lookup():
+def wd_slot_lookup(slot_hex=None):
     exact = {}
     refs = []
-    for name, hexes in WD_SLOT_HEX.items():
+    for name, hexes in (slot_hex or WD_SLOT_HEX).items():
         for hx in hexes:
             c = hexc(hx)
             exact[tuple(round(v, 5) for v in c)] = name
@@ -961,14 +969,15 @@ def hm_armature(fig, name, coll):
     return rig
 
 
-def hm_mesh(fig, name, coll, rig, slots=False):
+def hm_mesh(fig, name, coll, rig, slots=False, slot_names=None, slot_hex=None):
     """The figure as one mesh weighted to `rig`. slots=True writes colour-slot codes into
     the "base" attribute (for bake_slot_ao); otherwise plain colours into "Col"."""
     children = {}
     for bn in HM_BONES:
         if bn[3]:
             children.setdefault(bn[3], []).append(bn)
-    slot_of = wd_slot_lookup() if slots else None
+    slot_of = wd_slot_lookup(slot_hex) if slots else None
+    slot_names = slot_names or HERO_SLOTS
     verts, faces, cols, groups = [], [], [], []
     for part in fig.parts:
         base = len(verts)
@@ -989,7 +998,7 @@ def hm_mesh(fig, name, coll, rig, slots=False):
     for poly in me.polygons:
         c = cols[poly.index]
         if slots:
-            rgb = ((HERO_SLOTS.index(slot_of(c)) + 0.5) / 16, 1.0, 0.0)
+            rgb = ((slot_names.index(slot_of(c)) + 0.5) / 16, 1.0, 0.0)
         else:
             rgb = hexc(c) if isinstance(c, int) else c
         for _ in poly.loop_indices:
@@ -1732,3 +1741,163 @@ def render_clips(frames=None, out_dir=None, w=520, h=640, names=None, yaw=230):
         if o.type == 'MESH' and "Col" in o.data.color_attributes:
             o.data.color_attributes.active_color = o.data.color_attributes["Col"]
     return files
+
+
+# ---------------------------------------------------------------- townsfolk (phase 3)
+#
+#   g["build_folk"]()   -> assets/models/folk.glb
+#
+# The villagers' skeleton (HM_BONES, the "folk" style) and their pieces "fk_<piece>",
+# coloured with the villager look slots (FOLK_SLOTS, view/townfolk.js SLOTS):
+# view/townfolk.js merges the pieces a look calls for into one skinned mesh per villager
+# and paints it from the look.
+
+FOLK_SLOTS = ["tunic", "tunicDark", "trim", "skin", "hair", "leather", "boots", "eye", "linen", "apron",
+              "trousers", "hat", "gold", "lip", "skinShade", "white"]
+HM_APRON = [0xe9dcc0]
+HM_HAT = [0x5b3b26]
+FOLK_SLOT_HEX = {
+    "tunic": HM_LINEN, "tunicDark": HM_LINEN_D, "trim": HM_TRIM,
+    "skin": HM_SKIN + [shade(HM_SKIN[0], 0.96), shade(HM_SKIN[0], 0.92)],
+    "hair": HM_HAIR, "leather": HM_WRAPS + HM_LEATHER, "boots": HM_BOOT + [shade(HM_BOOT[0], 0.7)],
+    "eye": HM_EYE, "apron": HM_APRON, "trousers": HM_TROUSERS, "hat": HM_HAT,
+    "lip": HM_LIP + [shade(HM_LIP[0], 0.62)], "white": [0xf4f0e8, 0xf2ece0],
+}
+HM_STYLES["folk"] = dict(height=1.92, head=0.34, build=1.04, shoulders=0.23, hands=1.05, feet=1.05, facet=1,
+                         jaw=0.8, nose=1.05, eye=0.022, brow=1.0, beard=False, hair="short", head_sub=0)
+
+
+def fk_hair(f, kind):
+    U, h = hm_head_frame(f)
+    hm_hair(f, U, "swept" if kind == "long" else "short", h, f.S)
+    kit = Kit(0)
+    kit.r = f.rnd
+    if kind == "long":
+        p = U(0, 0.3, 0.36)
+        kit.box("h", h * 0.62, h * 0.7, h * 0.12, HM_HAIR, p.x, p.y, p.z, rx=0.15)
+        for s_ in (-1, 1):
+            q = U(s_ * 0.36, 0.32, 0.1)
+            kit.box("h", h * 0.1, h * 0.55, h * 0.3, HM_HAIR, q.x, q.y, q.z)
+    elif kind == "bun":
+        p = U(0, 0.92, 0.36)
+        blob(kit, "h", h * 0.17, lambda n, pp: hm_tone(HM_HAIR, f.rnd), p.x, p.y, p.z, 1, 0.9, 1, noise=0.06, subdiv=1, seed=8)
+    f.from_kit(kit, ("rigid", "head"))
+
+
+def fk_dress(f):
+    """A long skirt from the waist to the ankles over the tunic."""
+    S, j, rnd = f.S, f.j, f.rnd
+    b = S["build"] * 1.22
+    J = {"waist": j["pelvis"] + Vector((0, 0.06, 0)), "knee": (j["knL"] + j["knR"]) / 2, "hem": (j["anL"] + j["anR"]) / 2 + Vector((0, 0.06, 0))}
+    R = {"waist": (0.19 * b, 0.145 * b), "knee": (0.26 * b, 0.2 * b), "hem": (0.3 * b, 0.24 * b)}
+    v, fc = hm_skin_shell("dress", J, [("waist", "knee"), ("knee", "hem")], R, "waist", levels=1,
+                          open_ends=[(J["hem"], Vector((0, -1, 0)), 0.4), (J["waist"], Vector((0, 1, 0)), 0.3)])
+    f.add(v, fc, hm_paint(f, v, fc, lambda c, n: hm_tone(HM_LINEN if c.y > J["hem"].y + 0.06 else HM_TRIM, rnd)), ("skirt", None))
+
+
+def fk_apron(f):
+    S, j = f.S, f.j
+    b = S["build"] * 1.2
+    rows, cols = 6, 4
+    top = j["chest"].y - 0.02
+    low = j["kn" + "L"].y - 0.05
+    v, fc = [], []
+    for r in range(rows + 1):
+        y = top + (low - top) * r / rows
+        # hug the chest, then hang straight in front of the skirt
+        z = -0.16 * b - 0.012 - (0.04 * b * max(0.0, (j["pelvis"].y - y)) / 0.4)
+        w = 0.13 * b + 0.05 * (r / rows)
+        for q in range(cols + 1):
+            u = q / cols * 2 - 1
+            v.append(Vector((u * w, y, z + 0.03 * u * u)))
+    for r in range(rows):
+        for q in range(cols):
+            a = r * (cols + 1) + q
+            fc.append((a, a + 1, a + cols + 2, a + cols + 1))
+    f.add(v, fc, [HM_APRON[0]] * len(fc), ("skirt", None))
+
+
+def fk_hat(f, kind):
+    S, j, rnd = f.S, f.j, f.rnd
+    U, h = hm_head_frame(f)
+    kit = Kit(0)
+    kit.r = rnd
+    if kind == "cap":
+        c = U(0, 0.84, 0.02)
+        dk_lathe(kit, "hat", [(h * 0.46, c.y - h * 0.06), (h * 0.47, c.y + h * 0.06), (h * 0.36, c.y + h * 0.16), (0, c.y + h * 0.2)], 10, HM_TRIM, c.x, c.z)
+        p = U(0, 0.82, -0.5)
+        kit.box("hat", h * 0.5, h * 0.035, h * 0.24, HM_TRIM, p.x, p.y, p.z, rx=-0.15)
+    elif kind == "brim":
+        c = U(0, 0.86, 0.0)
+        dk_lathe(kit, "hat", [(h * 0.95, c.y - h * 0.02), (h * 0.95, c.y + h * 0.02)], 14, HM_HAT, c.x, c.z)
+        dk_lathe(kit, "hat", [(h * 0.42, c.y), (h * 0.4, c.y + h * 0.28), (h * 0.33, c.y + h * 0.34), (0, c.y + h * 0.36)], 10, HM_HAT, c.x, c.z)
+        dk_lathe(kit, "hat", [(h * 0.425, c.y + h * 0.04), (h * 0.415, c.y + h * 0.1)], 10, HM_WRAPS, c.x, c.z, cap=False)
+    elif kind == "hood":
+        c = j["neckTop"].lerp(j["crown"], 0.52)
+        blob(kit, "hat", 1.0, lambda n, p: hm_tone(HM_LINEN, rnd), c.x, c.y + 0.01, c.z + 0.02, h * 0.53, h * 0.6, h * 0.56, noise=0.05, subdiv=2, seed=9)
+        R = kit.roles["hat"]
+        keep, keepc = [], []
+        for fc, col in zip(R["f"], R["c"]):
+            cen = sum((R["v"][i] for i in fc), Vector()) / 3
+            rel = cen - c
+            if rel.z < -h * 0.18 and abs(rel.x) < h * 0.3 and -h * 0.42 < rel.y < h * 0.3:
+                continue
+            keep.append(fc)
+            keepc.append(col)
+        R["f"], R["c"] = keep, keepc
+        tip = c + Vector((0, h * 0.42, h * 0.32))
+        kit.cone("hat", h * 0.2, h * 0.42, 6, HM_LINEN, tip.x, tip.y, tip.z, rx=-0.9)
+    elif kind == "kerchief":
+        c = U(0, 0.72, 0.06)
+        blob(kit, "hat", 1.0, lambda n, p: hm_tone(HM_TRIM, rnd), c.x, c.y, c.z, h * 0.47, h * 0.36, h * 0.47, noise=0.04, subdiv=2, seed=11)
+        R = kit.roles["hat"]
+        keep, keepc = [], []
+        for fc, col in zip(R["f"], R["c"]):
+            cen = sum((R["v"][i] for i in fc), Vector()) / 3
+            if cen.y < c.y - h * 0.05 and cen.z < c.z:
+                continue
+            keep.append(fc)
+            keepc.append(col)
+        R["f"], R["c"] = keep, keepc
+        k = U(0, 0.42, 0.42)
+        kit.cone("hat", h * 0.12, h * 0.22, 4, HM_TRIM, k.x, k.y, k.z, rx=0.4)
+    f.from_kit(kit, ("rigid", "head"))
+
+
+FOLK_PIECES = {
+    "core": wd_core, "hair_short": lambda f: fk_hair(f, "short"), "hair_long": lambda f: fk_hair(f, "long"),
+    "hair_bun": lambda f: fk_hair(f, "bun"), "beard": hm_beard,
+    "tunic": wd_linen, "dress": fk_dress, "apron": fk_apron, "trousers": wd_trousers,
+    "shoes": lambda f: [hm_boot(f, t, HM_BOOT, cuff=None, top=0.72) for t in "LR"],
+    "hat_cap": lambda f: fk_hat(f, "cap"), "hat_brim": lambda f: fk_hat(f, "brim"),
+    "hat_hood": lambda f: fk_hat(f, "hood"), "hat_kerchief": lambda f: fk_hat(f, "kerchief"),
+}
+
+
+def build_folk(export=True, bake=True, samples=48):
+    keep = bpy.context.window.scene
+    scn = scene_for("folk")
+    bpy.context.window.scene = scn
+    ref = wd_fig("folk")
+    rig = hm_armature(ref, "fk_rig", scn.collection)
+    objs = {}
+    for name, fn in FOLK_PIECES.items():
+        f = wd_fig("folk")
+        fn(f)
+        if f.parts:
+            objs[name] = hm_mesh(f, "fk_" + name, scn.collection, rig, slots=True, slot_names=FOLK_SLOTS, slot_hex=FOLK_SLOT_HEX)
+    bpy.context.view_layer.update()
+    if bake:
+        context = {"core", "tunic", "trousers", "shoes", "hair_short"}
+        for name, o in objs.items():
+            for n2, o2 in objs.items():
+                o2.hide_render = not (o2 is o or n2 in context)
+            bake_slot_ao(scn, o, samples)
+        for o in objs.values():
+            o.hide_render = False
+    line = {"id": "folk", "pieces": len(objs), "tris": {n: sum(len(p.vertices) - 2 for p in o.data.polygons) for n, o in objs.items()}}
+    if export:
+        p, size = write_glb(scn, [rig] + list(objs.values()), "folk")
+        line["kb"] = round(size / 1024)
+    bpy.context.window.scene = keep
+    return line
