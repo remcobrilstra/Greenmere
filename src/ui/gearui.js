@@ -1,10 +1,12 @@
-// Shared pieces for every screen that shows gear: slot glyphs, item cells with a
+// Shared pieces for every screen that shows gear: rendered icons (assets/icons,
+// from tools/blender/icons.py) with line glyphs as the fallback, item cells with a
 // rarity edge, and one tooltip (#ui-tip) that any container can feed through
 // data-tip keys. Used by the character sheet and the keeper panels so items look
 // and read the same everywhere. DOM only, built with textContent.
 
 import { affixLines, compareEquip, changeText } from "../sim/gearstats.js";
 import { upgradeCost } from "../sim/balance.js";
+import { ICONS, ICON_COLS, ICON_ROWS } from "./iconmap.js";
 
 export const SLOT_NAME = { weapon: "Weapon", offhand: "Offhand", head: "Head", body: "Body", feet: "Feet", trinket: "Trinket" };
 export const RARITY_NAME = ["Common", "Uncommon", "Rare", "Epic"];
@@ -50,7 +52,43 @@ export function num(v) {
 export function rarityOf(it) {
   return it && it.kind !== "consumable" ? Math.max(0, Math.min(3, int(it.rarity))) : 0;
 }
+// Ability and track names that draw with another icon.
+const ICON_ALIAS = { edge: "strike", bulwark: "ward", delver: "sprint", draught: "draught-hp" };
+
+// A rendered icon from the sprite sheet, or null when the sheet has no such name.
+export function icon(name) {
+  const key = ICON_ALIAS[name] || name;
+  if (!Object.prototype.hasOwnProperty.call(ICONS, key)) return null;
+  const i = ICONS[key];
+  const n = el("span", "icon");
+  n.setAttribute("aria-hidden", "true");
+  n.style.backgroundSize = ICON_COLS * 100 + "% " + ICON_ROWS * 100 + "%";
+  n.style.backgroundPosition = ((i % ICON_COLS) / (ICON_COLS - 1)) * 100 + "% " + (Math.floor(i / ICON_COLS) / (ICON_ROWS - 1)) * 100 + "%";
+  return n;
+}
+
+// The icon a piece of gear or a supply draws with (mirrors view/gearlook.js: heirlooms,
+// rarity and theme, and a relic's glow from its third affix).
+export function iconName(it) {
+  if (!it) return null;
+  if (it.kind === "consumable") return it.consumableId || null;
+  const slot = it.slot;
+  if (!slot) return null;
+  if (typeof it.uid === "string" && it.uid.indexOf("heirloom-") === 0) return slot + "-heir";
+  const rarity = Math.max(0, Math.min(3, int(it.rarity)));
+  const theme = Math.max(0, Math.min(3, int(it.themeId)));
+  if (rarity < 3) return slot + "-r" + rarity + "-t" + theme;
+  const a = Array.isArray(it.affixes) ? it.affixes[2] : null;
+  const relic = a ? Math.max(0, Math.min(3, Math.floor((Number(a.t) || 0) * 4))) : 0;
+  return slot + "-r3-t" + theme + "-g" + relic;
+}
+
+// The rendered icon for `kind` when there is one, else the line glyph.
 export function glyph(kind, color) {
+  return icon(kind) || lineGlyph(kind, color);
+}
+
+export function lineGlyph(kind, color) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("aria-hidden", "true");
@@ -89,7 +127,9 @@ export function itemCell(it, opts) {
   const r = rarityOf(it);
   const kind = it ? itemKind(it) : o.slot || o.kind || null;
   const supplyColor = it && it.kind === "consumable" ? (it.consumableId === "draught-mp" ? "#6f9bf0" : it.consumableId === "draught-hp" ? "#e2665a" : "#f3d79a") : null;
-  if (kind) cell.appendChild(glyph(kind, it || o.kind ? (o.color || supplyColor || RARITY_EDGE[r]) : "rgba(226,186,96,0.35)"));
+  const art = it ? icon(iconName(it)) : o.kind ? icon(o.kind) : null;
+  if (art) cell.appendChild(art);
+  else if (kind) cell.appendChild(lineGlyph(kind, it || o.kind ? (o.color || supplyColor || RARITY_EDGE[r]) : "rgba(226,186,96,0.35)"));
   if (it) {
     cell.style.borderColor = RARITY_EDGE[r];
     cell.style.setProperty("--rc", RARITY_EDGE[r]);

@@ -545,7 +545,7 @@ export function attachPanels(rt) {
       const gets = recipe.stack ? recipe.count + " " + recipe.name : recipe.name;
       const kind = recipe.consumableId === "oil" ? "oil" : recipe.consumableId === "kit" ? "kit" : "draught";
       const color = recipe.consumableId === "draught-mp" ? "#6f9bf0" : kind === "draught" ? "#e2665a" : "#f3d79a";
-      const card = ware(grid, null, "recipe:" + recipe.id, { label: gets, kind, color });
+      const card = ware(grid, null, "recipe:" + recipe.id, { label: gets, kind: recipe.consumableId || kind, color });
       card.row.classList.add("recipe");
       const have = carried(recipe.consumableId);
       if (RECIPE_TEXT[recipe.id]) detail(card.main, RECIPE_TEXT[recipe.id] + (have ? "  You carry " + have + "." : ""), "muted");
@@ -660,7 +660,7 @@ export function attachPanels(rt) {
 
   function goodsCard(parent, id, name, text) {
     const item = { kind: "consumable", consumableId: id, name };
-    const card = ware(parent, null, "goods:" + id, { label: name, kind: "draught", color: id === "draught-mp" ? "#6f9bf0" : "#e2665a" });
+    const card = ware(parent, null, "goods:" + id, { label: name, kind: id, color: id === "draught-mp" ? "#6f9bf0" : "#e2665a" });
     card.row.classList.add("goods");
     tips.set("goods:" + id, gearTip(rt.session, item, { supply: text }));
     detail(card.main, text + " You carry " + carried(id) + ".", "muted");

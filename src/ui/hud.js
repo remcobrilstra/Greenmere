@@ -1,3 +1,4 @@
+import { icon } from "./gearui.js";
 import { ALL_BUILDINGS, ROADS, SQUARE_R } from "../sim/townplan.js";
 // Map plane is world x to the right and world z downward, so -z is up.
 // atan2(dir.x, -dir.z): (0,-1) → 0, (1,0) → +π/2 (right).
@@ -31,6 +32,12 @@ export function attachHud(rt) {
   const cdLeft = abilities.map(() => 0);
   const vitals = { hp: 126, hpMax: 160, mp: 48, mpMax: 80 };
   const slots = Array.from(document.querySelectorAll("#actionbar .slot"));
+  // Rendered icons over the drawn ones (the SVG stays when the sheet has no icon).
+  slots.forEach((slot, i) => {
+    const art = abilities[i] && abilities[i].id !== "empty" ? icon(abilities[i].id) : null;
+    const svg = slot.querySelector("svg");
+    if (art && svg) svg.replaceWith(art);
+  });
   rt.hearthT = 0;
   let castUntil = 0;
   let stationPrompt = "";
