@@ -995,10 +995,32 @@ def generate(d):
     build_chimneys(kit, b)
     build_extras(kit, b)
     kit.post = None
+    build_caps(kit, b)
     furnish_building(kit, b)
     if "yard" in kit.roles:
         merge_role(kit, "yard", "interior")
     return kit
+
+CAP_FACE = {"rubble": RUBBLE, "ashlar": ASHLAR, "timber": TIMBER_D, "hall": BOARD, "stoneboard": TAR}
+
+def build_caps(kit, b):
+    """The cut line seen from indoors: a section through each wall in its own materials
+    (role cap: ground floor at F + CUTAWAY_H; cap1: upstairs). Sized like the code caps."""
+    cut = PLAN["CUTAWAY_H"]
+    face = CAP_FACE[b.style["walls"]]
+    core = b.style.get("plaster", PLASTER) if b.style["walls"] == "timber" else [MORTAR]
+    kit.frame = Matrix.Identity(4)
+    y = F + cut + 0.02
+    for w in b.d["walls"]:
+        kit.box("cap", w["hx"] * 2 + 0.3, 0.05, w["hz"] * 2 + 0.3, face, w["x"], y, w["z"])
+        kit.box("cap", max(0.05, w["hx"] * 2 - 0.12), 0.052, max(0.05, w["hz"] * 2 - 0.12), core, w["x"], y + 0.002, w["z"])
+    if b.U and b.d["stairs"]:
+        uw, ud = b.W + 2 * b.J, b.D + 2 * b.J
+        y1 = b.TOP + cut + 0.02
+        for (x, z, sx, sz) in ((0, ud / 2 - T / 2, uw + 0.3, T + 0.3), (0, -ud / 2 + T / 2, uw + 0.3, T + 0.3),
+                               (-uw / 2 + T / 2, 0, T + 0.3, ud), (uw / 2 - T / 2, 0, T + 0.3, ud)):
+            kit.box("cap1", sx, 0.05, sz, face, x, y1, z)
+            kit.box("cap1", sx - 0.42 if sx > sz else sx - 0.42, 0.052, sz - 0.42 if sz > sx else sz - 0.42, core, x, y1 + 0.002, z)
 
 def merge_role(kit, src, dst):
     a = kit.roles.pop(src)
@@ -1145,7 +1167,7 @@ def build(ids=None, export=True, bake=True):
     return report
 
 ROLE_OBJECTS = ["shell", "glass", "lamp", "interior", "glowFire", "glowPotion", "glowLamp",
-                "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate", "gateGlow"]
+                "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate", "gateGlow", "cap", "cap1"]
 BAKED = {"shell", "interior", "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate"}
 
 def make_model(bid, kit, b, bake, export_glb):

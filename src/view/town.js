@@ -475,7 +475,9 @@ export function buildTown(scene, addCollider, addBoxCollider) {
 
   // Blender-built rocks, bush, flowers, grass and mushroom (assets/models/nature.glb)
   // take over the instanced geometry; instance placement and tints stay.
-  const natureReady = loadLibrary("nature", "nat_").then((lib) => {
+  const natureLib = loadLibrary("nature", "nat_").catch(() => null);
+  const natureReady = natureLib.then((lib) => {
+    if (!lib) throw new Error("nature.glb did not load");
     for (const k of Object.keys(scatterMeshes)) {
       if (!lib[k]) continue;
       const old = scatterMeshes[k].geometry;
@@ -712,6 +714,15 @@ export function buildTown(scene, addCollider, addBoxCollider) {
   function addClouds() {
     const clouds = [];
     const cloudMat = new THREE.MeshLambertMaterial({ color: 0xf7f8fb, flatShading: true });
+    // Blender-built cloud shapes (nature.glb) replace the four puffs of each cloud once loaded.
+    natureLib.then((lib) => {
+      if (!lib || !lib.cloud0) return;
+      const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+      clouds.forEach((cloud, c) => {
+        for (const m of cloud.children) m.visible = false;
+        cloud.add(new THREE.Mesh(lib["cloud" + (c % 2)] || lib.cloud0, mat));
+      });
+    });
     const puff = new THREE.DodecahedronGeometry(1, 0);
     for (let c = 0; c < 7; c++) {
       const cloud = new THREE.Group();

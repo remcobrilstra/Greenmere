@@ -1264,6 +1264,8 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
       swap(bb.shell, model.shell);
       if (bb.windows) swap(bb.windows, model.glass);
       if (bb.interior) swap(bb.interior, model.interior);
+      if (bb.caps && model.cap) swap(bb.caps, model.cap);
+      if (bb.caps1 && model.cap1) swap(bb.caps1, model.cap1);
       if (model.lamp) {
         // Clipped with the walls; follows the shared lamp glow that applyTownTime drives.
         const lampMat = glowMats.glowLamp.clone();

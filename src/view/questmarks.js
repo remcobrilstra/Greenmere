@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { loadLibrary } from "./townmodels.js";
 
 // Floating quest marks over givers: a yellow "!" (a quest to take) and a yellow
 // "?" (a finished quest to hand in). Chunky, flat-shaded, softly emissive so they
@@ -10,8 +11,8 @@ let _dark = null;
 
 function mats() {
   if (!_mat) {
-    _mat = new THREE.MeshLambertMaterial({ color: YELLOW, emissive: 0xffb820, emissiveIntensity: 0.75, flatShading: true });
-    _dark = new THREE.MeshLambertMaterial({ color: 0x3a2416, flatShading: true });
+    _mat = new THREE.MeshLambertMaterial({ color: YELLOW, emissive: 0xffb820, emissiveIntensity: 0.75, flatShading: true, side: THREE.DoubleSide });
+    _dark = new THREE.MeshLambertMaterial({ color: 0x3a2416, flatShading: true, side: THREE.DoubleSide });
   }
   return { gold: _mat, dark: _dark };
 }
@@ -24,6 +25,12 @@ function part(group, geo, mat, x, y, z, rz) {
   mesh.receiveShadow = false;
   group.add(mesh);
   return mesh;
+}
+
+let _glyphs = null;
+function glyphs() {
+  if (!_glyphs) _glyphs = loadLibrary("nature", "nat_").catch(() => null);
+  return _glyphs;
 }
 
 export function buildQuestMark() {
@@ -59,6 +66,20 @@ export function buildQuestMark() {
     glyph.add(rim);
   }
   group.scale.setScalar(1.4);
+  // Smoother Blender-built glyphs (nature.glb) replace the code-built ones once loaded.
+  glyphs().then((lib) => {
+    if (!lib) return;
+    for (const [glyph, name] of [[bang, "qm_bang"], [ask, "qm_ask"]]) {
+      if (!lib[name]) continue;
+      for (const o of glyph.children.slice()) glyph.remove(o);
+      const geo = lib[name];
+      part(glyph, geo, m.gold, 0, 0, 0);
+      const rim = new THREE.Mesh(geo, m.dark);
+      rim.scale.setScalar(1.18);
+      rim.position.set(0, -0.04, -0.06);
+      glyph.add(rim);
+    }
+  });
   bang.visible = false;
   ask.visible = false;
   group.visible = false;

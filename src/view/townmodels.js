@@ -11,6 +11,7 @@
 //   interior  floors, stairs, furniture, yard: the interior mesh
 //   glowFire, glowPotion, glowLamp   pieces for the town's glow meshes
 //   tier1..3  depth-tier dressing
+//   cap, cap1 the wall section shown on the cut line indoors (ground floor, upstairs)
 //   ground, props, hearth            (town.glb) square and roads, street props, fire pit
 //   gate, gateGlow                   (town.glb, gate-local) Delve Gate stonework and its runes
 
@@ -19,7 +20,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 const PARTS = ["shell", "glass", "lamp", "interior", "glowFire", "glowPotion", "glowLamp",
-  "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate", "gateGlow"];
+  "tier1", "tier2", "tier3", "ground", "props", "hearth", "gate", "gateGlow", "cap", "cap1"];
 
 let loader = null;
 
@@ -42,7 +43,15 @@ export function loadModel(id) {
 }
 
 // A library of loose pieces, "<prefix><name>" -> { [name]: BufferGeometry } (local space).
+// Loaded once per file; callers share the geometries.
+const libraries = new Map();
 export function loadLibrary(id, prefix) {
+  const key = id + "|" + prefix;
+  if (!libraries.has(key)) libraries.set(key, fetchLibrary(id, prefix));
+  return libraries.get(key);
+}
+
+function fetchLibrary(id, prefix) {
   if (!loader) loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   return loader.loadAsync("./assets/models/" + id + ".glb").then((gltf) => {
     const out = {};

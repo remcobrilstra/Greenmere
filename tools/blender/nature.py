@@ -112,6 +112,7 @@ def build_nature(export=True, bake=True, samples=128):
     kit = Kit(0)
     kit.r = random.Random(0x7a7)
     build_nature_parts(kit)
+    build_glyphs_and_clouds(kit)
     scn = scene_for("nature")
     objs = []
     x = 0.0
@@ -143,3 +144,47 @@ def build_nature(export=True, bake=True, samples=128):
         for i, o in enumerate(objs):
             o.location = ((i % 6) * 2.2 - 5.5, (i // 6) * 2.2, 0)
     return line
+
+# ---------------------------------------------------------------- clouds and quest glyphs
+
+def tube_arc(kit, role, R, r, a0, a1, segs, sides, col, cx, cy, cz=0.0):
+    """A round tube bent along an arc in the xy plane, capped at both ends."""
+    rings = []
+    for i in range(segs + 1):
+        a = a0 + (a1 - a0) * i / segs
+        c = Vector((cx + math.cos(a) * R, cy + math.sin(a) * R, cz))
+        out = Vector((math.cos(a), math.sin(a), 0))
+        up = Vector((0, 0, 1))
+        rings.append([kit.frame @ (c + out * (math.cos(2 * math.pi * k / sides) * r) + up * (math.sin(2 * math.pi * k / sides) * r)) for k in range(sides)])
+    pts = [p for ring in rings for p in ring]
+    faces = []
+    for i in range(segs):
+        for k in range(sides):
+            a = i * sides + k
+            b = i * sides + (k + 1) % sides
+            faces.append((a, b, b + sides, a + sides))
+    faces.append(tuple(range(sides - 1, -1, -1)))
+    faces.append(tuple(segs * sides + k for k in range(sides)))
+    kit._emit(role, pts, faces, col, ["side"] * len(faces), ())
+
+def build_glyphs_and_clouds(kit):
+    gold = [0xffd24a]
+    # "!": a rounded, tapered bar over a round dot
+    kit.cylr("qm_bang", 0.13, 0.075, 0.5, 8, gold, 0, 0.45, 0)
+    blob(kit, "qm_bang", 0.13, lambda n, p: 0xffd24a, 0, 0.7, 0, 1, 0.55, 1, noise=0.0, subdiv=1)
+    blob(kit, "qm_bang", 0.1, lambda n, p: 0xffd24a, 0, 0.0, 0, noise=0.0, subdiv=1)
+    # "?": a smooth hook, a short tapered stem, a round dot
+    tube_arc(kit, "qm_ask", 0.17, 0.065, -math.pi * 0.5, math.pi * 1.0, 12, 6, gold, 0, 0.55)
+    kit.cylr("qm_ask", 0.06, 0.075, 0.22, 8, gold, 0, 0.31, 0)
+    blob(kit, "qm_ask", 0.065, lambda n, p: 0xffd24a, -0.17, 0.55, 0, noise=0.0, subdiv=1)
+    blob(kit, "qm_ask", 0.1, lambda n, p: 0xffd24a, 0, 0.0, 0, noise=0.0, subdiv=1)
+    # clouds: overlapping puffs with a flat, shaded underside
+    def sky(n, p):
+        return 0xf7f8fb if n.y > -0.2 else 0xd9e0ea
+    layouts = [
+        [(-1.9, 0.0, 0.0, 1.0), (-0.7, 0.35, 0.2, 1.35), (0.7, 0.3, -0.1, 1.25), (1.9, 0.0, 0.1, 0.95), (0.0, 0.0, 0.6, 1.0)],
+        [(-1.3, 0.0, 0.1, 1.05), (0.0, 0.4, 0.0, 1.4), (1.3, 0.05, -0.1, 1.1), (0.4, -0.05, 0.7, 0.85)],
+    ]
+    for i, lay in enumerate(layouts):
+        for k, (x, y, z, r) in enumerate(lay):
+            blob(kit, "cloud%d" % i, r, sky, x, y, z, 1.15, 0.8, 1.0, noise=0.12, subdiv=1, flat=-0.35, seed=60 + i * 10 + k)
