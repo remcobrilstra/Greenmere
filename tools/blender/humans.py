@@ -36,6 +36,10 @@ HM_STYLES = {
                       jaw=0.78, nose=1.0, eye=0.022, brow=1.0, beard=False, hair="swept", head_sub=0),
     "heroic": dict(height=2.02, head=0.30, build=1.08, shoulders=0.235, hands=1.0, feet=1.0, facet=1,
                    jaw=0.86, nose=1.1, eye=0.018, brow=1.2, beard=True, hair="short", head_sub=0),
+    # The pick (2026-10-04): the heroic body with the storybook head, a touch smaller so
+    # the taller proportions hold.
+    "warden": dict(height=2.02, head=0.34, build=1.08, shoulders=0.235, hands=1.05, feet=1.05, facet=1,
+                   jaw=0.78, nose=1.0, eye=0.022, brow=1.0, beard=False, hair="swept", head_sub=0),
     "stout": dict(height=1.92, head=0.44, build=1.25, shoulders=0.215, hands=1.3, feet=1.3, facet=1,
                   jaw=0.72, nose=1.25, eye=0.03, brow=0.9, beard=False, hair="mop", head_sub=0),
 }
@@ -212,6 +216,12 @@ HM_HEAD_LOOPS = [
 ]
 
 
+def hm_loop_k(S, y):
+    """Width factor the head applies to the loop at height y (the jaw narrows)."""
+    lower = max(0.0, (0.5 - y) / 0.5)
+    return (1 - (1 - S["jaw"]) * lower * 1.2) * S.get("width", 1.0)
+
+
 def hm_head_cage(S):
     """(verts, faces, region per face) in head units; regions name what a face is."""
     jaw = S["jaw"]
@@ -219,8 +229,7 @@ def hm_head_cage(S):
     brow = S["brow"]
     loops = []
     for y, pts in HM_HEAD_LOOPS:
-        lower = max(0.0, (0.5 - y) / 0.5)
-        k = 1 - (1 - jaw) * lower * 1.2          # narrower jaw for a lower `jaw`
+        k = hm_loop_k(S, y) / S.get("width", 1.0)
         row = []
         for i, (x, z) in enumerate(pts):
             if y == 0.37 and i == 0:
@@ -279,8 +288,9 @@ def hm_head(fig, hood=False):
         # ear
         ep = U(s * 0.41, 0.47, 0.05)
         blob(kit, "ear", 1.0, lambda nn, pp: HM_SKIN[0], ep.x, ep.y, ep.z, h * 0.04, h * 0.11, h * 0.08, noise=0.05, subdiv=1, seed=3)
-    m = U(0, 0.245, -0.37)
-    kit.box("mouth", h * 0.16, h * 0.022, h * 0.03, [shade(HM_LIP[0], 0.85)], m.x, m.y, m.z)
+    m = U(0, 0.245, -0.375)
+    kit.box("mouth", h * 0.2, h * 0.026, h * 0.03, [shade(HM_LIP[0], 0.62)], m.x, m.y, m.z)
+    kit.box("mouth", h * 0.14, h * 0.022, h * 0.026, [HM_LIP[0]], m.x, m.y - h * 0.024, m.z + h * 0.004)
     fig.from_kit(kit, ("rigid", "head"))
     if S["beard"]:
         # beard: the jaw and chin loops pushed out, a moustache over the mouth
@@ -289,7 +299,7 @@ def hm_head(fig, hood=False):
         ring = []
         for li, push in ((0, 0.07), (1, 0.06), (2, 0.04), (3, 0.02)):
             y, pts = loops[li]
-            row = [(x * (1.04 + push), z - push * (1 if z < 0 else 0.3)) for x, z in pts[:4]]
+            row = [(x * hm_loop_k(S, y) * (1.04 + push), z - push * (1 if z < 0 else 0.3)) for x, z in pts[:4]]
             full = [(-x, z) for x, z in reversed(row[1:])] + row
             ring.append([U(x, y - (0.05 if li == 0 else 0), z) for x, z in full])
         bv = [p for r in ring for p in r]
@@ -304,7 +314,7 @@ def hm_head(fig, hood=False):
             kit.box("stache", h * 0.13, h * 0.04, h * 0.04, HM_HAIR, mo.x + s * h * 0.065, mo.y, mo.z, rz=s * 0.25)
         fig.from_kit(kit, ("rigid", "head"))
     if not hood:
-        hm_hair(fig, U, S["hair"], h)
+        hm_hair(fig, U, S["hair"], h, S)
 
 
 def hm_subdivide(verts, faces, levels):
@@ -324,7 +334,7 @@ def hm_subdivide(verts, faces, levels):
     return out_v, out_f
 
 
-def hm_hair(fig, U, kind, h):
+def hm_hair(fig, U, kind, h, S):
     """Hair: the upper head loops grown outward into a cap. Growth tapers in from each
     column's lower edge, so the cap hugs the skull instead of flaring like a brim."""
     rnd = fig.rnd
@@ -354,6 +364,7 @@ def hm_hair(fig, U, kind, h):
                 g = grow * ramp * (1 + 0.3 * (rnd.random() - 0.5))
             else:
                 g = -0.03
+            x *= hm_loop_k(S, y)
             r = (x * x + z * z) ** 0.5 or 1
             row.append(U(x * (1 + g / r), y + (0.015 if li == len(loops) - 1 else 0), z * (1 + g / r)))
         rows.append(row)
@@ -822,7 +833,7 @@ def look_candidates(row="rest", dist=5.6, yaw=180, pitch=84, n=3, x=None):
             r3.view_distance = dist
 
 
-def render_candidates(out_dir=None, w=1500, h=900):
+def render_candidates(out_dir=None, w=1500, h=900, styles=None):
     """Workbench renders of each style's group and a face close-up, into shots/heroes/."""
     out_dir = out_dir or os.path.join(REPO, "shots", "heroes")
     os.makedirs(out_dir, exist_ok=True)
@@ -849,8 +860,9 @@ def render_candidates(out_dir=None, w=1500, h=900):
         scn.collection.objects.link(cam)
     scn.camera = cam
     files = []
-    for si, style in enumerate(HM_STYLES):
-        cx = hm_slot(1.5, si, len(HM_STYLES))
+    styles = styles or list(HM_STYLES)
+    for si, style in enumerate(styles):
+        cx = hm_slot(1.5, si, len(styles))
         for tag, target, dist, lens, height in (("full", Vector((cx, 0, 1.0)), 9.5, 50, 1.6),
                                                 ("face", Vector((hm_slot(0, si, 3), 0, HM_STYLES[style]["height"] - HM_STYLES[style]["head"] * 0.45)), 1.25, 60, 0.05)):
             yaw = math.radians(205 if tag == "full" else 215)
