@@ -1326,6 +1326,144 @@ def wd_necklace(f, pendant=None):
     f.from_kit(kit, ("rigid", "chest"))
 
 
+# ---------------------------------------------------------------- held gear
+#
+# Swords ride hand.R, shields forearm.L. They are modelled where they sit in the idle
+# hold (WD_REST: arms lowered, elbows soft) and moved back into the rest pose with
+# WD_HOLD, so they fit the hand exactly when the clips play.
+
+WD_HOLD = {}            # bone -> (posed -> rest matrix, posed head, posed tail), Blender space
+
+
+def wd_hold_matrices(rig):
+    pb = rig.pose.bones
+    for b in pb:
+        b.rotation_mode = 'QUATERNION'
+        b.rotation_quaternion = wd_q(rig, b.name, WD_REST.get(b.name, []))
+    bpy.context.view_layer.update()
+    out = {}
+    for name in ("hand.R", "forearm.L"):
+        delta = pb[name].matrix @ rig.data.bones[name].matrix_local.inverted()
+        out[name] = (delta.inverted(), pb[name].head.copy(), pb[name].tail.copy())
+    for b in pb:
+        b.rotation_quaternion = (1, 0, 0, 0)
+    bpy.context.view_layer.update()
+    return out
+
+
+def wd_held(f, bone, build):
+    """build(kit, head, tail) in posed game space; the parts land in rest space on `bone`."""
+    m, head, tail = WD_HOLD[bone]
+    kit = Kit(0)
+    kit.r = f.rnd
+    build(kit, hm_b2g(head), hm_b2g(tail))
+    for role, R in kit.roles.items():
+        if R["f"]:
+            v = [hm_b2g(m @ hm_g2b(Vector(p))) for p in R["v"]]
+            f.add(v, R["f"], R["c"], ("rigid", bone))
+    kit.roles = {}
+
+
+def wd_frame(origin, ydir, zhint):
+    """A frame at `origin` with local +Y along ydir and +Z as close to zhint as it can."""
+    y = Vector(ydir).normalized()
+    x = y.cross(Vector(zhint)).normalized()
+    z = x.cross(y).normalized()
+    m = Matrix.Identity(4)
+    for i in range(3):
+        m[i][0], m[i][1], m[i][2], m[i][3] = x[i], y[i], z[i], origin[i]
+    return m
+
+
+SWORD_DOWN = math.radians(42)     # the blade's drop below level in the idle hold
+
+
+def wd_sword(f, kind, part="blade"):
+    def build(kit, head, tail):
+        grip = head.lerp(tail, 0.55)
+        tip_dir = Vector((0, -math.sin(SWORD_DOWN), -math.cos(SWORD_DOWN)))
+        kit.frame = wd_frame(grip, tip_dir, (1, 0, 0))
+        L, w, guard, grip_col = {"plain": (0.78, 0.07, 0.24, HM_LEATHER), "fine": (0.82, 0.075, 0.3, HM_LEATHER),
+                                 "rare": (0.92, 0.08, 0.34, HM_LEATHER), "relic": (0.98, 0.11, 0.42, HM_LEATHER),
+                                 "heir": (0.86, 0.075, 0.32, HM_CLOTH_D)}[kind]
+        if part == "blade":
+            kit.cylr("w", 0.022, 0.024, 0.22, 6, grip_col, 0, -0.01, 0)
+            kit.ball("w", 0.034, HM_TRIM, 0, -0.14, 0)
+            if kind == "relic":
+                for s_ in (-1, 1):
+                    kit.box("w", guard * 0.5, 0.045, 0.05, HM_TRIM, s_ * guard * 0.28, 0.12, 0, rz=s_ * 0.35)
+                    kit.cone("w", 0.025, 0.09, 4, HM_TRIM, s_ * guard * 0.52, 0.17, 0, rz=-s_ * 0.9)
+            else:
+                kit.box("w", guard, 0.04, 0.045, HM_TRIM, 0, 0.12, 0)
+                if kind in ("rare", "heir"):
+                    for s_ in (-1, 1):
+                        kit.ball("w", 0.026, HM_TRIM, s_ * guard / 2, 0.12, 0)
+            if kind == "heir":
+                octa(kit, "w", 0.028, HM_CLOTH, 0, 0.12, -0.03, 0.8, 1.0, 0.6)
+            base = 0.15
+            kit.box("w", w, L, 0.018, HM_STEEL, 0, base + L / 2, 0)
+            kit.box("w", w * 0.55, L * 0.96, 0.026, HM_STEEL, 0, base + L / 2, 0)
+            kit.cone("w", w * 0.62, w * 1.6, 4, HM_STEEL, 0, base + L + w * 0.8, 0, ry=math.pi / 4)
+            if kind == "fine":
+                kit.box("w", w * 0.18, L * 0.7, 0.03, HM_TRIM, 0, base + L * 0.4, 0)
+        elif part == "glow":
+            base = 0.15
+            if kind == "rare":
+                kit.box("w", w * 0.2, L * 0.75, 0.032, HM_GLOW, 0, base + L * 0.42, 0)
+            elif kind == "relic":
+                for i in range(5):
+                    kit.box("w", w * 0.36, 0.035, 0.034, HM_GLOW, 0, base + 0.12 + i * L * 0.16, 0, rz=0.6 if i % 2 else -0.6)
+        kit.frame = Matrix.Identity(4)
+    wd_held(f, "hand.R", build)
+
+
+def wd_shield(f, kind, part="face"):
+    def build(kit, head, tail):
+        mid = head.lerp(tail, 0.48)
+        out = Vector((-1, 0, -0.25)).normalized()          # the face looks out and a little forward
+        kit.frame = wd_frame(mid + out * 0.085, (0, 1, 0), out)
+        sc = {"round": 0.85, "heater": 1.0, "kite": 1.15, "relic": 1.3}[kind]
+        if kind == "round":
+            pts = [(math.cos(a) * 0.27, math.sin(a) * 0.27) for a in [i * math.pi * 2 / 14 for i in range(14)]]
+        elif kind == "kite":
+            pts = heater_pts(1.0, 1.0, 6)
+            pts = [(x * 0.9, y * 1.35 - 0.05) for x, y in pts]
+        else:
+            pts = heater_pts(1.0, 1.0, 6)
+        pts = [(x * sc, y * sc + (0.02 if kind != "round" else 0)) for x, y in pts]
+        if part == "face":
+            face = HM_LEATHER if kind == "round" else HM_CLOTH
+            kit.prism("s", list(reversed(pts)), 0.0, 0.035, {"+z": face, "-z": HM_LEATHER, "side": HM_TRIM})
+            # rim
+            n = len(pts)
+            for i in range(n):
+                (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+                cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+                ln = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+                kit.box("s", ln + 0.01, 0.03, 0.02, HM_TRIM, cx, cy, 0.045, rz=math.atan2(y1 - y0, x1 - x0))
+            if kind == "round":
+                blob(kit, "s", 0.07, lambda nn, pp: hm_tone(HM_STEEL, f.rnd), 0, 0, 0.04, 1, 1, 0.5, noise=0.0, subdiv=1, seed=3)
+            elif kind == "heater":
+                kit.box("s", 0.05 * sc, 0.42 * sc, 0.02, HM_TRIM, 0, -0.02 * sc, 0.045)
+                kit.box("s", 0.34 * sc, 0.05 * sc, 0.02, HM_TRIM, 0, 0.1 * sc, 0.045)
+            elif kind == "kite":
+                blob(kit, "s", 0.08, lambda nn, pp: hm_tone(HM_STEEL, f.rnd), 0, 0.08, 0.045, 1, 1, 0.5, noise=0.0, subdiv=1, seed=5)
+                for a in range(4):
+                    kit.box("s", 0.03, 0.2, 0.02, HM_STEEL, math.cos(a * math.pi / 2) * 0.13, 0.08 + math.sin(a * math.pi / 2) * 0.13, 0.045, rz=a * math.pi / 2)
+            else:
+                for s_ in (-1, 1):
+                    kit.cone("s", 0.04, 0.2, 5, HM_TRIM, s_ * 0.33 * sc, 0.36 * sc, 0.03, rz=-s_ * 0.5)
+                blob(kit, "s", 0.09, lambda nn, pp: hm_tone(HM_TRIM, f.rnd), 0, 0.1 * sc, 0.045, 1, 1.2, 0.5, noise=0.0, subdiv=1, seed=6)
+        else:   # glow
+            if kind == "kite":
+                octa(kit, "s", 0.045, HM_GLOW, 0, 0.08, 0.085, 1, 1, 0.6)
+            elif kind == "relic":
+                for i, (x, y, r) in enumerate(((-0.12, 0.2, 0.4), (0.12, 0.2, -0.4), (-0.1, -0.05, -0.4), (0.1, -0.05, 0.4), (0, -0.22, 0))):
+                    kit.box("s", 0.03, 0.12, 0.02, HM_GLOW, x * 1.3, y * 1.3, 0.06, rz=r)
+        kit.frame = Matrix.Identity(4)
+    wd_held(f, "forearm.L", build)
+
+
 # piece name -> builder; the game decides what shows (view/heroskin.js)
 WD_PIECES = {
     "core": wd_core, "hair": wd_hair, "linen": wd_linen, "trousers": wd_trousers, "wraps": wd_wraps, "gloves": wd_gloves,
@@ -1341,6 +1479,13 @@ WD_PIECES = {
     "boots": wd_boots, "kneecops": wd_kneecops, "greaves": wd_greaves,
     "greave_rings": lambda f: wd_greaves(f, rings=True), "spikes": lambda f: wd_greaves(f, spikes=True),
     "necklace": wd_necklace, "pendant": lambda f: wd_necklace(f, pendant="small"), "pendant_big": lambda f: wd_necklace(f, pendant="big"),
+    "sword_plain": lambda f: wd_sword(f, "plain"), "sword_fine": lambda f: wd_sword(f, "fine"),
+    "sword_rare": lambda f: wd_sword(f, "rare"), "sword_rare_glow": lambda f: wd_sword(f, "rare", "glow"),
+    "sword_relic": lambda f: wd_sword(f, "relic"), "sword_relic_glow": lambda f: wd_sword(f, "relic", "glow"),
+    "sword_heir": lambda f: wd_sword(f, "heir"),
+    "shield_round": lambda f: wd_shield(f, "round"), "shield_heater": lambda f: wd_shield(f, "heater"),
+    "shield_kite": lambda f: wd_shield(f, "kite"), "shield_kite_glow": lambda f: wd_shield(f, "kite", "glow"),
+    "shield_relic": lambda f: wd_shield(f, "relic"), "shield_relic_glow": lambda f: wd_shield(f, "relic", "glow"),
 }
 # what each piece is baked against (it shades itself and these)
 WD_BAKE_WITH = ["core", "trousers", "coat", "hood", "pauldrons", "cape", "boots", "gloves"]
@@ -1352,6 +1497,8 @@ def build_warden(export=True, bake=True, samples=64, style="warden", only=None):
     bpy.context.window.scene = scn
     ref = wd_fig(style)
     rig = hm_armature(ref, "wd_rig", scn.collection)
+    WD_HOLD.clear()
+    WD_HOLD.update(wd_hold_matrices(rig))
     objs = {}
     for name, fn in WD_PIECES.items():
         if only and name not in only:
@@ -1506,7 +1653,41 @@ def wd_clips(rig):
     return [t.name for t in rig.animation_data.nla_tracks]
 
 
-def render_clips(frames=None, out_dir=None, w=520, h=640):
+WD_PREVIEW_SET = ["core", "trousers", "gloves", "coat", "hood", "mantle", "pauldrons", "cape", "gem", "boots", "kneecops",
+                  "sword_heir", "shield_heater"]
+
+
+def wd_preview_paint(scn, names, look):
+    """Paint the slot codes of `names` with a hero_palette look into a "preview" attribute
+    and show only those pieces (for Blender renders)."""
+    pal = hero_palette(look)
+    for o in scn.objects:
+        if o.type != 'MESH' or not o.name.startswith("wd_"):
+            continue
+        piece = o.name[3:]
+        o.hide_render = piece not in names
+        o.hide_set(piece not in names)
+        if piece not in names:
+            continue
+        me = o.data
+        src = me.color_attributes.get("Col") or me.color_attributes.get("base")
+        n = len(src.data)
+        vals = [0.0] * (n * 4)
+        src.data.foreach_get("color", vals)
+        out = []
+        for i in range(n):
+            slot = HERO_SLOTS[min(15, int(vals[i * 4] * 16))]
+            c = hexc(pal[slot])
+            k = vals[i * 4 + 1]
+            out += (c[0] * k, c[1] * k, c[2] * k, 1.0)
+        if "preview" in me.color_attributes:
+            me.color_attributes.remove(me.color_attributes["preview"])
+        pv = me.color_attributes.new("preview", 'FLOAT_COLOR', 'CORNER')
+        pv.data.foreach_set("color", out)
+        me.color_attributes.active_color = pv
+
+
+def render_clips(frames=None, out_dir=None, w=520, h=640, names=None, yaw=230):
     """Workbench renders of the Warden clips at chosen frames, for a contact sheet."""
     out_dir = out_dir or os.path.join(REPO, "shots", "heroes", "clips")
     os.makedirs(out_dir, exist_ok=True)
@@ -1515,27 +1696,8 @@ def render_clips(frames=None, out_dir=None, w=520, h=640):
     scn = bpy.data.scenes["gm_warden"]
     bpy.context.window.scene = scn
     rig = scn.objects["wd_rig"]
-    gear = scn.objects["wd_gear"]
-    scn.objects["wd_base"].hide_render = True
     rig.hide_render = True
-    gear.data.color_attributes.active_color = gear.data.color_attributes["base"]
-    # preview colours: paint the slot codes with the heirloom look
-    pal = hero_palette(PREVIEW_OUTFITS[1][1])
-    if "preview" in gear.data.color_attributes:
-        gear.data.color_attributes.remove(gear.data.color_attributes["preview"])
-    src = gear.data.color_attributes["Col"].data
-    n = len(src)
-    vals = [0.0] * (n * 4)
-    src.foreach_get("color", vals)
-    out = []
-    for i in range(n):
-        slot = HERO_SLOTS[min(15, int(vals[i * 4] * 16))]
-        c = hexc(pal[slot])
-        k = vals[i * 4 + 1]
-        out += (c[0] * k, c[1] * k, c[2] * k, 1.0)
-    pv = gear.data.color_attributes.new("preview", 'FLOAT_COLOR', 'CORNER')
-    pv.data.foreach_set("color", out)
-    gear.data.color_attributes.active_color = pv
+    wd_preview_paint(scn, names or WD_PREVIEW_SET, PREVIEW_OUTFITS[1][1])
     scn.render.engine = 'BLENDER_WORKBENCH'
     sh = scn.display.shading
     sh.light = 'STUDIO'
@@ -1551,20 +1713,22 @@ def render_clips(frames=None, out_dir=None, w=520, h=640):
         scn.collection.objects.link(cam)
     scn.camera = cam
     target = Vector((0, 0, 1.05))
-    yaw = math.radians(230)
-    cam.location = target + Vector((-math.sin(yaw) * 4.6, -math.cos(yaw) * 4.6, 0.6))
+    yr = math.radians(yaw)
+    cam.location = target + Vector((-math.sin(yr) * 4.6, -math.cos(yr) * 4.6, 0.6))
     cam.rotation_euler = (target - cam.location).normalized().to_track_quat('-Z', 'Y').to_euler()
     cam.data.lens = 50
     rig.animation_data.use_nla = False
     files = []
-    for name, f in frames:
+    for name, fr in frames:
         rig.animation_data.action = bpy.data.actions[name]
-        scn.frame_set(int(f))
-        path = os.path.join(out_dir, "%s-%02d.png" % (name, int(f)))
+        scn.frame_set(int(fr))
+        path = os.path.join(out_dir, "%s-%02d.png" % (name, int(fr)))
         scn.render.filepath = path
         bpy.ops.render.render(write_still=True)
         files.append(path)
     rig.animation_data.action = None
     rig.animation_data.use_nla = True
-    gear.data.color_attributes.active_color = gear.data.color_attributes["Col"]
+    for o in scn.objects:
+        if o.type == 'MESH' and "Col" in o.data.color_attributes:
+            o.data.color_attributes.active_color = o.data.color_attributes["Col"]
     return files

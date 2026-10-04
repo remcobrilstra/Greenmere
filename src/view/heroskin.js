@@ -147,8 +147,9 @@ export function attachWardenSkin(hero, gltf, material) {
   // Which pieces show, and in whose colours, from the worn looks (view/gearlook.js),
   // mirroring the tiers of the piece-built Warden (view/hero.js libDress). Glowing
   // pieces take the glow material and the slot's glow colour.
-  const GLOW_ALWAYS = new Set(["cape_hem", "runes", "halo", "halo_hood"]);
-  const GLOW_IF = new Set(["gem", "gem_big", "circlet_gem", "circlet_gem_hood", "greave_rings", "pendant", "pendant_big"]);
+  const GLOW_ALWAYS = new Set(["cape_hem", "runes", "halo", "halo_hood", "sword_relic_glow", "shield_relic_glow"]);
+  const GLOW_IF = new Set(["gem", "gem_big", "circlet_gem", "circlet_gem_hood", "greave_rings", "pendant", "pendant_big",
+    "sword_rare_glow", "shield_kite_glow"]);
   const painted = new Map();
   function paintPiece(m, pal, key) {
     if (painted.get(m) === key) return;
@@ -223,6 +224,19 @@ export function attachWardenSkin(hero, gltf, material) {
     if (t && t.tier !== "relic") {
       put("necklace", t);
       put(t.rarity >= 1 ? "pendant_big" : "pendant", t);
+    }
+    // held gear, when the file has it (older warden.glb files leave it to the pieces)
+    const w = looks.weapon;
+    if (w && meshes.sword_plain) {
+      const kind = w.tier === "heirloom" ? "heir" : w.tier === "relic" ? "relic" : w.tier === "rare" ? "rare" : w.tier === "fine" ? "fine" : "plain";
+      put("sword_" + kind, w);
+      if (kind === "rare" || kind === "relic") put("sword_" + kind + "_glow", w);
+    }
+    const o = looks.offhand;
+    if (o && meshes.shield_round) {
+      const kind = o.tier === "plain" ? "round" : o.tier === "rare" ? "kite" : o.tier === "relic" ? "relic" : "heater";
+      put("shield_" + kind, o);
+      if (kind === "kite" || kind === "relic") put("shield_" + kind + "_glow", o);
     }
     for (const name in meshes) {
       const m = meshes[name];
@@ -350,5 +364,5 @@ export function attachWardenSkin(hero, gltf, material) {
   hero.sword.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(X, -0.55));
   hero.shield.scale.setScalar(0.85);
   retarget();
-  return { root, meshes, dress, retarget, update, bone, clips: Object.keys(acts) };
+  return { root, meshes, dress, retarget, update, bone, clips: Object.keys(acts), holds: !!meshes.sword_plain };
 }
