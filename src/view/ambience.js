@@ -1,9 +1,13 @@
-// Town ambience meshes: chimney smoke and the animals. Code-built, flat-shaded
-// Lambert. Smoke is one InstancedMesh; each puff swells, drifts, and shrinks away.
+// Town ambience meshes: chimney smoke and the animals, flat-shaded Lambert.
+// Smoke is one InstancedMesh; each puff swells, drifts, and shrinks away.
+// Animals are built from code first and re-skinned from the Blender part
+// library (assets/models/animals.glb, tools/blender/animals.py) once it loads,
+// painted from each animal's coat. Rig and poses are the same either way.
 
 import * as THREE from "three";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
+import { loadPartLibrary, paintParts, swapGeometry } from "./partlib.js";
 
 const PUFFS_PER_CHIMNEY = 7;
 const PUFF_LIFE = 6.5;
@@ -66,6 +70,67 @@ export function buildSmoke(parent, chimneys) {
 
 // ---------- animals ----------
 
+const ANIMAL_SLOTS = ["coat", "coatDark", "coatLight", "beak", "comb", "eye", "eyeCat", "nose", "pink", "white",
+  "collar", "gold", "claw"];
+let animalLib = null;
+let animalAsked = false;
+let animalMat = null;
+const animalWaiting = [];
+let animalMarkReady = null;
+const animalReady = new Promise((res) => { animalMarkReady = res; });
+
+// Resolves once the animal parts have loaded (or failed) and every animal built so far is re-skinned.
+export function animalPartsReady() {
+  requestAnimalLib();
+  return animalReady;
+}
+
+function requestAnimalLib() {
+  if (animalAsked) return;
+  animalAsked = true;
+  loadPartLibrary("./assets/models/animals.glb", "ap_").then((lib) => {
+    animalLib = lib;
+    animalMat = lambert({ side: THREE.DoubleSide });
+    for (const a of animalWaiting.splice(0)) reskinAnimal(a);
+    animalMarkReady(true);
+  }).catch((err) => {
+    console.warn("[ambience] animal parts did not load; keeping the code-built animals", err);
+    animalMarkReady(false);
+  });
+}
+
+function animalPalette(coat, dark) {
+  const c = new THREE.Color(coat);
+  const hex = {
+    coat, coatDark: dark || c.clone().multiplyScalar(0.75).getHex(), coatLight: c.clone().lerp(new THREE.Color(0xf4efe4), 0.35).getHex(),
+    beak: 0xd4a03a, comb: 0xc4473a, eye: 0x1a1a1a, eyeCat: 0x8ed15a, nose: 0x1a1a1a, pink: 0xd88a8a,
+    white: 0xf4f0e8, collar: 0x8e3a2e, gold: 0xd4a03a, claw: 0x3a3434
+  };
+  return ANIMAL_SLOTS.map((k) => new THREE.Color(hex[k]));
+}
+
+function reskinAnimal(a) {
+  const pal = animalPalette(a.coat, a.coatDark);
+  const paint = (name) => paintParts(animalLib, [name], pal, 0, 0, 0);
+  if (a.kind === "hen") {
+    swapGeometry(a.body, paint("hen_body"), animalMat);
+    swapGeometry(a.head.children[0], paint("hen_head"), animalMat);
+  } else {
+    swapGeometry(a.body.children[0], paint(a.kind + "_torso"), animalMat);
+    for (const leg of a.legs) swapGeometry(leg.children[0], paint(a.kind + "_leg"), animalMat);
+    swapGeometry(a.tail.children[0], paint(a.kind + "_tail"), animalMat);
+  }
+}
+
+function dress(a) {
+  if (animalLib) reskinAnimal(a);
+  else {
+    animalWaiting.push(a);
+    requestAnimalLib();
+  }
+  return a;
+}
+
 let _mat = null;
 function mat() {
   if (!_mat) _mat = lambert();
@@ -107,7 +172,7 @@ export function buildHen(seed) {
   part(h, new THREE.BoxGeometry(0.025, 0.05, 0.03), 0xc4473a, 0, -0.03, -0.06, 0, 0, 0, rand);
   head.add(meshOf(h, false));
   root.add(head);
-  return { root, body: bodyMesh, head, kind: "hen" };
+  return dress({ root, body: bodyMesh, head, kind: "hen", coat: coat[0], coatDark: coat[1] });
 }
 
 function buildQuadruped(seed, coat, size, kind) {
@@ -153,7 +218,7 @@ function buildQuadruped(seed, coat, size, kind) {
   tail.rotation.x = kind === "cat" ? 0.5 : 0.9;
   bodyGroup.add(tail);
   root.scale.setScalar(size);
-  return { root, body: bodyGroup, legs, tail, kind };
+  return dress({ root, body: bodyGroup, legs, tail, kind, coat, coatDark: null });
 }
 
 export function buildCat(seed, coat) {

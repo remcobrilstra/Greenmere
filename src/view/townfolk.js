@@ -6,16 +6,14 @@
 // pivots and poses are the same either way.
 
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { mulberry32 } from "../sim/rng.js";
 import { paintFaces, mergeParts, lambert } from "./materials.js";
+import { loadPartLibrary, paintParts, swapGeometry } from "./partlib.js";
 
 let _mat = null;
 
 // ---------- Blender part library ----------
 
-// Vertex colour R carries a slot ((slot + 0.5) / 16), G a baked shade.
 const SLOTS = ["tunic", "tunicDark", "trim", "skin", "hair", "leather", "boots", "eye", "linen", "apron",
   "trousers", "hat", "gold", "lip", "skinShade", "white"];
 const PIVOTS = { arm_l: [-0.4, 1.33], arm_r: [0.4, 1.33], leg_l: [-0.15, 0.53], leg_r: [0.15, 0.53] };
@@ -35,28 +33,7 @@ export function villagerPartsReady() {
 function requestLibrary() {
   if (libraryAsked) return;
   libraryAsked = true;
-  new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync("./assets/models/villager.glb").then((gltf) => {
-    gltf.scene.updateMatrixWorld(true);
-    const lib = {};
-    gltf.scene.traverse((o) => {
-      if (!o.isMesh || !o.name.startsWith("vp_")) return;
-      const src = o.geometry;
-      const index = src.index;
-      const n = index ? index.count : src.attributes.position.count;
-      const pos = new Float32Array(n * 3);
-      const code = new Float32Array(n * 2);
-      const p = src.attributes.position;
-      const c = src.attributes.color;
-      const v = new THREE.Vector3();
-      for (let i = 0; i < n; i++) {
-        const k = index ? index.getX(i) : i;
-        v.set(p.getX(k), p.getY(k), p.getZ(k)).applyMatrix4(o.matrixWorld);
-        pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
-        code[i * 2] = c ? c.getX(k) : 0;
-        code[i * 2 + 1] = c ? c.getY(k) : 1;
-      }
-      lib[o.name.slice(3)] = { pos, code };
-    });
+  loadPartLibrary("./assets/models/villager.glb", "vp_").then((lib) => {
     library = lib;
     partMat = lambert({ side: THREE.DoubleSide });
     for (const v of waiting.splice(0)) reskin(v);
@@ -91,50 +68,13 @@ function lookPalette(look) {
   return SLOTS.map((k) => new THREE.Color(hex[k]));
 }
 
-// Painted, non-indexed geometry for the named parts, shifted by (dx, dy).
-function paintParts(names, pal, dx, dy) {
-  let count = 0;
-  for (const n of names) if (library[n]) count += library[n].pos.length;
-  const pos = new Float32Array(count);
-  const col = new Float32Array(count);
-  let o = 0;
-  for (const n of names) {
-    const part = library[n];
-    if (!part) continue;
-    const vc = part.pos.length / 3;
-    for (let i = 0; i < vc; i++) {
-      pos[o + i * 3] = part.pos[i * 3] + dx;
-      pos[o + i * 3 + 1] = part.pos[i * 3 + 1] + dy;
-      pos[o + i * 3 + 2] = part.pos[i * 3 + 2];
-      const c = pal[Math.min(15, Math.max(0, Math.floor(part.code[i * 2] * 16)))];
-      const k = part.code[i * 2 + 1];
-      col[o + i * 3] = c.r * k;
-      col[o + i * 3 + 1] = c.g * k;
-      col[o + i * 3 + 2] = c.b * k;
-    }
-    o += vc * 3;
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  g.computeVertexNormals();
-  return g;
-}
-
-function swapGeometry(mesh, geo) {
-  const old = mesh.geometry;
-  mesh.geometry = geo;
-  mesh.material = partMat;
-  old.dispose();
-}
-
 function reskin(v) {
   const pal = lookPalette(v.look);
-  swapGeometry(v.torso, paintParts(partsFor(v.look), pal, 0, 0));
+  swapGeometry(v.torso, paintParts(library, partsFor(v.look), pal, 0, 0, 0), partMat);
   const limbs = [["arm_l", v.leftArm], ["arm_r", v.rightArm], ["leg_l", v.leftLeg], ["leg_r", v.rightLeg]];
   for (const [name, group] of limbs) {
     const [px, py] = PIVOTS[name];
-    swapGeometry(group.children[0], paintParts([name], pal, -px, -py));
+    swapGeometry(group.children[0], paintParts(library, [name], pal, -px, -py, 0), partMat);
   }
   v.reskinned = true;
 }

@@ -58,10 +58,11 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/townfolk.js` | Town | Keeper and wanderer roster, barks, waypoint graph, `shortestPath`, `stepWalker`. |
 | `src/view/buildings.js` | Town | Life-size buildings, interiors, signs, street props, square, roads, shared interior light. |
 | `src/view/townfolk.js` | Town | `buildVillager`, `poseVillager`, `villagerPartsReady`. Villagers start code-built and are re-skinned from the Blender part library (`assets/models/villager.glb`, `tools/blender/villagers.py`): shared parts whose vertex colours carry a colour slot and a baked shade, painted per villager from its `look`. Same rig and poses. |
+| `src/view/partlib.js` | Town art | `loadPartLibrary`, `paintParts`, `swapGeometry`: slot-coded Blender part libraries (R = colour slot, G = baked shade) painted per character. |
 | `src/play/interiors.js` | Town | Which building and level hold the hero, roof and wall cutaway, interior light, indoor camera, level-aware grounding. |
 | `src/play/townfolk.js` | Town | Steps keepers and wanderers, hero–villager collision, greetings. |
 | `src/ui/barks.js` | Town | Speech plaques above townsfolk. |
-| `src/view/ambience.js` | Town | Chimney smoke (instanced), hen, cat, and dog meshes, `poseAnimal`. |
+| `src/view/ambience.js` | Town | Chimney smoke (instanced), hen, cat, and dog meshes, `poseAnimal`, `animalPartsReady`. Animals are re-skinned from the Blender part library (`assets/models/animals.glb`, `tools/blender/animals.py`) painted by coat. |
 | `src/play/ambience.js` | Town | Ticks smoke, hens, and pets. |
 | `src/sim/townlore.js` | Town | Keeper lines, rumours, counsel, `guideHint`. Pure. |
 | `src/play/dialogue.js` | Town | Talk cycling per keeper, inn rest, guide target. |
@@ -104,4 +105,4 @@ The town's art (building exteriors and interiors, furniture, yards, the square, 
 2. In Blender (Scripting tab or the Blender MCP): `p = r"<repo>/tools/blender/greenmere.py"; g = {"__file__": p}; exec(open(p).read(), g); g["build"]()` (or `g["build"](["smith"])`). Styles per building live in `STYLES` there; furniture and props live in `tools/blender/furnish.py`, one function per townplan `type`. Ambient occlusion is baked into vertex colours; output is `assets/models/<id>.glb`, meshopt compressed.
 Villager parts: `g["build_villagers"]()` writes `assets/models/villager.glb`; `g["preview_villagers"]()` lines up painted examples in Blender.
 
-3. `node tools/shots.mjs` renders every building view headless and writes `shots/sheet.png`; `--ab` adds a before column (models blocked), `--test` runs the self-test, `--time=0.9` shoots at night. Raw views take any dev query (`q:at=x,z&cam=yaw,pitch,dist`); `&hide=hero` hides the Warden for close looks. Needs Playwright (found in the npx cache, or `npx playwright install chromium`).
+3. `node tools/shots.mjs` renders every building view headless and writes `shots/sheet.png`; `--ab` adds a before column (models blocked), `--test` runs the self-test, `--time=0.9` shoots at night. Raw views take any dev query (`q:at=x,z&cam=yaw,pitch,dist`); `&hide=hero` hides the Warden for close looks; `&near=<name>` drops it beside a named town object (`hen-0-0`, `cat-moss`, a villager id). Needs Playwright (found in the npx cache, or `npx playwright install chromium`).

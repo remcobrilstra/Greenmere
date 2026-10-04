@@ -3,6 +3,7 @@ import { applyTownLight } from "./view/lights.js";
 import { buildTown, TREE_COUNT, DECOR } from "./view/town.js";
 import { buildHero } from "./view/hero.js";
 import { villagerPartsReady } from "./view/townfolk.js";
+import { animalPartsReady } from "./view/ambience.js";
 import { createViewCamera, attachCamera, bindOrbit } from "./play/camera.js";
 import { attachMovement, bindKeys } from "./play/move.js";
 import { attachTown } from "./play/town.js";
@@ -87,7 +88,7 @@ rt.camp = town.camp;
 rt.townRoot = town.townRoot;
 rt.stations = town.stations;
 rt.buildings = town.buildings;
-rt.townModelsReady = Promise.all([town.modelsReady, villagerPartsReady()]);
+rt.townModelsReady = Promise.all([town.modelsReady, villagerPartsReady(), animalPartsReady()]);
 rt.setTownTier = town.setTier;
 rt.getTownTier = town.getTier;
 rt.townTierMeshes = town.tierMeshes;
@@ -404,6 +405,22 @@ if (params.has("test")) {
       rt.camDist = cam[2];
     }
     rt.placeCamera(0, true);
+  }
+  // ?dev=1&near=<name>&cam=... drops the Warden beside a named town object (a villager, hen or pet).
+  if (rt.dev && params.has("near")) {
+    const o = rt.townRoot && rt.townRoot.getObjectByName(params.get("near"));
+    if (o) {
+      const p = new THREE.Vector3();
+      o.getWorldPosition(p);
+      rt.resetHero(p.x + 0.9, p.z + 0.9, 0);
+      if (params.has("cam")) {
+        const cam = params.get("cam").split(",").map(Number);
+        rt.camYaw = cam[0];
+        rt.camPitch = cam[1];
+        rt.camDist = cam[2];
+      }
+      rt.placeCamera(0, true);
+    }
   }
   // ?dev=1&hide=hero hides the Warden, for close looks at whatever the camera frames.
   if (rt.dev && params.get("hide") === "hero") rt.player.visible = false;
