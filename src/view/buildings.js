@@ -8,7 +8,7 @@ import { paintFaces, mergeParts, lambert } from "./materials.js";
 import { loadTownModels } from "./townmodels.js";
 import {
   BUILDINGS, COTTAGES, ROADS, PROPS, SQUARE_R, SQUARE_TOP, FLOOR_Y, WALL_T, DOOR_W, DOOR_H,
-  INTERACT_R, CUTAWAY_H, STAIR_W, jetty, levelTop, wallBoxes, wallHeight, buildingColliders, propColliders, stationWorld, localToWorld
+  INTERACT_R, CUTAWAY_H, STAIR_W, levelTop, wallBoxes, wallHeight, buildingColliders, propColliders, stationWorld, localToWorld
 } from "../sim/townplan.js";
 
 const PLASTER = [0xe7d7b4, 0xeadcbc, 0xe0cfa9];
@@ -27,7 +27,6 @@ const GOLD = [0xd4a03a, 0xc79232];
 const COPPER = [0xb87333, 0xa86528, 0xc98443];
 const STRAW = [0xc9a85a, 0xd8b968, 0xb8984c];
 const BURLAP = [0xc2a36b, 0xb39460];
-const CLOTH = [[0xb64034], [0x2d62c8], [0x3e9a36], [0xd4a03a], [0x7a4a8c]];
 const GOODS = [0xb64034, 0x2d62c8, 0x3e9a36, 0xd4a03a, 0xe7d7b4, 0x7a4a8c, 0x8d5b34, 0xc5d0dc];
 
 // One colour for a whole part (cobbles, planks) so faces do not split into triangles.

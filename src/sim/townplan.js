@@ -61,6 +61,11 @@ export function worldYaw(b, dx, dz) {
 
 // Furniture entries: type, local x/z, yaw (local), w/d/h. walk: true = no collider.
 // round: true = circle collider of radius max(w, d) / 2.
+// Buildings and placed things vary in their optional fields (keeper, stairs, walk, r...),
+// so these record types name the shared fields and leave the rest open.
+/** @typedef {{ id: string, name: string, x: number, z: number, yaw: number, w: number, d: number, [field: string]: any }} Building */
+/** @typedef {{ type: string, x: number, z: number, [field: string]: any }} Placed */
+/** @type {Building[]} */
 export const BUILDINGS = [
   {
     id: "store",
@@ -591,6 +596,7 @@ function buildRoads() {
 export const ROADS = buildRoads();
 
 // Square and street props. Colliders come from `r` (circle) or w/d (box).
+/** @type {Placed[]} */
 export const PROPS = [
   { type: "well", x: 0, z: 0, r: 1.0 },
   { type: "stall", x: -6.9, z: -4.6, yaw: faceCenter(-6.9, -4.6), w: 2.6, d: 1.4, awning: 0xb64034 },

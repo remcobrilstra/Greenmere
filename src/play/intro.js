@@ -18,7 +18,6 @@ import { attachIntroUi } from "../ui/intro.js";
 // The opening: high over the wood north of the gate, looking down at the town.
 const OPENING = { pos: [18, 40, -80], look: [0, 0, -2] };
 const FLY_IN = 5.2;
-const HOME_TIME = 2.4;
 const SKIP_HOME_TIME = 1.4;
 
 const TAU = Math.PI * 2;

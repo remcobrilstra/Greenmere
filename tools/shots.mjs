@@ -145,6 +145,8 @@ async function main() {
       const lines = text.split("\n");
       console.log(lines.filter((l) => !l.startsWith("PASS")).join("\n"));
       console.log(lines.filter((l) => l.startsWith("PASS")).length + " passed");
+      // A failed or stalled run fails the command, so npm test and CI stop on it.
+      if (!/ALL PASSED/.test(text)) process.exitCode = 1;
       if (!names.length) return;
     }
     mkdirSync(OUT, { recursive: true });

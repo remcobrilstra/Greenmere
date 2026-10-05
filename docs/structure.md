@@ -113,6 +113,16 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 
 PR-00 extract the prototype. PR-01 formulas and floor plans. PR-02 town stations. PR-03 one playable floor. PR-04 save. PR-05 store. PR-06 gear. PR-07 trainer. PR-08 smith. PR-09 full enemy set. PR-10 themes and dungeon map. PR-11 frame budget. Each PR is specified in `docs/greenmere-town-and-underwood.md`.
 
+## Checks and release
+
+No build step: the shipped files are the source files. `npm install` once brings in the dev tools (`package.json`; nothing ships to players). `npm run check` is the release gate, and CI runs it on every push and pull request (`.github/workflows/pages.yml`); `main` deploys to GitHub Pages only when it passes.
+
+- `npm run lint`: ESLint (`eslint.config.js`), correctness rules only, no style rules.
+- `npm run typecheck`: `tsc` checks the JavaScript as-is (`tsconfig.json`), no emit, not strict. Scope grows a folder at a time: only `src/sim/` so far; add a folder to `include` once it checks clean. Loose JSDoc record types (`Building`, `Placed` in `src/sim/townplan.js`) cover the mixed-shape data lists.
+- `npm test`: the self-test in headless Chromium (`tools/shots.mjs --test`); exits 1 on any failure.
+- `npm run build`: `tools/build.mjs` stages `_site/`, fills `%BASE_URL%` in `index.html` (env `BASE_URL`, default `http://localhost:8080`), writes `robots.txt` and `sitemap.xml`, and fails if anything the page, manifest or modules reference did not ship.
+- The social card `icons/og-image.png` is rendered by `node tools/og-image.mjs`.
+
 ## Town art pipeline
 
 The town's art (building exteriors and interiors, furniture, yards, the square, roads, street props, the hearth pit) is generated in Blender from the town plan, not hand-placed, so it stays in step with doors, windows, chimneys, furniture spots and colliders. The code-built town in `view/buildings.js` is the fallback and the reference for footprints.

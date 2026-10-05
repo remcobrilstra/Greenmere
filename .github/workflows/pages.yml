@@ -1,11 +1,12 @@
-# Deploys the game to GitHub Pages. No build step: the site is the static files
-# the game loads at runtime (index.html, src/, assets/, icons/, manifest, sw.js),
-# copied into _site so shots/, tools/ and docs/ stay out of the published site.
-name: Deploy to GitHub Pages
+# Checks every push and pull request; deploys main to GitHub Pages once the checks pass.
+# The site is the game's own files, staged by tools/build.mjs (no compile step);
+# shots/, tools/ and docs/ stay out of it.
+name: Check and deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -15,34 +16,54 @@ permissions:
 
 # One deploy at a time; let an in-flight deploy finish rather than cancel it.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stage site
-        run: |
-          mkdir _site
-          cp -r index.html manifest.webmanifest sw.js icons assets src _site/
-          touch _site/.nojekyll
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      # The in-page self-test (src/test/self-test.js) in headless Chromium on software WebGL.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Self-test
+        run: npm test
+
+  build:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - id: pages
         uses: actions/configure-pages@v5
 
-      # Social cards and the canonical link need absolute URLs: fill in %BASE_URL%
-      # and write robots.txt and sitemap.xml for the address Pages serves from.
-      - name: Fill in site URL
+      # Stages _site/, fills in the site address and checks no shipped file is missing.
+      - name: Build
         env:
           BASE_URL: ${{ steps.pages.outputs.base_url }}
-        run: |
-          sed -i "s|%BASE_URL%|${BASE_URL}|g" _site/index.html
-          if grep -q "%BASE_URL%" _site/index.html; then echo "unfilled %BASE_URL%"; exit 1; fi
-          printf 'User-agent: *\nAllow: /\nSitemap: %s/sitemap.xml\n' "$BASE_URL" > _site/robots.txt
-          printf '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>%s/</loc><lastmod>%s</lastmod></url>\n</urlset>\n' "$BASE_URL" "$(date -u +%Y-%m-%d)" > _site/sitemap.xml
+        run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:

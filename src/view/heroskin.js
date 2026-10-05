@@ -27,8 +27,6 @@ export function loadWardenSkin() {
 const _q = new THREE.Quaternion();
 const _r = new THREE.Quaternion();
 const _r2 = new THREE.Quaternion();
-const _m = new THREE.Matrix4();
-const _v = new THREE.Vector3();
 const X = new THREE.Vector3(1, 0, 0);
 const Z = new THREE.Vector3(0, 0, 1);
 

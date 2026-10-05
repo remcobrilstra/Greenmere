@@ -1,0 +1,22 @@
+{
+  "name": "greenmere",
+  "private": true,
+  "type": "module",
+  "description": "Greenmere — The Outer Wood. A browser dungeon crawler; no build step, these are dev tools only.",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node tools/shots.mjs --test",
+    "build": "node tools/build.mjs",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/three": "^0.183.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "playwright": "^1.63.0",
+    "typescript": "^7.0.2"
+  }
+}

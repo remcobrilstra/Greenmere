@@ -6,7 +6,7 @@
 
 import {
   affixValue, strikeDamage, wardAbsorb, edgeMul, strikeRange, strikeArcDeg, strikeCooldown,
-  wardAbsorbMul, wardCost, wardDuration, mendHeal, mendCost, mendCooldown, mendPushback, mendCastSeconds,
+  wardAbsorbMul, wardCost, wardDuration, mendHeal, mendCost, mendPushback, mendCastSeconds,
   mendHot, walkSpeed, sprintSpeed, extractSeconds
 } from "./balance.js";
 import { affixDef, gearTotals } from "./items.js";

@@ -1,2 +1,4 @@
 shots/
 tools/blender/icons_out/
+node_modules/
+_site/

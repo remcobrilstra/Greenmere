@@ -103,12 +103,6 @@ export function generateFloor(runSeed, floorIndex) {
     return col >= room.col && row >= room.row && col < room.col + room.w && row < room.row + room.h;
   }
 
-  function apart(a, b, gap) {
-    const horiz = a.col + a.w + gap <= b.col || b.col + b.w + gap <= a.col;
-    const vert = a.row + a.h + gap <= b.row || b.row + b.h + gap <= a.row;
-    return horiz || vert;
-  }
-
   function centerOf(room) {
     return { col: room.col + (room.w >> 1), row: room.row + (room.h >> 1) };
   }
