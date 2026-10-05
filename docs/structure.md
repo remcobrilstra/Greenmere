@@ -93,6 +93,9 @@ PR-00 creates only the files the walking wood needs. Later files appear in the P
 | `src/sim/gearstats.js` | Town | `heroStats` (mirrors `derive()`), `compareEquip`, `compareUpgrade`, readable `affixLines`, trainer `trackEffects` / `trackNext`. Pure; feeds the panel previews. |
 | `src/view/townmodels.js` | Town art | `loadModel`, `loadTownModels`: the Blender-built town from `assets/models/` (one `.glb` per building, plus `town.glb` for the square, roads, street props and hearth pit). `buildings.js` swaps every part in at once when all files load, or keeps the code-built town whole if any fails. |
 | `src/view/gateportal.js` | Town | `buildGatePortal`: the Delve Gate's swirling veil (shader), inward motes, pulsing light; `tick(time)` from `play/town.js`, which also starts a delve when the hero walks through the opening. |
+| `src/sim/intro.js` | First visit | `INTRO_STOPS`: the town tour's script, one stop per keeper, the notice board and the Delve Gate (who stands there, what you can do there). Pure. |
+| `src/play/intro.js` | First visit | `attachIntro`: `rt.startIntro`. Flies the camera from over the wood to each stop (`rt.cinematic` replaces `placeCamera`, the hero is frozen), cuts away the keeper's building (`rt.forceInterior`), moves the shadow box with the shot (`rt.sunAnchor`), takes all keys and canvas clicks in the capture phase, then settles behind the hero and hands back. `main.js` starts it when there is no ledger; dev `&intro=1` replays it, `&intro=<stop id>` holds one stop. |
+| `src/ui/intro.js` | First visit | `#intro`: letterbox bars, the "who" card (left) and "what you can do" card (right), step dots, Continue and Skip. While it runs `body.intro-on` hides the HUD, barks and key prompt; `intro-out` fades them back in. |
 
 ## Rules
 

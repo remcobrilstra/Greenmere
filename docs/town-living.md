@@ -388,3 +388,11 @@ The loot rules themselves are unchanged (spec DUN-06, DUN-07):
   - dresses, buns, and long hair among the grown-ups.
 - **Talking (F)** reaches wanderers, vendors, and keepers who are out of their shops.
 - **Measured:** `?test=1` is 727 checks in the shared tree, all passing.
+
+## 16. First visit: the town tour
+
+- **When:** the first time the game opens with no ledger (`greenmere.save.v1` missing), the loading card lifts on a camera high over the wood north of the gate. Finishing or skipping writes the ledger, so the tour plays once. `?dev=1&intro=1` replays it; `&intro=maud` (any stop id) holds that stop for shots (`node tools/shots.mjs "q:intro=maud"`).
+- **Stops** (`src/sim/intro.js`): Greenmere from above the square, then Maud, Orrin, Sister Wen, Old Tamsin, Aldous, Pell, the notice board, and the Delve Gate. Keepers are framed at their posts through the cut-away roof, with the room light on. The left card says who they are, and the right card says what you can do there.
+- **Camera:** each hop eases (smootherstep) from the current shot to the next, with the look point blended; long hops arc up over the roofs (lift = 0.28 × distance, at most 16 m). A held shot sways slowly. After the gate, the camera flies to the normal follow position behind the Warden, the letterbox opens, and the HUD fades in over 1.4 s.
+- **Input:** Space, Enter, F, → or a click on the world goes on; ← goes back; Esc (or Skip tour) flies home at once. Nothing else hears keys or canvas pointer events while it runs, and the hero cannot move.
+- **Hooks in other files:** `move.js` (`rt.cinematic` in place of `placeCamera`, and it freezes the hero), `interiors.js` (`rt.forceInterior`), `lights.js` (`rt.sunAnchor`), `main.js` (`rt.firstVisit`, start), `tools/shots.mjs` (waits 1.5 s on `intro=` views).

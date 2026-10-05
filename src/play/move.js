@@ -122,8 +122,8 @@ export function attachMovement(rt) {
   }
   function update(dt) {
     time += dt;
-    // A trap's hold (src/play/traps.js) roots the Warden like a fall does.
-    const frozen = rt.transit || !!(rt.vitals && rt.vitals.deathLock) || (rt.space === "dungeon" && rt.trapHold > 0);
+    // A trap's hold (src/play/traps.js) roots the Warden like a fall does; so does the first-visit tour (play/intro.js).
+    const frozen = rt.transit || !!rt.cinematic || !!(rt.vitals && rt.vitals.deathLock) || (rt.space === "dungeon" && rt.trapHold > 0);
     const keys = frozen ? {} : rt.keys;
     // Both mouse buttons held walks forward, like holding W.
     const mouseRun = !frozen && (rt.mouseButtons & 3) === 3;
@@ -210,7 +210,9 @@ export function attachMovement(rt) {
       if (clouds[i].position.x > HALF + 20) clouds[i].position.x = -HALF - 10;
     }
     if (!dungeon && rt.tickTown) rt.tickTown(dt, time);
-    rt.placeCamera(dt, false);
+    // The first-visit tour flies the camera itself (play/intro.js).
+    if (rt.cinematic) rt.cinematic(dt);
+    else rt.placeCamera(dt, false);
     rt.updateSun();
     if (rt.collectDrops) rt.collectDrops();
     if (!dungeon && rt.refreshTownPrompt) rt.refreshTownPrompt();

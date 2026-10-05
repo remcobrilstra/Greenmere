@@ -77,6 +77,15 @@ export function attachInteriors(rt) {
 
   function tickInteriors(dt) {
     if (rt.space === "dungeon") return;
+    if (forced !== undefined) {
+      // The first-visit tour (play/intro.js) shows a keeper's room; the hero stays outside.
+      enter(forced, 0);
+      if (light) {
+        const target = forced ? LIGHT_ON : 0;
+        light.intensity += (target - light.intensity) * (1 - Math.exp(-6 * dt));
+      }
+      return;
+    }
     const p = rt.player.position;
     const level = rt.heroLevel || 0;
     let def = level === 1 ? upperBuildingAt(p.x, p.z) : null;
@@ -103,6 +112,17 @@ export function attachInteriors(rt) {
     eyebrow("Greenmere");
     if (light) light.intensity = 0;
   }
+
+  // A building id cuts that building away whatever the hero does; null shows none;
+  // undefined hands back to the hero. The tour calls it, then undefined when it ends.
+  let forced;
+  rt.forceInterior = function (id) {
+    if (id === undefined) {
+      forced = undefined;
+      return;
+    }
+    forced = id ? byId.get(id) || null : null;
+  };
 
   rt.floorAt = floorAt;
   rt.heroLevel = 0;

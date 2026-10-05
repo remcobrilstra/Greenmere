@@ -225,9 +225,11 @@ export function applyTownLight(scene, rt) {
   sunMesh.position.copy(sunDir).multiplyScalar(280);
   scene.add(sunMesh);
 
+  // The shadow box follows the hero, or the first-visit tour's shot (rt.sunAnchor).
   function updateSun() {
-    sun.position.copy(rt.player.position).addScaledVector(sunDir, 40);
-    sun.target.position.copy(rt.player.position);
+    const at = rt.sunAnchor || rt.player.position;
+    sun.position.copy(at).addScaledVector(sunDir, 40);
+    sun.target.position.copy(at);
     sun.target.updateMatrixWorld();
   }
   lights.sky = sky;

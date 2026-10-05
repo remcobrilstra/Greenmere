@@ -1270,6 +1270,75 @@
     @media (prefers-reduced-motion: reduce) {
       #loading, #loading-fill { transition: none; }
     }
+
+    /* First-visit tour (src/ui/intro.js): letterbox, a "who" card left, a "what you can do"
+       card right, the step line at the bottom. The HUD stays hidden until the tour hands over. */
+    body.intro-on #hud, body.intro-on #barks, body.intro-on #key-prompt { opacity: 0; visibility: hidden; }
+    body.intro-out #hud, body.intro-out #barks, body.intro-out #key-prompt { transition: opacity 1.4s ease 0.2s; }
+    #intro { position: fixed; inset: 0; z-index: 900; pointer-events: none; font-family: var(--f-body); color: var(--ink); }
+    #intro .in-bar {
+      position: absolute; left: 0; right: 0; height: 8vh; background: #070504;
+      transition: transform 1.1s cubic-bezier(.6, 0, .3, 1);
+    }
+    #intro .in-bar.top { top: 0; }
+    #intro .in-bar.bottom { bottom: 0; }
+    #intro.done .in-bar.top { transform: translateY(-100%); }
+    #intro.done .in-bar.bottom { transform: translateY(100%); }
+    #intro .in-card {
+      position: absolute; top: 50%; width: min(360px, 29vw); padding: 22px 24px 20px;
+      background: var(--frame-bg); box-shadow: var(--frame-shadow); border-radius: 3px;
+      opacity: 0; transition: opacity 0.45s ease, transform 0.55s cubic-bezier(.2, .7, .2, 1);
+    }
+    #intro .in-who { left: 4vw; transform: translate(-28px, -50%); }
+    #intro .in-can { right: 4vw; transform: translate(28px, -50%); }
+    #intro.show .in-card { opacity: 1; transform: translate(0, -50%); }
+    #intro .in-eyebrow {
+      margin: 0 0 6px; font-family: var(--f-display); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--brass);
+    }
+    #intro .in-name {
+      margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clamp(24px, 2.6vw, 34px); line-height: 1.1; letter-spacing: 0.06em;
+      color: var(--brass-hi); text-shadow: 0 1px 0 #5a4018, 0 2px 8px rgba(0, 0, 0, 0.6);
+    }
+    #intro .in-title { margin: 4px 0 14px; font-style: italic; font-size: 17px; color: var(--mute); }
+    #intro .in-text { margin: 0; font-size: 17px; line-height: 1.45; color: var(--ink); }
+    #intro .in-can h3 {
+      margin: 0 0 12px; font-family: var(--f-display); font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass-hi);
+    }
+    #intro .in-can ul { margin: 0; padding: 0; list-style: none; }
+    #intro .in-can li { position: relative; margin: 0 0 10px; padding-left: 20px; font-size: 16px; line-height: 1.4; color: var(--ink-2); }
+    #intro .in-can li::before {
+      content: ""; position: absolute; left: 2px; top: 0.55em; width: 7px; height: 7px; transform: rotate(45deg);
+      background: var(--brass); box-shadow: 0 0 6px rgba(243, 215, 154, 0.4);
+    }
+    #intro .in-foot {
+      position: absolute; left: 50%; bottom: calc(8vh + 14px); transform: translateX(-50%);
+      display: flex; align-items: center; gap: 18px; white-space: nowrap;
+      opacity: 0; transition: opacity 0.6s ease;
+    }
+    #intro.ready .in-foot { opacity: 1; }
+    #intro.done .in-foot { opacity: 0; }
+    #intro .in-dots { display: flex; gap: 7px; }
+    #intro .in-dots i { width: 7px; height: 7px; transform: rotate(45deg); border: 1px solid var(--brass-lo); background: rgba(0, 0, 0, 0.5); }
+    #intro .in-dots i.on { background: var(--brass-hi); border-color: var(--brass-hi); box-shadow: 0 0 6px rgba(243, 215, 154, 0.55); }
+    #intro .in-dots i.past { background: var(--brass-lo); }
+    #intro button {
+      pointer-events: auto; cursor: pointer; font-family: var(--f-display); font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--ink); background: var(--frame-bg); box-shadow: var(--frame-shadow); border: 0; border-radius: 3px; padding: 9px 16px;
+    }
+    #intro button:hover, #intro button:focus-visible { color: var(--brass-hi); outline: none; box-shadow: var(--frame-shadow), 0 0 0 1px var(--brass); }
+    #intro button b { font-family: var(--f-body); font-weight: 700; color: var(--brass-hi); margin-right: 6px; letter-spacing: 0; }
+    #intro .in-skip { background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 1px var(--brass-lo); color: var(--mute); }
+    @media (max-width: 760px) {
+      #intro .in-card { width: auto; left: 16px; right: 16px; padding: 14px 16px; }
+      #intro .in-who { top: calc(8vh + 10px); transform: translateY(-16px); }
+      #intro .in-can { top: auto; bottom: calc(8vh + 64px); transform: translateY(16px); }
+      #intro.show .in-card { transform: none; }
+      #intro .in-text, #intro .in-can li { font-size: 15px; }
+      #intro .in-foot { gap: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #intro .in-card, #intro .in-bar { transition: opacity 0.3s ease; }
+    }
   </style>
 </head>
 <body>

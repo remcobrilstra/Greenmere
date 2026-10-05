@@ -98,6 +98,8 @@ async function shoot(page, base, query, file) {
   if (/(^|&)hide=hero/.test(query)) await page.evaluate(() => { window.__game.rt.player.visible = false; });
   // A few frames so shadows and the cutaway settle.
   await page.evaluate(() => new Promise((r) => { let n = 0; const f = () => (++n > 6 ? r() : requestAnimationFrame(f)); f(); }));
+  // A held tour stop (&intro=<stop>) slides its cards in and fades the room light up.
+  if (/(^|&)intro=/.test(query)) await page.waitForTimeout(1500);
   await page.screenshot({ path: file, timeout: 60000 });
   // Software WebGL: an idle page left rendering would starve the next one.
   await page.goto("about:blank");

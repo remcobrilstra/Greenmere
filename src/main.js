@@ -37,6 +37,7 @@ import { attachLootFx } from "./play/lootfx.js";
 import { attachDebugKeys } from "./ui/debugkeys.js";
 import { attachAbilityTips } from "./ui/abilitytips.js";
 import { attachQuestMarks } from "./play/questmarks.js";
+import { attachIntro } from "./play/intro.js";
 import { installSelfTest } from "./test/self-test.js";
 import { attachResolution } from "./play/resolution.js";
 import { attachLoading } from "./ui/loading.js";
@@ -182,6 +183,7 @@ attachDebugKeys(rt);
 attachAbilityTips(rt);
 attachQuestMarks(rt);
 attachPanels(rt);
+attachIntro(rt);
 bindKeys(rt);
 bindOrbit(renderer.domElement, rt);
 
@@ -297,6 +299,8 @@ function loadStoredGame() {
     return null;
   }
   if (raw == null || raw === "") {
+    // No ledger at all: a first visit, which gets the tour of the town (play/intro.js).
+    rt.firstVisit = true;
     if (rt.freshGame) rt.freshGame();
     return null;
   }
@@ -455,6 +459,17 @@ if (params.has("test")) {
       }
       rt.placeCamera(0, true);
     }
+  }
+  // The first visit tours the town once the loading card lifts; finishing it writes the
+  // ledger, so the tour does not come back. ?dev=1&intro=1 replays it, &intro=<stop id>
+  // holds one stop (src/sim/intro.js) for shots.
+  const introAt = rt.dev ? params.get("intro") : null;
+  if ((rt.firstVisit && !rt.dev) || introAt) {
+    rt.startIntro({
+      at: introAt && introAt !== "1" ? introAt : null,
+      after: rt.assetsReady,
+      onDone: () => rt.markSave("arrive")
+    });
   }
   // ?dev=1&hide=hero hides the Warden, for close looks at whatever the camera frames.
   if (rt.dev && params.get("hide") === "hero") rt.player.visible = false;
