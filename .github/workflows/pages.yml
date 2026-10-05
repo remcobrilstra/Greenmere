@@ -30,7 +30,19 @@ jobs:
           cp -r index.html manifest.webmanifest sw.js icons assets src _site/
           touch _site/.nojekyll
 
-      - uses: actions/configure-pages@v5
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      # Social cards and the canonical link need absolute URLs: fill in %BASE_URL%
+      # and write robots.txt and sitemap.xml for the address Pages serves from.
+      - name: Fill in site URL
+        env:
+          BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          sed -i "s|%BASE_URL%|${BASE_URL}|g" _site/index.html
+          if grep -q "%BASE_URL%" _site/index.html; then echo "unfilled %BASE_URL%"; exit 1; fi
+          printf 'User-agent: *\nAllow: /\nSitemap: %s/sitemap.xml\n' "$BASE_URL" > _site/robots.txt
+          printf '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>%s/</loc><lastmod>%s</lastmod></url>\n</urlset>\n' "$BASE_URL" "$(date -u +%Y-%m-%d)" > _site/sitemap.xml
 
       - uses: actions/upload-pages-artifact@v3
         with:

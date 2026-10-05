@@ -4,6 +4,44 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Greenmere — The Outer Wood</title>
+  <!-- SEO and social cards. The BASE_URL placeholder is filled in with the site's address on deploy
+       (.github/workflows/pages.yml); the card is icons/og-image.png (tools/og-image.mjs). -->
+  <meta name="description" content="Greenmere is a 3D dungeon crawler you play in the browser. Delve the endless Underwood from the living town of Greenmere: fight, loot, gear up between delves and watch the town grow." />
+  <meta name="robots" content="index, follow" />
+  <meta name="application-name" content="Greenmere" />
+  <link rel="canonical" href="%BASE_URL%/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Greenmere" />
+  <meta property="og:title" content="Greenmere — The Outer Wood" />
+  <meta property="og:description" content="Delve the Underwood from the last town before the dark. A 3D dungeon crawler that plays instantly in your browser." />
+  <meta property="og:url" content="%BASE_URL%/" />
+  <meta property="og:image" content="%BASE_URL%/icons/og-image.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="The cobbled square of Greenmere, with the glowing Delve Gate at the edge of the wood." />
+  <meta property="og:locale" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Greenmere — The Outer Wood" />
+  <meta name="twitter:description" content="Delve the Underwood from the last town before the dark. A 3D dungeon crawler that plays instantly in your browser." />
+  <meta name="twitter:image" content="%BASE_URL%/icons/og-image.png" />
+  <meta name="twitter:image:alt" content="The cobbled square of Greenmere, with the glowing Delve Gate at the edge of the wood." />
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Greenmere — The Outer Wood",
+      "description": "A 3D dungeon crawler played in the browser: delve the endless Underwood from the living town of Greenmere.",
+      "url": "%BASE_URL%/",
+      "image": "%BASE_URL%/icons/og-image.png",
+      "genre": ["Dungeon crawler", "Action RPG"],
+      "gamePlatform": "Web browser",
+      "applicationCategory": "Game",
+      "operatingSystem": "Any",
+      "inLanguage": "en",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    }
+  </script>
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#2a1e14" />
   <meta name="mobile-web-app-capable" content="yes" />
