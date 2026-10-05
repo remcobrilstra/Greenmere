@@ -1,6 +1,9 @@
 // The first-visit tour of Greenmere: one stop per keeper, the notice board, and the
-// Delve Gate. Pure data. play/intro.js frames each stop and ui/intro.js shows the two
-// cards: who stands here (left) and what you can do here (right).
+// Delve Gate, in clockwise order round the square (north is -z): from the gate road to
+// the inn (NE), the forge (E), the Circle (S), the bank (SW), the store (W), the still
+// (NW), the board, and back north to the gate. Pure data. play/intro.js frames each
+// stop and ui/intro.js shows the two cards: who stands here (left) and what you can do
+// here (right).
 //
 // focus: "square" (the opening wide shot), "keeper" (a keeper at their counter,
 // seen through the cut-away roof), "board" (the notice board), "gate" (the portal).
@@ -21,18 +24,18 @@ export const INTRO_STOPS = [
     ]
   },
   {
-    id: "maud",
+    id: "pell",
     focus: "keeper",
-    building: "store",
-    eyebrow: "Bramble & Board",
-    name: "Maud Bramble",
-    title: "shopkeeper",
-    who: "Maud keeps the general store on the west side of the square. There is a price for everything, and the scales are trusted more than most people.",
-    doTitle: "At the store",
+    building: "inn",
+    eyebrow: "The Banked Fire",
+    name: "Pell",
+    title: "innkeeper",
+    who: "Pell never leaves the bar, so everything the town hears ends up with Pell.",
+    doTitle: "At the inn",
     can: [
-      "Buy health and mana draughts",
-      "Sell the gear you bring up from below",
-      "Buy back anything you sold by mistake"
+      "Rest to restore your health and mana",
+      "Sleep until morning, or doze until evening",
+      "Hear rumours about the next floor and its boss"
     ]
   },
   {
@@ -48,21 +51,6 @@ export const INTRO_STOPS = [
       "Upgrade worn gear one item level at a time, for gold and materials",
       "Craft oils and kits that sharpen your gear",
       "He can only forge as deep as you have been: extract from deeper floors to unlock higher levels"
-    ]
-  },
-  {
-    id: "wen",
-    focus: "keeper",
-    building: "still",
-    eyebrow: "The Still",
-    name: "Sister Wen",
-    title: "distiller",
-    who: "Sister Wen tends the copper still by the gate road. Some days the whole town smells of it.",
-    doTitle: "At the still",
-    can: [
-      "Distill health draughts from heartwood",
-      "Distill mana draughts from rootfiber",
-      "Bring up materials from the Underwood to keep her stocked"
     ]
   },
   {
@@ -96,18 +84,33 @@ export const INTRO_STOPS = [
     ]
   },
   {
-    id: "pell",
+    id: "maud",
     focus: "keeper",
-    building: "inn",
-    eyebrow: "The Banked Fire",
-    name: "Pell",
-    title: "innkeeper",
-    who: "Pell never leaves the bar, so everything the town hears ends up with Pell.",
-    doTitle: "At the inn",
+    building: "store",
+    eyebrow: "Bramble & Board",
+    name: "Maud Bramble",
+    title: "shopkeeper",
+    who: "Maud keeps the general store on the west side of the square. There is a price for everything, and the scales are trusted more than most people.",
+    doTitle: "At the store",
     can: [
-      "Rest to restore your health and mana",
-      "Sleep until morning, or doze until evening",
-      "Hear rumours about the next floor and its boss"
+      "Buy health and mana draughts",
+      "Sell the gear you bring up from below",
+      "Buy back anything you sold by mistake"
+    ]
+  },
+  {
+    id: "wen",
+    focus: "keeper",
+    building: "still",
+    eyebrow: "The Still",
+    name: "Sister Wen",
+    title: "distiller",
+    who: "Sister Wen tends the copper still by the gate road. Some days the whole town smells of it.",
+    doTitle: "At the still",
+    can: [
+      "Distill health draughts from heartwood",
+      "Distill mana draughts from rootfiber",
+      "Bring up materials from the Underwood to keep her stocked"
     ]
   },
   {

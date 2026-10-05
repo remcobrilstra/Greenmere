@@ -34,7 +34,8 @@ export function attachTown(rt) {
     trainer: "Spend skill points",
     inn: "Rest to restore health and mana",
     bank: "Bank your gold",
-    board: "Read the notices"
+    board: "Read the notices",
+    tour: "Take the tour of Greenmere again"
   };
 
   // Gear lying within reach (the same reach F uses to pick it up).
@@ -131,6 +132,12 @@ export function attachTown(rt) {
     if (s.id === "gate" && rt.enterFromGate) {
       if (rt.closePanel) rt.closePanel();
       viaPortal("gate", () => rt.enterFromGate());
+      return;
+    }
+    if (s.id === "tour" && rt.startIntro) {
+      if (rt.closePanel) rt.closePanel();
+      rt.clearAcknowledgement();
+      rt.startIntro({});
       return;
     }
     if (s.panel && rt.openPanel) {

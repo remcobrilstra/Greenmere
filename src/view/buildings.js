@@ -979,6 +979,31 @@ const PROP = {
       kit.box("props", 0.24 + r() * 0.1, 0.3 + r() * 0.1, 0.02, [0xf4e7c8, 0xe7d7b4], -0.5 + i * 0.25, 1.5 + (r() - 0.5) * 0.4, 0.05 * (i % 2 ? 1 : -1) + (i % 2 ? 0.0 : 0.0) + 0.05, 0, 0, (r() - 0.5) * 0.2);
     }
   },
+  // A painted town map on a post, with two finger-boards above (front is local +z).
+  wayboard(kit, p) {
+    const w = p.w;
+    const CREAM = [0xf4e7c8, 0xe7d7b4];
+    kit.box("props", 0.5, 0.16, 0.5, STONE, 0, 0.08, -0.08);
+    kit.box("props", 0.16, 2.95, 0.16, TIMBER_D, 0, 1.475, -0.08);
+    kit.cone("props", 0.14, 0.22, 4, TIMBER_D, 0, 3.06, -0.08, Math.PI / 4);
+    kit.box("props", w, 0.86, 0.06, TIMBER_M, 0, 1.4, 0.02);
+    for (const y of [0.95, 1.85]) kit.box("props", w + 0.08, 0.07, 0.1, TIMBER_D, 0, y, 0.02);
+    for (const s of [-1, 1]) kit.box("props", 0.07, 0.97, 0.1, TIMBER_D, s * (w / 2 + 0.005), 1.4, 0.02);
+    // the map: green wood, the grey square, the gate road north, roofs round it
+    kit.box("props", w - 0.14, 0.72, 0.012, [0x5e8a3a, 0x568234], 0, 1.4, 0.056);
+    kit.cyl("props", 0.1, 0.1, 0.012, 12, [0xb8b2a4], 0, 1.36, 0.064, 0, Math.PI / 2, 0);
+    kit.box("props", 0.05, 0.3, 0.012, [0xc9a85a], 0, 1.6, 0.064);
+    kit.box("props", 0.09, 0.09, 0.014, [0x2d62c8], 0, 1.71, 0.066, 0, 0, Math.PI / 4);
+    const roofs = [0x6e2e28, 0x2f363e, 0x3d4a3a, 0x7a4a2a, 0x2f363e, 0x6e2e28];
+    const spots = [[-0.3, 0.02], [0.3, 0.02], [-0.22, 0.2], [0.22, 0.2], [0, -0.24], [-0.22, -0.18]];
+    for (let i = 0; i < spots.length; i++) kit.box("props", 0.1, 0.08, 0.014, [roofs[i]], spots[i][0], 1.36 + spots[i][1], 0.066);
+    // finger-boards: one toward the square, one toward the gate
+    for (const [y, s] of [[2.3, 1], [2.62, -1]]) {
+      kit.box("props", 0.7, 0.15, 0.04, CREAM, s * 0.38, y, -0.08);
+      kit.box("props", 0.11, 0.11, 0.04, CREAM, s * 0.73, y, -0.08, 0, 0, Math.PI / 4);
+      kit.box("props", 0.4, 0.02, 0.045, [0x6b4428], s * 0.36, y, -0.08);
+    }
+  },
   cart(kit, p) {
     kit.box("props", p.w, 0.12, p.d - 0.6, TIMBER_L, 0, 0.75, -0.3);
     for (const s of [-1, 1]) kit.box("props", 0.08, 0.4, p.d - 0.6, TIMBER_M, s * (p.w / 2 - 0.04), 0.98, -0.3);
@@ -1240,6 +1265,17 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
     stations.push({
       id: "board", panel: "board", name: "Notice Board",
       x: p.x + fx * 1.2, z: p.z + fz * 1.2,
+      interact: INTERACT_R, keeperLine: "",
+      group: props, footMesh: null, footY: 0, colliders: [], decor: []
+    });
+  }
+
+  // The wayboard by the gate replays the first-visit tour (play/intro.js) on F.
+  for (const p of PROPS) {
+    if (p.type !== "wayboard") continue;
+    stations.push({
+      id: "tour", name: "The Wayboard",
+      x: p.x + Math.sin(p.yaw) * 1.2, z: p.z + Math.cos(p.yaw) * 1.2,
       interact: INTERACT_R, keeperLine: "",
       group: props, footMesh: null, footY: 0, colliders: [], decor: []
     });

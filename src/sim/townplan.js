@@ -599,6 +599,9 @@ export const PROPS = [
   { type: "bench", x: -3.4, z: 8.2, yaw: faceCenter(-3.4, 8.2), w: 2.0, d: 0.55 },
   { type: "bench", x: 3.4, z: 8.2, yaw: faceCenter(3.4, 8.2), w: 2.0, d: 0.55 },
   { type: "notice", x: -3.2, z: -11.5, yaw: Math.PI / 2, w: 1.6, d: 0.3 },
+  // The wayboard across the gate road from the hearth: a painted map of the town.
+  // F replays the first-visit tour (play/intro.js). Faces the arrival spot.
+  { type: "wayboard", x: -6.4, z: -28.6, yaw: Math.atan2(6.4, 1.6), w: 1.4, d: 0.4 },
   { type: "cart", x: 4.4, z: -14.5, yaw: 0.25, w: 1.6, d: 2.8 },
   { type: "woodpile", x: 22.9, z: -2.0, yaw: Math.PI / 2, w: 2.2, d: 0.9 },
   { type: "barrels", x: -12.6, z: 3.4, r: 0.75 },

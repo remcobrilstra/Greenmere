@@ -21,6 +21,28 @@ const FLY_IN = 5.2;
 const HOME_TIME = 2.4;
 const SKIP_HOME_TIME = 1.4;
 
+const TAU = Math.PI * 2;
+
+// Compass bearing round the square (north, -z, is 0; east, +x, is π/2): growing
+// bearings run clockwise on the map.
+function bearing(v) {
+  return Math.atan2(v.x, -v.z);
+}
+// The turn from b0 to b1: clockwise (way 1), anticlockwise (way -1) or the short way
+// (0). A forward hop that is really a hair anticlockwise does not loop the whole town.
+function turn(b0, b1, way) {
+  let d = (((b1 - b0) % TAU) + TAU) % TAU;
+  if (way > 0) return d > TAU * 0.85 ? d - TAU : d;
+  if (way < 0) return d - TAU < -TAU * 0.85 ? d : d - TAU;
+  return d > Math.PI ? d - TAU : d;
+}
+// A point swung round the square: bearing b0 + sweep·k, radius eased from r0 to r1.
+function swing(out, b0, sweep, r0, r1, y, k, pull) {
+  const b = b0 + sweep * k;
+  const r = r0 + (r1 - r0) * k - Math.sin(Math.PI * k) * pull;
+  return out.set(Math.sin(b) * r, y, -Math.cos(b) * r);
+}
+
 function smoother(t) {
   const x = Math.max(0, Math.min(1, t));
   return x * x * x * (x * (x * 6 - 15) + 10);
@@ -45,6 +67,9 @@ export function attachIntro(rt) {
   let lift = 0;
   let holdT = 0;
   let pendingInterior;       // building id to cut away once the camera is halfway there
+  // A hop either flies straight (the opening, going home) or orbits the square.
+  const orbitCam = { on: false, b0: 0, sweep: 0, r0: 0, r1: 0, pull: 0 };
+  const orbitLook = { on: false, b0: 0, sweep: 0, r0: 0, r1: 0 };
   let onDone = null;
   const stops = INTRO_STOPS;
 
@@ -114,7 +139,8 @@ export function attachIntro(rt) {
 
   // ---- flow ----
 
-  function flyTo(i, time) {
+  // way: 1 clockwise (on), -1 anticlockwise (back), 0 straight.
+  function flyTo(i, time, way) {
     fromPos.copy(camPos);
     fromLook.copy(camLook);
     index = i;
@@ -127,9 +153,33 @@ export function attachIntro(rt) {
       state = "fly";
     }
     const d = fromPos.distanceTo(toPos);
-    dur = time || Math.max(1.7, Math.min(3.4, 1.4 + d / 22));
-    // Long hops arc up over the roofs; short ones barely leave the street.
-    lift = Math.min(16, d * 0.28);
+    const rFrom = Math.hypot(fromPos.x, fromPos.z);
+    const rTo = Math.hypot(toPos.x, toPos.z);
+    orbitCam.on = !!way && rFrom > 4 && rTo > 4;
+    if (orbitCam.on) {
+      // Round the square: the camera rises and draws in over it while it turns,
+      // and the gaze pans round the ring of buildings with it.
+      orbitCam.b0 = bearing(fromPos);
+      orbitCam.sweep = turn(orbitCam.b0, bearing(toPos), way);
+      orbitCam.r0 = rFrom;
+      orbitCam.r1 = rTo;
+      orbitCam.pull = Math.min(rFrom, rTo) * 0.3;
+      const lFrom = Math.hypot(fromLook.x, fromLook.z);
+      const lTo = Math.hypot(toLook.x, toLook.z);
+      orbitLook.on = lFrom > 6 && lTo > 6;
+      orbitLook.b0 = bearing(fromLook);
+      orbitLook.sweep = turn(orbitLook.b0, bearing(toLook), way);
+      orbitLook.r0 = lFrom;
+      orbitLook.r1 = lTo;
+      const arc = Math.abs(orbitCam.sweep);
+      dur = time || Math.max(2.6, Math.min(4.6, 2.2 + arc * 1.3 + Math.abs(rTo - rFrom) / 18));
+      lift = Math.min(9, 4.5 + arc * 3);
+    } else {
+      orbitLook.on = false;
+      dur = time || Math.max(1.7, Math.min(3.4, 1.4 + d / 22));
+      // Long hops arc up over the roofs; short ones barely leave the street.
+      lift = Math.min(16, d * 0.28);
+    }
     t = 0;
     if (ui) {
       ui.away();
@@ -149,11 +199,12 @@ export function attachIntro(rt) {
 
   function next() {
     if (!active || state === "wait" || state === "home") return;
-    flyTo(index + 1);
+    // the last stop flies home straight; the rest go on round the square
+    flyTo(index + 1, 0, index + 1 < stops.length ? 1 : 0);
   }
   function back() {
     if (!active || state === "wait" || state === "home" || index <= 0) return;
-    flyTo(index - 1);
+    flyTo(index - 1, 0, -1);
   }
   function skip() {
     if (!active || state === "home") return;
@@ -169,9 +220,12 @@ export function attachIntro(rt) {
     if (state === "fly" || state === "home") {
       t += dt;
       const k = smoother(t / dur);
-      camPos.lerpVectors(fromPos, toPos, k);
-      camPos.y += Math.sin(Math.PI * k) * lift;
-      camLook.lerpVectors(fromLook, toLook, k);
+      const y = fromPos.y + (toPos.y - fromPos.y) * k + Math.sin(Math.PI * k) * lift;
+      if (orbitCam.on) swing(camPos, orbitCam.b0, orbitCam.sweep, orbitCam.r0, orbitCam.r1, y, k, orbitCam.pull);
+      else camPos.lerpVectors(fromPos, toPos, k).setY(y);
+      if (orbitLook.on) {
+        swing(camLook, orbitLook.b0, orbitLook.sweep, orbitLook.r0, orbitLook.r1, fromLook.y + (toLook.y - fromLook.y) * k, k, 0);
+      } else camLook.lerpVectors(fromLook, toLook, k);
       if (pendingInterior !== undefined && k >= 0.5) {
         if (rt.forceInterior) rt.forceInterior(pendingInterior);
         pendingInterior = undefined;

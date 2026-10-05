@@ -669,6 +669,37 @@ def p_notice(kit, p):
         kit.box("props", 0.03, 0.03, 0.02, [0xb64034], x, 1.67, 0.06)
     kit.box("props", 0.4, 0.06, 0.15, TIMBER_L, w / 2 - 0.3, 0.9, 0.12)
 
+def p_wayboard(kit, p):
+    # A painted town map on a post, with two finger-boards above (front is local +z).
+    w = p["w"]
+    kit.box("props", 0.5, 0.16, 0.5, PLINTH, 0, 0.08, -0.08)
+    kit.box("props", 0.16, 2.95, 0.16, TIMBER_D, 0, 1.475, -0.08)
+    kit.cone("props", 0.14, 0.22, 4, TIMBER_D, 0, 3.06, -0.08, ry=math.pi / 4)
+    kit.box("props", w, 0.86, 0.06, TIMBER_M, 0, 1.4, 0.02)
+    for y in (0.95, 1.85):
+        kit.box("props", w + 0.08, 0.07, 0.1, TIMBER_D, 0, y, 0.02)
+    for s in (-1, 1):
+        kit.box("props", 0.07, 0.97, 0.1, TIMBER_D, s * (w / 2 + 0.005), 1.4, 0.02)
+        kit.box("props", 0.05, 0.05, 0.03, IRON, s * (w / 2 - 0.08), 1.85, 0.08)
+    # the map: green wood, the grey square, the gate road north, roofs round it
+    kit.box("props", w - 0.14, 0.72, 0.012, [0x5e8a3a, 0x568234], 0, 1.4, 0.056)
+    kit.cylr("props", 0.1, 0.1, 0.012, 12, [0xb8b2a4], 0, 1.36, 0.064, rx=math.pi / 2)
+    kit.box("props", 0.05, 0.3, 0.012, [0xc9a85a], 0, 1.6, 0.064)
+    kit.box("props", 0.09, 0.09, 0.014, [0x2d62c8], 0, 1.71, 0.066, rz=math.pi / 4)
+    roofs = [0x6e2e28, 0x2f363e, 0x3d4a3a, 0x7a4a2a, 0x2f363e, 0x6e2e28]
+    spots = [(-0.3, 0.02), (0.3, 0.02), (-0.22, 0.2), (0.22, 0.2), (0, -0.24), (-0.22, -0.18)]
+    for (sx, sy), c in zip(spots, roofs):
+        kit.box("props", 0.1, 0.08, 0.014, [c], sx, 1.36 + sy, 0.066)
+    for i in range(5):
+        a = i / 5 * math.pi * 2
+        kit.box("props", 0.035, 0.035, 0.012, [0xd8b968], math.cos(a) * 0.16, 1.36 + math.sin(a) * 0.16, 0.066)
+    # finger-boards: one toward the square, one toward the gate
+    for y, s in ((2.3, 1), (2.62, -1)):
+        kit.box("props", 0.7, 0.15, 0.04, CREAM, s * 0.38, y, -0.08)
+        kit.box("props", 0.11, 0.11, 0.04, CREAM, s * 0.73, y, -0.08, rz=math.pi / 4)
+        kit.box("props", 0.4, 0.02, 0.045, [0x6b4428], s * 0.36, y, -0.08)
+        kit.box("props", 0.04, 0.04, 0.05, IRON, 0, y, -0.08)
+
 def p_cart(kit, p):
     w, d = p["w"], p["d"]
     plank_top(kit, "props", w, d - 0.6, 0.8, 0.1, TIMBER_L)
