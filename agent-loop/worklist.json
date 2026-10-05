@@ -1,0 +1,25 @@
+{
+  "defaults": {
+    "max_attempts": 3,
+    "stop_on_block": false,
+    "commit": true,
+    "allow_paths": []
+  },
+  "items": [
+    {
+      "id": "ITEM-001",
+      "type": "feat",
+      "scope": "loop",
+      "summary": "when picking up new wearable items we need to clearly see the item we picked up",
+      "status": "done",
+      "attempt": 1,
+      "done_when": [],
+      "allow_paths": [],
+      "validate": [
+        "bash validate.sh"
+      ],
+      "claimed_at": "2026-10-05T15:00:35Z",
+      "done_at": "2026-10-05T15:01:54Z"
+    }
+  ]
+}

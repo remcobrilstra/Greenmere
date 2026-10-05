@@ -1,0 +1,16 @@
+I didn't implement ITEM-001. The pickup display is still unchanged, and nothing I changed has been validated.
+
+**Why the feature isn't done:** this session can only access `D:\ArBe-Projects\game\agent-loop\`. Every attempt to read the game itself (`D:\ArBe-Projects\game\package.json`, `D:\ArBe-Projects\game\src`) asked for permission and nothing approved it. I can't change the pickup code without reading it first.
+
+**What I changed:** I fixed the error behind the last failed attempt. `agent-loop/validate.sh` called `python`, which bash can't find on this machine. It now uses the first of `python3`, `python`, `py` (or their `.exe` forms) that it finds. If none exist it stops with a clear error instead of `command not found`. Whether the gate actually passes now is unknown: running `bash validate.sh` also needed approval.
+
+**Two problems with the loop setup** that will make the next attempt fail the same way:
+1. **Permissions:** the agent needs read and write access to the whole `D:\ArBe-Projects\game` repo, plus approval to run `bash validate.sh` and `npm run check`. The current setup blocks all of these.
+2. **The gate doesn't test the game:** ITEM-001 runs `bash validate.sh`, which only checks `agent_loop.py` and `worklist.json`. Game changes could pass it without being checked at all. `validate.ps1` already runs the game's `npm run check`, which is probably the right gate for this item. For example, set its validate entry to `"powershell -File validate.ps1"` (or plain `"npm run check"`).
+
+Also, `agent-loop/` is itself untracked in the game repo (git shows it as `?? ./`), so the loop's commit step will pick up the whole directory unless that's what you intend.
+
+Once permissions are widened, a new attempt can find the pickup handling and add a clear pickup popup showing the item's icon, name and rarity.
+PS> claude -p "$(cat state/current_brief.md)" --permission-mode acceptEdits
+
+exit 0

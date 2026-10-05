@@ -1,0 +1,9 @@
+== validate: syntax ==
+== validate: worklist ==
+ok 1 items
+== validate: unit ==
+no tests/ yet
+== validate: ok ==
+PS> bash validate.sh
+
+exit 0
