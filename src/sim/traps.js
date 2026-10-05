@@ -8,6 +8,14 @@
 //
 // A trap covers part of one 4 m tile. `axis` is the way the corridor runs ("x" or
 // "z"); `along` half-depth is measured on that axis, `across` on the other one.
+// A `radius` makes the footprint a circle instead; `blast` is a larger circle the
+// trap hits when it goes off (a rockfall springs on a small spot, lands wide).
+//
+// Effects while a hot trap touches a unit: `dmgMul` (× a skirmisher hit, once per
+// firing or per `tick`), `slow` (speed multiplier while inside), `hold` (seconds
+// rooted), `breaksMend`. `hurts: false` means the footprint does nothing itself
+// (darts, gongs, ambushes). `blocks` marks a constant trap that shuts a corridor
+// and must have a `switch` the route check can reach.
 
 // Switched-off traps share run.killed with foes and chests, above CHEST_BASE:
 // TRAP_BASE + id for a trap put out by the Warden (it leaves spoils), TRAP_SPENT + id
@@ -41,7 +49,9 @@ export const TRAP_KINDS = {
     along: 0.9,
     across: 2.0,
     tick: 0.4,
-    dmgMul: 1.4
+    dmgMul: 1.4,
+    blocks: true,
+    switch: "valve"
   },
   // A small plate mid-corridor; the launcher at one end of the run looses a fan
   // of darts down its length. The plate itself does not hurt.
@@ -69,6 +79,147 @@ export const TRAP_KINDS = {
     hurts: false,
     once: true,
     wakeSteps: 6
+  },
+
+  // ---- Mossy Caves ----
+  // A mushroom cluster that puffs a poison cloud on a rhythm.
+  sporePuff: {
+    counter: "cycling",
+    radius: 1.6,
+    glow: 0.8,
+    fire: 1.4,
+    off: 2.2,
+    tick: 0.5,
+    dmgMul: 0.35,
+    breaksMend: true
+  },
+  // Cracked, dusty floor: stepping on it brings stone down. A shadow grows first.
+  rockfall: {
+    counter: "triggered",
+    radius: 0.9,
+    blast: 1.5,
+    arm: 0.8,
+    up: 0.15,
+    rearm: 1e9,
+    dmgMul: 1.4,
+    once: true
+  },
+  // A vent that fills the corridor with spores until its valve is shut.
+  sporeVent: {
+    counter: "constant",
+    along: 1.0,
+    across: 2.0,
+    tick: 0.5,
+    dmgMul: 0.5,
+    breaksMend: true,
+    blocks: true,
+    switch: "valve"
+  },
+
+  // ---- Sunken Temple ----
+  // A blade swinging across the corridor; cross while it is at the far side.
+  pendulum: {
+    counter: "cycling",
+    along: 0.3,
+    across: 2.0,
+    period: 2.6,
+    swing: 1.55,
+    blade: 0.5,
+    tick: 0.8,
+    dmgMul: 1.3
+  },
+  // Knee-deep water across the corridor: slows everyone until the sluice is pulled.
+  flood: {
+    counter: "constant",
+    along: 1.6,
+    across: 2.0,
+    tick: 1,
+    dmgMul: 0,
+    slow: 0.6,
+    blocks: true,
+    switch: "lever"
+  },
+
+  // ---- Rootdeep ----
+  // Roots that lash out and hold whatever steps on them for a second.
+  grasp: {
+    counter: "triggered",
+    along: 1.1,
+    across: 1.1,
+    arm: 0.25,
+    up: 0.3,
+    rearm: 3.0,
+    dmgMul: 0,
+    hold: 1.0
+  },
+  // Thorns that close the doorway behind the Warden until the room is cleared.
+  thornWall: {
+    counter: "triggered",
+    along: 0.6,
+    across: 2.0,
+    arm: 0.6,
+    up: 1e9,
+    rearm: 1e9,
+    dmgMul: 0,
+    hurts: false,
+    once: true,
+    maxClosed: 30
+  },
+  // A briar thicket across the corridor; its root heart is struck out (3 hits).
+  briar: {
+    counter: "constant",
+    along: 1.0,
+    across: 2.0,
+    tick: 0.5,
+    dmgMul: 0.45,
+    slow: 0.65,
+    blocks: true,
+    switch: "heart",
+    heartHits: 3
+  },
+
+  // ---- Slate Crypt ----
+  // A sarcophagus whose lid slides off as the Warden passes; foes climb out.
+  sarcophagus: {
+    counter: "triggered",
+    radius: 2.3,
+    arm: 0.5,
+    up: 0.2,
+    rearm: 1e9,
+    dmgMul: 0,
+    hurts: false,
+    once: true,
+    ambush: 2
+  },
+  // Three cursed candles: while any burns, foes in the room take less damage.
+  // Each is snuffed with F.
+  candles: {
+    counter: "constant",
+    radius: 0.01,
+    dmgMul: 0,
+    hurts: false,
+    foeWard: 0.3,
+    switch: "candle"
+  },
+
+  // ---- Ember Forge ----
+  // A hammer on a post that lifts slowly and slams down.
+  tripHammer: {
+    counter: "cycling",
+    radius: 1.5,
+    glow: 1.1,
+    fire: 0.3,
+    off: 1.8,
+    tick: 1,
+    dmgMul: 2.0
+  },
+  // Molten slag in a big room. No switch: walk around it.
+  slagPool: {
+    counter: "constant",
+    radius: 1.5,
+    tick: 0.5,
+    dmgMul: 1.2,
+    slow: 0.7
   }
 };
 
@@ -79,10 +230,21 @@ export function trapDef(kind) {
   return TRAP_KINDS[kind] || null;
 }
 
+// Does the footprint act on what stands in it while the trap is hot?
+export function trapFootprint(kind) {
+  const def = trapDef(kind);
+  return !!def && def.hurts !== false;
+}
+
 // Does standing in the trap's footprint while it is hot hurt?
 export function trapHurts(kind) {
   const def = trapDef(kind);
-  return !!def && def.hurts !== false;
+  return !!def && def.hurts !== false && def.dmgMul > 0;
+}
+
+// The pendulum blade's offset across the corridor at time t (−swing … +swing).
+export function pendulumAt(def, t, phase) {
+  return Math.sin(((t / def.period) + (phase || 0)) * Math.PI * 2) * def.swing;
 }
 
 // Seconds to turn a valve; Delver rank 5 halves it.
@@ -91,13 +253,29 @@ export function valveSeconds(delverRank) {
 }
 
 // Delver rank 1: plates and wires glint within this many metres (0: no glint).
-export function trapSenseRange(delverRank) {
-  return delverRank >= 1 ? 10 : 0;
+// A `wary` affix gives its own range; the larger one counts.
+export function trapSenseRange(delverRank, wary) {
+  return Math.max(delverRank >= 1 ? 10 : 0, wary > 0 ? Math.round(wary) : 0);
 }
 
-// Delver rank 3 (or a keen eye, later): traps the Warden has seen go on the map.
-export function trapsOnMap(delverRank) {
-  return delverRank >= 3;
+// Delver rank 3, or any `wary` gear: traps the Warden has seen go on the map.
+export function trapsOnMap(delverRank, wary) {
+  return delverRank >= 3 || wary > 0;
+}
+
+// Trap damage after `trapward` gear (percent, capped at 60).
+export function wardedTrapDamage(raw, trapward) {
+  const cut = Math.max(0, Math.min(60, trapward || 0));
+  return Math.max(1, Math.round(raw * (1 - cut / 100)));
+}
+
+// A slow multiplier and a hold time after `surefoot` gear (percent, capped at 90).
+export function surefootSlow(slow, surefoot) {
+  const keep = 1 - Math.max(0, Math.min(90, surefoot || 0)) / 100;
+  return 1 - (1 - slow) * keep;
+}
+export function surefootHold(hold, surefoot) {
+  return hold * (1 - Math.max(0, Math.min(90, surefoot || 0)) / 100);
 }
 
 // A dart in flight: { x, z, dx, dz, left }. Moves it; false once it is spent.
@@ -177,16 +355,24 @@ export function makeTrapState(spec) {
   };
 }
 
-// Is a circle at (x, z) with radius r inside the trap's footprint?
-export function trapHits(trap, x, z, r) {
+// Is a circle at (x, z) with radius r inside the trap's footprint? `wide` tests
+// the blast instead (where a sprung trap lands), when the kind has one.
+export function trapHits(trap, x, z, r, wide) {
   const def = trapDef(trap.kind);
   if (!def) return false;
   const dx = x - trap.x;
   const dz = z - trap.z;
-  const along = trap.axis === "z" ? dz : dx;
-  const across = trap.axis === "z" ? dx : dz;
   const pad = r == null ? TRAP_FOOT : r;
-  return Math.abs(along) < def.along + pad && Math.abs(across) < def.across + pad;
+  if (def.radius != null) {
+    const reach = (wide && def.blast ? def.blast : def.radius) + pad;
+    return dx * dx + dz * dz < reach * reach;
+  }
+  const along = trap.axis === "z" ? dz : dx;
+  let across = trap.axis === "z" ? dx : dz;
+  // The pendulum's footprint is its blade, wherever the swing has it.
+  if (def.period) across -= trap.swing || 0;
+  const half = def.period ? def.blade : def.across;
+  return Math.abs(along) < def.along + pad && Math.abs(across) < half + pad;
 }
 
 // Advance one trap. `time` is the floor clock (cycling traps read it, so every
@@ -196,6 +382,11 @@ export function stepTrap(trap, dt, time, stepped) {
   const def = trapDef(trap.kind);
   if (!def || trap.disabled) {
     trap.hot = false;
+    return trap;
+  }
+  if (def.period) {
+    trap.swing = pendulumAt(def, time, trap.phase);
+    trap.hot = true;
     return trap;
   }
   if (def.counter === "cycling") {
@@ -245,9 +436,10 @@ export function trapStrikes(trap, key, time) {
   return true;
 }
 
-// Route check (docs/traps.md §6). Walls are rock and every constant trap counts as
-// rock too; returns the constant traps whose switch cannot be reached from the
-// entrance. Empty means every wall can be put out, so the whole floor opens up.
+// Route check (docs/traps.md §6). Walls are rock and every trap that shuts a
+// corridor (`blocks`) counts as rock too. Returns those whose switch cannot be
+// reached from the entrance. Empty means every one can be put out, so the whole
+// floor opens up.
 export function unreachableSwitches(plan) {
   const cols = plan.cols;
   const rows = plan.rows;
@@ -256,7 +448,7 @@ export function unreachableSwitches(plan) {
   const blocked = new Set();
   for (let i = 0; i < traps.length; i++) {
     const def = trapDef(traps[i].kind);
-    if (def && def.counter === "constant") blocked.add(traps[i].row * cols + traps[i].col);
+    if (def && def.blocks) blocked.add(traps[i].row * cols + traps[i].col);
   }
   const seen = new Uint8Array(tiles.length);
   const start = plan.entrance.row * cols + plan.entrance.col;
@@ -279,7 +471,7 @@ export function unreachableSwitches(plan) {
   const bad = [];
   for (let i = 0; i < traps.length; i++) {
     const def = trapDef(traps[i].kind);
-    if (!def || def.counter !== "constant") continue;
+    if (!def || !def.blocks) continue;
     const sw = traps[i].sw;
     if (!sw || !seen[sw.row * cols + sw.col]) bad.push(traps[i]);
   }

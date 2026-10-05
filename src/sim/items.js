@@ -22,7 +22,11 @@ const AFFIX_ROWS = [
   { id: "wardweave", slots: ["offhand"], min: 10, max: 25 },
   { id: "hale", slots: ["body", "feet"], min: 12, max: 40 },
   { id: "clear", slots: ["head", "trinket"], min: 8, max: 24 },
-  { id: "quick", slots: ["feet"], min: 4, max: 8 }
+  { id: "quick", slots: ["feet"], min: 4, max: 8 },
+  // Traps (docs/traps.md §5): less trap damage, shorter slows and holds, trap sense.
+  { id: "trapward", slots: ["body", "offhand"], min: 10, max: 30 },
+  { id: "surefoot", slots: ["feet"], min: 30, max: 70 },
+  { id: "wary", slots: ["head", "trinket"], min: 6, max: 14 }
 ];
 
 const THEME_NAME = ["Moss", "Root", "Slate", "Ember"];
@@ -34,7 +38,10 @@ const PREFIX = {
   wardweave: "Woven",
   hale: "Hale",
   clear: "Clear",
-  quick: "Quick"
+  quick: "Quick",
+  trapward: "Sooted",
+  surefoot: "Surefooted",
+  wary: "Wary"
 };
 const SUFFIX = {
   might: "of Might",
@@ -44,7 +51,10 @@ const SUFFIX = {
   wardweave: "of the Weave",
   hale: "of Vitality",
   clear: "of Clarity",
-  quick: "of Haste"
+  quick: "of Haste",
+  trapward: "of the Gauntlet",
+  surefoot: "of Sure Footing",
+  wary: "of the Tripwire"
 };
 const RELIC = ["of the Wood", "of the Gate", "of the Hearth", "of the Deep"];
 
@@ -158,7 +168,7 @@ export function rollGearDrop(rng, spec) {
 }
 
 export function gearTotals(equipped) {
-  const out = { might: 0, guard: 0, focus: 0, flatHp: 0, flatMp: 0, quick: 0, wardweave: 0 };
+  const out = { might: 0, guard: 0, focus: 0, flatHp: 0, flatMp: 0, quick: 0, wardweave: 0, trapward: 0, surefoot: 0, wary: 0 };
   if (!equipped || typeof equipped !== "object") return out;
   const keys = ["weapon", "offhand", "head", "body", "feet", "trinket"];
   for (let s = 0; s < keys.length; s++) {
@@ -176,6 +186,7 @@ export function gearTotals(equipped) {
       else if (affix.id === "clear") out.flatMp += Math.round(value);
       else if (affix.id === "quick") out.quick += value;
       else if (affix.id === "wardweave") out.wardweave += value;
+      else if (affix.id === "trapward" || affix.id === "surefoot" || affix.id === "wary") out[affix.id] += value;
     }
   }
   return out;

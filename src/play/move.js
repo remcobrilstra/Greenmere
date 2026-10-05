@@ -122,7 +122,8 @@ export function attachMovement(rt) {
   }
   function update(dt) {
     time += dt;
-    const frozen = rt.transit || !!(rt.vitals && rt.vitals.deathLock);
+    // A trap's hold (src/play/traps.js) roots the Warden like a fall does.
+    const frozen = rt.transit || !!(rt.vitals && rt.vitals.deathLock) || (rt.space === "dungeon" && rt.trapHold > 0);
     const keys = frozen ? {} : rt.keys;
     // Both mouse buttons held walks forward, like holding W.
     const mouseRun = !frozen && (rt.mouseButtons & 3) === 3;
@@ -144,6 +145,7 @@ export function attachMovement(rt) {
       const delver = rt.session && rt.session.tracks ? rt.session.tracks.delver : 0;
       let speed = (sprint ? sprintSpeed(delver) : walkSpeed(delver)) * (1 + quick / 100);
       if (windup) speed *= 0.35;
+      if (dungeon && rt.trapSlow > 0 && rt.trapSlow < 1) speed *= rt.trapSlow;
       let nx = player.position.x + _wish.x * speed * dt;
       let nz = player.position.z + _wish.z * speed * dt;
       if (dungeon && rt.resolveDungeon) {

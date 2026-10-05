@@ -55,7 +55,7 @@ export function attachTown(rt) {
     return best;
   }
 
-  // Below ground F picks up gear, opens a chest, turns a valve, or takes the stairs, in that order.
+  // Below ground F picks up gear, opens a chest, works a trap switch, or takes the stairs, in that order.
   function refreshDungeonPrompt() {
     if (rt.transit) {
       rt.setStationPrompt("");
@@ -70,8 +70,9 @@ export function attachTown(rt) {
       rt.setStationPrompt("Open the chest");
       return;
     }
-    if (rt.valveNear && rt.valveNear()) {
-      rt.setStationPrompt("Close the valve", { sub: "Puts out the fire wall" });
+    const sw = rt.switchNear ? rt.switchNear() : null;
+    if (sw) {
+      rt.setStationPrompt(sw.label, { sub: sw.sub });
       return;
     }
     const st = rt.stairsState ? rt.stairsState() : null;
@@ -112,7 +113,7 @@ export function attachTown(rt) {
     if (rt.space === "dungeon") {
       if (rt.tryPickupGear && rt.tryPickupGear()) return;
       if (rt.tryOpenChest && rt.tryOpenChest()) return;
-      if (rt.tryUseValve && rt.tryUseValve()) return;
+      if (rt.tryUseSwitch && rt.tryUseSwitch()) return;
       const st = rt.stairsState ? rt.stairsState() : null;
       if (st && st.near && !st.blocked) viaPortal("stairs", () => rt.tryStairs());
       else if (rt.tryStairs) rt.tryStairs();

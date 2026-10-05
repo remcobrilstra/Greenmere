@@ -71,6 +71,9 @@ export function attachCombat(rt) {
     s.focus = 9 + level + gear.focus;
     s.quick = gear.quick;
     s.wardweave = gear.wardweave;
+    s.trapward = gear.trapward;
+    s.surefoot = gear.surefoot;
+    s.wary = gear.wary;
     s.blade = s.equipped && s.equipped.weapon ? s.equipped.weapon : null;
     rt.vitals.hpMax = 40 + s.might * 8 + s.guard * 4 + gear.flatHp;
     rt.vitals.mpMax = 20 + s.focus * 6 + gear.flatMp;
@@ -468,6 +471,8 @@ export function attachCombat(rt) {
   function woundFoe(t, dealt, color) {
     const s = session();
     if (!t || !(t.hp > 0)) return 0;
+    // Cursed candles (src/play/traps.js) soften blows on the foes they guard.
+    if (rt.foeDamageMul) dealt = Math.max(1, Math.round(dealt * rt.foeDamageMul(t)));
     applyFoeDamage(t, dealt);
     if (rt.pushFloater) rt.pushFloater(String(dealt), t.x, 1.45, t.z, color || "#f4e7c8");
     if (t.boss) checkBossSummons(t);
@@ -662,7 +667,15 @@ export function attachCombat(rt) {
 
   function stepEnemy(e, dt) {
     const s = session();
+    // Traps (src/play/traps.js) can root a foe or slow it.
+    if (e.trapHold > 0) {
+      e.trapHold = Math.max(0, e.trapHold - dt);
+      return;
+    }
+    const pace = e.speed;
+    if (e.trapSlow > 0 && e.trapSlow < 1) e.speed = pace * e.trapSlow;
     const result = stepFoe(e, dt, foeWorld());
+    e.speed = pace;
     if (!result) return;
     if (result.leashed) {
       if (s && s.run && s.run.enemyHp) s.run.enemyHp[e.id] = e.hp;
@@ -783,6 +796,41 @@ export function attachCombat(rt) {
         slot,
         summon: true
       });
+      rt.enemies.push(foe);
+      run.summons.push({ id: foe.id, archetype: "skirmisher", x: foe.x, z: foe.z, hp: foe.hp });
+      run.enemyHp[foe.id] = foe.hp;
+      spawned++;
+    }
+    if (spawned) noteRunDirty();
+    return spawned;
+  }
+
+  // Foes climbing out of a sarcophagus (src/play/traps.js): up to `count`
+  // skirmishers on the open tiles around (x, z), saved as summons like a boss wave.
+  // They may pass the 36 cap: the floor mesh reserves their slots up front.
+  function spawnAmbush(x, z, count) {
+    const s = session();
+    const run = s && s.run;
+    const plan = rt.plan;
+    const claim = rt.dungeonRoot && rt.dungeonRoot.userData.claimSlot;
+    if (!run || !plan || !claim) return 0;
+    if (!run.summons) run.summons = [];
+    if (!run.enemyHp) run.enemyHp = {};
+    const spots = neighborSpots(plan, { x, z });
+    let spawned = 0;
+    for (let i = 0; i < spots.length && spawned < count; i++) {
+      const slot = claim("skirmisher");
+      if (slot < 0) break;
+      const foe = stampFoe(run.floorIndex, {
+        id: nextSummonId(run),
+        archetype: "skirmisher",
+        x: spots[i].x,
+        z: spots[i].z,
+        slot,
+        summon: true
+      });
+      // They come out already hunting.
+      foe.state = "approach";
       rt.enemies.push(foe);
       run.summons.push({ id: foe.id, archetype: "skirmisher", x: foe.x, z: foe.z, hp: foe.hp });
       run.enemyHp[foe.id] = foe.hp;
@@ -1268,5 +1316,6 @@ export function attachCombat(rt) {
   rt.armSkirmishers = armSkirmishers;
   rt.rehydrateSummons = rehydrateSummons;
   rt.spawnBossWave = spawnBossWave;
+  rt.spawnAmbush = spawnAmbush;
   rt.heroForward = heroForward;
 }

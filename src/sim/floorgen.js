@@ -10,7 +10,10 @@ export const SAFE_RADIUS = 14;
 export const SAFE_STEPS = 4;
 // Opened chests share run.killed with foes, above any spawn or summon id.
 export const CHEST_BASE = 5000;
-const ELITE_AFFIX = ["hasted", "thick", "warding"];
+const ELITE_AFFIX = ["hasted", "thick", "warding", "trapwise"];
+// Trapwise elites (they know the traps: no plate springs under them, no trap
+// touches them) appear from this floor; shallower floors roll the first three.
+const TRAPWISE_FROM = 15;
 // Collider radius per prop kind. Corner props sit 1.84 m from the tile center,
 // so anything up to 0.94 keeps the center 0.9 m clear.
 const PROP_R = {
@@ -548,7 +551,8 @@ export function generateFloor(runSeed, floorIndex) {
   let marked = 0;
   const eliteOrder = pool.concat(rest);
   for (let i = 0; i < eliteOrder.length && marked < wantElites; i++) {
-    eliteOrder[i].eliteAffix = ELITE_AFFIX[Math.floor(rng() * ELITE_AFFIX.length)];
+    const affixes = floorIndex >= TRAPWISE_FROM ? ELITE_AFFIX.length : 3;
+    eliteOrder[i].eliteAffix = ELITE_AFFIX[Math.floor(rng() * affixes)];
     marked++;
   }
 
@@ -691,16 +695,42 @@ export function generateFloor(runSeed, floorIndex) {
       if (s && n && !e && !w) return "z";
       return null;
     }
+    const roomAt = (c, r) => {
+      for (let i = 0; i < rooms.length; i++) if (inRect(rooms[i], c, r)) return rooms[i];
+      return null;
+    };
+    // Foes that start in each room: thorns and candles want a room worth sealing.
+    const packOf = new Map();
+    for (let i = 0; i < spawns.length; i++) {
+      const room = roomAt(spawns[i].col, spawns[i].row);
+      if (room) packOf.set(room.id, (packOf.get(room.id) || 0) + 1);
+    }
     const roomCells = [];
+    const bigRoomCells = [];
+    const edgeCells = [];
     const corridorCells = [];
     const doorCells = [];
+    const sealCells = [];
     const dartCells = [];
     for (let r = lo; r <= hiR; r++) {
       for (let c = lo; c <= hiC; c++) {
         if (!floorAt(c, r) || !open(c, r)) continue;
-        if (inAnyRoom(c, r)) {
+        const room = roomAt(c, r);
+        if (room) {
+          const e = floorAt(c + 1, r);
+          const w = floorAt(c - 1, r);
+          const s = floorAt(c, r + 1);
+          const n = floorAt(c, r - 1);
           // A plate needs floor on every side, so it can always be stepped around.
-          if (floorAt(c + 1, r) && floorAt(c - 1, r) && floorAt(c, r + 1) && floorAt(c, r - 1)) roomCells.push({ col: c, row: r });
+          if (e && w && s && n) {
+            roomCells.push({ col: c, row: r });
+            if (room.w >= 5 && room.h >= 5) bigRoomCells.push({ col: c, row: r });
+          } else if ((e ? 1 : 0) + (w ? 1 : 0) + (s ? 1 : 0) + (n ? 1 : 0) === 3) {
+            // One side is wall: a sarcophagus lies along it.
+            const wc = !e ? 1 : !w ? -1 : 0;
+            const wr = !s ? 1 : !n ? -1 : 0;
+            edgeCells.push({ col: c, row: r, axis: wc ? "z" : "x", wc, wr });
+          }
           continue;
         }
         const axis = straight(c, r);
@@ -709,7 +739,14 @@ export function generateFloor(runSeed, floorIndex) {
         const dc = axis === "x" ? 1 : 0;
         const dr = axis === "x" ? 0 : 1;
         // A gong's tripwire spans a corridor mouth: the next cell along is a room.
-        if (inAnyRoom(c + dc, r + dr) || inAnyRoom(c - dc, r - dr)) doorCells.push({ col: c, row: r, axis });
+        if (inAnyRoom(c + dc, r + dr) || inAnyRoom(c - dc, r - dr)) {
+          doorCells.push({ col: c, row: r, axis });
+          // Thorns seal a mouth into a room that holds a pack.
+          const inner = roomAt(c + dc, r + dr) || roomAt(c - dc, r - dr);
+          if (inner && inner.id !== 0 && (packOf.get(inner.id) || 0) >= 2) {
+            sealCells.push({ col: c, row: r, axis, room: { col: inner.col, row: inner.row, w: inner.w, h: inner.h } });
+          }
+        }
         // A dart plate sits mid-run, with straight corridor on both sides; the
         // launcher stands at one end of the run and shoots down its length.
         if (straight(c + dc, r + dr) === axis && straight(c - dc, r - dr) === axis) {
@@ -741,7 +778,7 @@ export function generateFloor(runSeed, floorIndex) {
       }
       return true;
     }
-    // A fire wall's valve sits on the corridor cell before it (nearer the entrance),
+    // A blocking trap's switch sits on the corridor cell before it (nearer the entrance),
     // against a side wall of that cell.
     function switchFor(cell) {
       const ax = cell.axis === "x";
@@ -763,16 +800,57 @@ export function generateFloor(runSeed, floorIndex) {
     }
     shuffle(doorCells);
     shuffle(dartCells);
-    const WEIGHT = biome.traps || { spikes: 3, flameJet: 2, fireWall: 1, darts: 1, gong: 1 };
-    const POOL = { spikes: roomCells, flameJet: corridorCells, fireWall: corridorCells, darts: dartCells, gong: doorCells };
-    const CAP = { spikes: Math.ceil(budget * 0.6), flameJet: 12, fireWall: 2, darts: 2, gong: 1 };
+    shuffle(bigRoomCells);
+    shuffle(edgeCells);
+    shuffle(sealCells);
+    // Cursed candles: three stands spread through a room that holds a pack.
+    const candleRooms = [];
+    for (let i = 1; i < rooms.length; i++) {
+      const room = rooms[i];
+      if (room.w < 4 || room.h < 4 || (packOf.get(room.id) || 0) < 2) continue;
+      if (bossFloor && room.id === stairsRoomId) continue;
+      const cells = [];
+      for (let r = room.row + 1; r < room.row + room.h - 1; r++) {
+        for (let c = room.col + 1; c < room.col + room.w - 1; c++) if (floorAt(c, r) && open(c, r)) cells.push({ col: c, row: r });
+      }
+      if (cells.length >= 3) candleRooms.push({ room, cells });
+    }
+    shuffle(candleRooms);
+    const WEIGHT = biome.traps || { spikes: 3, darts: 1, gong: 1 };
+    const POOL = {
+      spikes: roomCells,
+      sporePuff: roomCells,
+      rockfall: roomCells,
+      grasp: roomCells,
+      tripHammer: roomCells,
+      slagPool: bigRoomCells,
+      sarcophagus: edgeCells,
+      flameJet: corridorCells,
+      pendulum: corridorCells,
+      fireWall: corridorCells,
+      sporeVent: corridorCells,
+      flood: corridorCells,
+      briar: corridorCells,
+      darts: dartCells,
+      gong: doorCells,
+      thornWall: sealCells,
+      candles: candleRooms
+    };
+    const CAP = {
+      spikes: Math.ceil(budget * 0.6), flameJet: 12, pendulum: 4, sporePuff: 4, rockfall: 3, grasp: 4, tripHammer: 4,
+      slagPool: 2, sarcophagus: 2, fireWall: 2, sporeVent: 2, flood: 2, briar: 2, darts: 2, gong: 1, thornWall: 1, candles: 1
+    };
+    // At most three corridors shut on one floor, whatever shuts them.
+    const BLOCKERS = { fireWall: 1, sporeVent: 1, flood: 1, briar: 1 };
+    let blockers = 0;
     const placed = {};
     const out = [];
     for (let n = 0; n < budget; n++) {
       const kinds = [];
       let sum = 0;
       for (const k in WEIGHT) {
-        if (!POOL[k] || !POOL[k].length || (placed[k] || 0) >= CAP[k]) continue;
+        if (!POOL[k] || !POOL[k].length || (placed[k] || 0) >= (CAP[k] || 0)) continue;
+        if (BLOCKERS[k] && blockers >= 3) continue;
         kinds.push(k);
         sum += WEIGHT[k];
       }
@@ -791,12 +869,36 @@ export function generateFloor(runSeed, floorIndex) {
       const side = trng() < 0.5 ? -1 : 1;
       while (pool.length) {
         const cell = pool.pop();
+        if (kind === "candles") {
+          // Three stands, no two touching, none next to another trap.
+          const stands = [];
+          for (let i = 0; i < cell.cells.length && stands.length < 3; i++) {
+            const at = cell.cells[(i * 7 + Math.floor(phase * cell.cells.length)) % cell.cells.length];
+            if (!free(at.col, at.row) || stands.some((s) => Math.abs(s.col - at.col) <= 1 && Math.abs(s.row - at.row) <= 1)) continue;
+            stands.push({ col: at.col, row: at.row });
+          }
+          if (stands.length < 3) continue;
+          const room = cell.room;
+          const c = room.col + (room.w >> 1);
+          const r = room.row + (room.h >> 1);
+          for (const st of stands) busy.add(st.row * cols + st.col);
+          placed[kind] = (placed[kind] || 0) + 1;
+          out.push({ id: out.length, kind, col: c, row: r, axis: "x", phase, sw: null, parts: stands, room: { col: room.col, row: room.row, w: room.w, h: room.h } });
+          break;
+        }
         if (!free(cell.col, cell.row)) continue;
         const spec = { id: out.length, kind, col: cell.col, row: cell.row, axis: cell.axis || "x", phase, sw: null };
-        if (kind === "fireWall") {
+        if (BLOCKERS[kind]) {
           spec.sw = switchFor(cell);
           if (!spec.sw || !free(spec.sw.col, spec.sw.row)) continue;
           busy.add(spec.sw.row * cols + spec.sw.col);
+          blockers++;
+        } else if (kind === "sarcophagus") {
+          // Lies along its wall: wc/wr point at the wall.
+          spec.wc = cell.wc;
+          spec.wr = cell.wr;
+        } else if (kind === "thornWall") {
+          spec.room = cell.room;
         } else if (kind === "gong") {
           // The gong hangs against one side wall of the mouth cell.
           spec.side = side;
@@ -814,8 +916,8 @@ export function generateFloor(runSeed, floorIndex) {
         break;
       }
     }
-    // Route check: with every fire wall standing, each valve must still be reachable
-    // from the entrance. A wall that fails is dropped and the check runs again.
+    // Route check: with every blocking trap standing, each switch must still be reachable
+    // from the entrance. A trap that fails is dropped and the check runs again.
     for (let guard = 0; guard < 4; guard++) {
       const bad = unreachableSwitches({ cols, rows, tiles, entrance, traps: out });
       if (!bad.length) break;

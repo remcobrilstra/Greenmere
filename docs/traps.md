@@ -4,7 +4,7 @@
 |---|---|
 | Owner | Dungeon |
 | Date | 2026-10-04 |
-| Status | Phases 1–2 implemented |
+| Status | Phases 1–3 implemented |
 | Extends | `docs/greenmere-town-and-underwood.md`, `src/sim/floorgen.js`, `src/sim/balance.js` |
 
 Traps add a second layer to a floor: foes threaten the Warden directly, and traps decide where the fight can happen. The Warden has no dodge or jump: the verbs are walk, sprint, strike, ward, mend (a channel that moving breaks), and extract. So every trap is beaten by **position, timing, or a switch**, never by reflexes the controls do not have.
@@ -77,7 +77,7 @@ Each biome adds 2–3 traps, so each band of 10 floors plays differently.
 | **Ember Forge** | Flame jet | Cycling | A grate vents fire on a visible rhythm: 1 s glow, 1.5 s fire, 2.5 s off. 1.0× dmg per 0.5 s while you are in it |
 | | Fire wall | Constant | Fire right across a corridor or doorway. Switch: a bellows valve on the near side |
 | | Trip hammer | Cycling | A crushing hammer next to an anvil, 2.0× dmg in a 1.5 m circle |
-| | Slag pool | Constant | Heavy damage over time. **No switch**: it is part of the room's layout and never on the route |
+| | Slag pool | Constant | A round molten pool: heavy damage over time and a slow. **No switch**: only in rooms at least 5 tiles wide, where it can always be walked around |
 
 Biomes repeat after 50 floors (`BIOME_BAND` × 5). From the second cycle on, a floor can borrow one trap from the previous biome, so traps combine instead of only getting stronger.
 
@@ -91,7 +91,7 @@ Biomes repeat after 50 floors (`BIOME_BAND` × 5). From the second cycle on, a f
 
 - Every damaging trap damages foes too, using the same damage numbers.
 - Foes do **not** walk around traps on purpose: they chase straight through. That is the opening for the player.
-- The **trapwise** elite affix (new, from floor 15): this foe steps around triggered plates and waits out cycling traps. Shown as a fourth affix next to `hasted`, `thick`, and `warding`.
+- The **trapwise** elite affix (new, from floor 15): this foe knows the traps. Nothing springs under it, and no trap, dart, or slow touches it. It is a fourth affix next to `hasted`, `thick`, and `warding`.
 - Foes do not set off triggered traps unless they are a brute or an elite. That keeps skirmishers from setting off every plate on the floor before you get there.
 - Spitter orbs that land on a plate set it off.
 - **Bosses** use their biome's traps. The Ember Custodian lights the room's flame jets every third swing, the Moss Colossus brings down stalactites, and the Sunken Idol floods the room. A boss's traps can be switched off only after it reaches 50% HP.
@@ -99,7 +99,7 @@ Biomes repeat after 50 floors (`BIOME_BAND` × 5). From the second cycle on, a f
 ## 5. Counterplay and progression
 
 - **Delver track:** at rank 1, plates and wires glint within 10 m. Rank 3 marks seen traps on the minimap and the floor map. Rank 5 halves the valve turn (1.2 s to 0.6 s).
-- **Gear affixes:** `trapward` (−% trap damage), `surefoot` (immune to slows and holds), `keen` (traps on the minimap at any rank). They use the existing affix system, with no new slots.
+- **Gear affixes:** `trapward` on body or shield (−10–30% trap damage, capped at 60% in total), `surefoot` on boots (−30–70% to trap slows and holds, capped at 90%), and `wary` on a circlet or charm (senses traps within 6–14 m and marks them on the map at any Delver rank). They use the existing affix system, with no new slots. `keen` was already taken by the weapon affix.
 - **Switching off a trap gives a reward:** switching off a constant trap drops a small pile of the biome's material (`THEME_MAT`). That is the reason to engage with a trap instead of always going around it.
 - **Mend:** damage over time breaks the channel the same way moving does, so you heal outside a hazard.
 
@@ -158,6 +158,17 @@ New pass in `generateFloor`, after chests and before props:
 - **Darts:** a dart plate needs straight one-wide corridor on both sides along its axis. The run is followed up to 8 cells each way, and the launcher end is picked at random. Brutes, elites, and bosses spring the plate too, which can shoot their own pack.
 - **Gong:** only the Warden trips the wire. A rung gong is stored as `TRAP_SPENT + id` (7000+, no spoils). A cut wire or a shut valve is stored as `TRAP_BASE + id` and drops spoils: a normal kill's gold and its 40% material roll, under the trap's id, restored on resume like kill loot. A strike cuts the wire if it reaches the nearest point of the wire inside the strike arc.
 - **UI:** orange diamonds on the minimap and the floor map (`rt.trapMarks`), dimmed once put out. The trainer's Delver rows list trap sense, map marks, and the valve turn.
+
+## 9c. Phase 3 notes
+
+- **Kinds:** every biome now has its own traps, and flame jets and fire walls appear only in the Forge. Shared kinds (spike plates, darts, gongs) appear everywhere. Weights are in `BIOMES[].traps`.
+- **Footprints:** a trap can be a circle (`radius`), and a sprung trap can land on a larger `blast` circle (rockfall). The pendulum's footprint is its blade, which moves with the swing.
+- **Effects:** `slow` sets `rt.trapSlow` (Warden) or `e.trapSlow` (foe) each frame while inside. `hold` sets `rt.trapHold` / `e.trapHold` in seconds (movement stops, strikes still work). `breaksMend` cancels a mend channel on a hit. Foes are slowed and held the same way, through a small hook in `combat.js` `stepEnemy`.
+- **Switches:** `blocks` traps (fire wall, spore vent, flooded channel, briar) shut a corridor and get a switch on the entrance side: a valve, a sluice lever (both F, held), or a root heart (three strikes). Cursed candles are three stands, each snuffed with F (0.5 s). At most three blocking traps per floor.
+- **Thorn wall:** sits on the mouth of a room that holds a pack. When the Warden walks into that room, the doorway cell turns to rock in `plan.tiles` (walking, sight lines, and maps all see a wall) until no foe is left in the room, or 30 s pass. It waits if anyone stands in the doorway.
+- **Sarcophagus:** lies along a room wall. Passing within 2.3 m slides the lid off and lets out two skirmishers already hunting (`rt.spawnAmbush`). Their foe mesh slots are reserved when the floor is built, so they may go past the 36-foe cap. On a resumed floor deeper than ~29, summons past the cap are not brought back.
+- **Cursed candles:** while any candle burns, foes standing in the room take 30% less damage (`rt.foeDamageMul`, applied in `woundFoe`). Snuffing a candle is not saved until all three are out.
+- **Not done:** borrowing a trap from the previous biome on the second cycle, the collapse tile, and the mimic (phase 4).
 
 ## 10. Open points
 

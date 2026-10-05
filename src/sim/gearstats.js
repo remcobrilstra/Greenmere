@@ -35,7 +35,10 @@ const AFFIX_TEXT = {
   wardweave: (v) => "+" + v.toFixed(1) + "% ward strength",
   hale: (v) => "+" + Math.round(v) + " max health",
   clear: (v) => "+" + Math.round(v) + " max mana",
-  quick: (v) => "+" + v.toFixed(1) + "% move speed"
+  quick: (v) => "+" + v.toFixed(1) + "% move speed",
+  trapward: (v) => "−" + v.toFixed(1) + "% trap damage",
+  surefoot: (v) => "−" + Math.round(v) + "% trap slows and holds",
+  wary: (v) => "Senses traps within " + Math.round(v) + " m, marks them on the map"
 };
 
 function int(v) {

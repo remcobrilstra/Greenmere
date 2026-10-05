@@ -6,6 +6,7 @@ import { dungeonTheme } from "./lights.js";
 import { makeBuilder, writeProp, pick, preloadDungeonKits, loadDungeonKit, dungeonKit, kitVariants, stampPiece } from "./dungeonkit.js";
 
 import { buildTraps } from "./traps.js";
+import { trapDef } from "../sim/traps.js";
 import { FOE_DEFAULT, preloadFoeSets, loadFoeSet, foeSet, riggedFoeGeometry, codeFoeGeometry, foeMaterials, addAnimBuffer, makeFoeAnimator } from "./foes.js";
 
 // The biome kits and foe sets load in the background from the start, so the first
@@ -867,7 +868,10 @@ export function buildFloorMesh(plan) {
     dressPack(packs[name], name, geo);
   }
 
-  const skirmCap = buckets.skirmisher.length + (bossFloor ? 16 : 0);
+  // Spare slots: boss waves, and the dead each sarcophagus lets out (src/sim/traps.js).
+  let ambushSpare = 0;
+  for (const t of plan.traps || []) if (t.kind === "sarcophagus") ambushSpare += trapDef("sarcophagus").ambush;
+  const skirmCap = buckets.skirmisher.length + (bossFloor ? 16 : 0) + ambushSpare;
   addPack("skirmisher", new THREE.Vector3(0, 0.7, -0.24), makeRing(0.35, 1.15), skirmCap);
   addPack("brute", new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length);
   addPack("spitter", new THREE.Vector3(0, 0.5, -0.58), makeRing(0.3, 1.05), buckets.spitter.length);

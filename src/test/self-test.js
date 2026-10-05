@@ -42,12 +42,12 @@ import {
 import { generateFloor, setSealedThrows, tileToWorld, SAFE_RADIUS } from "../sim/floorgen.js";
 import { mendCastSeconds, MEND_PUSHBACK, mendPushback, DEATH_LOCK_S } from "../sim/balance.js";
 import { biomeIndex } from "../sim/biomes.js";
-import { TRAP_BASE, TRAP_SPENT, trapDef, trapHurts, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches, dartVolley, stepDart, dartHits, valveSeconds, trapSenseRange, trapsOnMap } from "../sim/traps.js";
+import { TRAP_BASE, TRAP_SPENT, trapDef, trapHurts, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches, dartVolley, stepDart, dartHits, valveSeconds, trapSenseRange, trapsOnMap, wardedTrapDamage, surefootSlow, surefootHold } from "../sim/traps.js";
 import { trapBudget, trapDamage } from "../sim/balance.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
 import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
-import { heroStats, compareEquip, compareUpgrade, trackNext, trackEffects } from "../sim/gearstats.js";
+import { heroStats, compareEquip, compareUpgrade, trackNext, trackEffects, affixLines } from "../sim/gearstats.js";
 import { KEEPERS, WANDERERS, VENDORS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter, staticTownColliders, shiftPart } from "../sim/townfolk.js";
 import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt, insideRect } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
@@ -3273,8 +3273,12 @@ export function installSelfTest(rt) {
         for (const t of plan.traps) {
           const w = tileToWorld(t.col, t.row, plan.cols, plan.rows);
           if (Math.hypot(w.x - ent.x, w.z - ent.z) < SAFE_RADIUS) trapNearEntrance++;
-          if ((t.col === plan.stairs.col && t.row === plan.stairs.row) || plan.chests.some((c) => c.col === t.col && c.row === t.row) || plan.spawns.some((s) => s.col === t.col && s.row === t.row)) trapOnThing++;
-          if (t.kind === "fireWall" && !fireSeed && floor >= 3 && floor <= 9) {
+          // Candles sit on their stands; the trap's own cell is just the room's middle.
+          const cells = t.parts ? t.parts : [t];
+          for (const at of cells) {
+            if ((at.col === plan.stairs.col && at.row === plan.stairs.row) || plan.chests.some((c) => c.col === at.col && c.row === at.row) || plan.spawns.some((s) => s.col === at.col && s.row === at.row)) trapOnThing++;
+          }
+          if (t.kind === "fireWall" && !fireSeed && floor === 45) {
             fireSeed = seed;
             fireFloor = floor;
           }
@@ -3302,7 +3306,7 @@ export function installSelfTest(rt) {
     stepTrap(plate, trapDef("spikes").arm + 0.01, 0, false);
     check(plate.hot && trapStrikes(plate, "hero", 0) && !trapStrikes(plate, "hero", 0.3), "the spikes hit each target once per firing");
 
-    check(fireSeed > 0, "an early floor holds a fire wall (seed " + fireSeed + ", floor " + fireFloor + ")");
+    check(fireSeed > 0, "an Ember Forge floor holds a fire wall (seed " + fireSeed + ", floor " + fireFloor + ")");
     rt.startRun(fireSeed || 1, fireFloor || 3);
     rt.fillPools();
     const fireStates = rt.trapStates();
@@ -3464,6 +3468,158 @@ export function installSelfTest(rt) {
     rt.session.tracks.delver = delverWas;
     const delverRows = trackEffects("delver", 3).map((row) => row[0]);
     check(delverRows.indexOf("Traps on the map") >= 0 && delverRows.indexOf("Valve turn") >= 0, "the trainer lists the Delver trap ranks");
+
+    // Phase 3: biome traps, trap gear, trapwise elites.
+    function findKind(kind, from, to) {
+      for (let seed = 1; seed <= 30; seed++) {
+        for (let f = from; f <= to; f++) {
+          if (f % 5 === 0) continue;
+          const idx = generateFloor(seed, f).traps.findIndex((t) => t.kind === kind);
+          if (idx >= 0) return { seed, floor: f, idx };
+        }
+      }
+      return null;
+    }
+    const BAND_KINDS = [["cave", 3, 9, ["sporePuff", "rockfall", "sporeVent"]], ["temple", 11, 19, ["pendulum", "flood"]], ["root", 21, 29, ["grasp", "thornWall", "briar"]], ["crypt", 31, 39, ["sarcophagus", "candles"]], ["forge", 41, 49, ["tripHammer", "slagPool"]]];
+    const missing = [];
+    const found = {};
+    for (const [, from, to, kinds] of BAND_KINDS) for (const k of kinds) {
+      found[k] = findKind(k, from, to);
+      if (!found[k]) missing.push(k);
+    }
+    check(missing.length === 0, "every biome places its own traps (" + (missing.join(", ") || "all found") + ")");
+    let wrongBand = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      for (const f of [4, 8]) if (generateFloor(seed, f).traps.some((t) => ["pendulum", "tripHammer", "candles", "grasp"].indexOf(t.kind) >= 0)) wrongBand++;
+    }
+    check(wrongBand === 0, "the Mossy Caves hold none of the other biomes' traps");
+    let earlyWise = 0;
+    let deepWise = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const f of [6, 9, 13]) earlyWise += generateFloor(seed, f).spawns.filter((s) => s.eliteAffix === "trapwise").length;
+      for (const f of [16, 27, 38]) deepWise += generateFloor(seed, f).spawns.filter((s) => s.eliteAffix === "trapwise").length;
+    }
+    check(earlyWise === 0 && deepWise > 0, "trapwise elites appear only from floor 15 (" + deepWise + " deeper)");
+
+    const pend = makeTrapState({ id: 0, kind: "pendulum", x: 0, z: 0, axis: "x", phase: 0 });
+    stepTrap(pend, 0.01, trapDef("pendulum").period / 4, false);
+    check(pend.hot && trapHits(pend, 0, pend.swing) && !trapHits(pend, 0, -pend.swing), "the pendulum hits where its blade is, not across the corridor");
+    const fall = makeTrapState({ id: 1, kind: "rockfall", x: 0, z: 0 });
+    check(!trapHits(fall, 1.3, 0) && trapHits(fall, 1.3, 0, null, true), "a rockfall springs on a small spot and lands wide");
+    check(wardedTrapDamage(100, 20) === 80 && wardedTrapDamage(100, 200) === 40 && surefootSlow(0.6, 50) === 0.8 && surefootHold(1, 50) === 0.5, "trapward cuts trap damage (capped at 60%), surefoot eases slows and holds");
+    const trapGear = gearTotals({ body: { ilvl: 10, affixes: [{ id: "trapward", t: 1 }] }, feet: { ilvl: 10, affixes: [{ id: "surefoot", t: 0.5 }] }, head: { ilvl: 10, affixes: [{ id: "wary", t: 0 }] } });
+    check(trapGear.trapward > 10 && trapGear.surefoot > 30 && trapGear.wary >= 6, "trap affixes add up on worn gear");
+    check(trapSenseRange(0, trapGear.wary) >= 6 && trapsOnMap(0, trapGear.wary), "wary gear senses and maps traps without Delver ranks");
+    check(/trap damage/.test(affixLines({ slot: "body", ilvl: 10, affixes: [{ id: "trapward", t: 1 }] }).join(" ")), "trapward reads as less trap damage");
+
+    function onTrap(kind) {
+      const at = found[kind];
+      if (!at) return null;
+      rt.startRun(at.seed, at.floor);
+      rt.fillPools();
+      rt.trapHold = 0;
+      rt.session.wardAbsorb = 0;
+      return { trap: rt.trapStates()[at.idx], view: rt.dungeonRoot.userData.traps[at.idx], plan: rt.plan.traps[at.idx] };
+    }
+    function farFoes() {
+      for (const e of rt.enemies || []) {
+        if (!e || !(e.hp > 0)) continue;
+        e.x = e.spawnX;
+        e.z = e.spawnZ;
+      }
+    }
+
+    let on = onTrap("sporePuff");
+    if (on) {
+      player.position.set(on.trap.x + 0.5, 0, on.trap.z);
+      const hp0 = rt.vitals.hp;
+      for (let i = 0; i < 150; i++) rt.tickTraps(0.033, true);
+      check(rt.vitals.hp < hp0, "a spore puff poisons whoever stands in its cloud");
+    }
+    on = onTrap("flood");
+    if (on) {
+      player.position.set(on.trap.x, 0, on.trap.z);
+      rt.tickTraps(0.033, true);
+      check(rt.trapSlow > 0.55 && rt.trapSlow < 0.65, "the flooded channel slows the Warden (" + rt.trapSlow.toFixed(2) + ")");
+      rt.session.surefoot = 90;
+      rt.tickTraps(0.033, true);
+      check(rt.trapSlow > 0.95, "surefoot gear wades through");
+      rt.session.surefoot = 0;
+      const lever = on.view.sw;
+      player.position.set(lever.x, 0, lever.z);
+      check(rt.switchNear() && rt.switchNear().label === "Pull the sluice lever", "the flood's switch is a sluice lever");
+      rt.tryUseSwitch();
+      check(rt.castInfo() && rt.castInfo().name === "Lever", "pulling it shows a Lever cast");
+      for (let i = 0; i < 45; i++) rt.tickTraps(0.033, false);
+      check(on.trap.disabled && !on.view.water.visible, "the pulled lever drains the channel");
+    }
+    on = onTrap("grasp");
+    if (on) {
+      player.position.set(on.trap.x, 0, on.trap.z);
+      for (let i = 0; i < 12; i++) rt.tickTraps(0.033, true);
+      check(rt.trapHold > 0.5, "grasping roots hold the Warden in place");
+      rt.trapHold = 0;
+    }
+    on = onTrap("sarcophagus");
+    if (on) {
+      const before = livingCount(rt.enemies);
+      player.position.set(on.trap.x, 0, on.trap.z);
+      for (let i = 0; i < 30; i++) rt.tickTraps(0.033, true);
+      check(livingCount(rt.enemies) > before && on.trap.disabled && rt.session.run.killed.indexOf(TRAP_SPENT + on.trap.id) >= 0, "passing a sarcophagus lets the dead out, once (" + (livingCount(rt.enemies) - before) + ")");
+    }
+    on = onTrap("thornWall");
+    if (on) {
+      const room = on.view.room;
+      const cell = on.plan.row * rt.plan.cols + on.plan.col;
+      player.position.set((room.x0 + room.x1) / 2, 0, (room.z0 + room.z1) / 2);
+      for (let i = 0; i < 30; i++) rt.tickTraps(0.033, true);
+      check(rt.plan.tiles[cell] === 0 && on.view.wall.visible, "entering a guarded room grows thorns across the doorway");
+      for (const e of rt.enemies || []) if (e && e.x >= room.x0 && e.x < room.x1 && e.z >= room.z0 && e.z < room.z1) e.hp = 0;
+      rt.tickTraps(0.033, true);
+      check(rt.plan.tiles[cell] === 1 && on.trap.disabled, "clearing the room opens the doorway again");
+    }
+    on = onTrap("briar");
+    if (on) {
+      const heart = on.view.sw;
+      const from = { x: heart.x + 1.2, z: heart.z };
+      const aim = { x: -1, z: 0 };
+      let hits = 0;
+      for (let i = 0; i < 3; i++) if (rt.strikeTraps({ x: heart.x + 1.2, z: heart.z }, aim, 2.4, 0.9) || rt.strikeTraps({ x: heart.x, z: heart.z + 1.2 }, { x: 0, z: -1 }, 2.4, 0.9) || rt.strikeTraps({ x: heart.x, z: heart.z - 1.2 }, { x: 0, z: 1 }, 2.4, 0.9) || rt.strikeTraps({ x: heart.x - 1.2, z: heart.z }, { x: 1, z: 0 }, 2.4, 0.9)) hits++;
+      check(hits === 3 && on.trap.disabled && rt.session.run.killed.indexOf(TRAP_BASE + on.trap.id) >= 0 && !!from, "three strikes on the root heart wither the briars");
+      check(!rt.switchNear() || rt.switchNear().view !== on.view, "a root heart is struck, not turned with F");
+    }
+    on = onTrap("candles");
+    if (on) {
+      const room = on.view.room;
+      const ward = { x: (room.x0 + room.x1) / 2, z: (room.z0 + room.z1) / 2 };
+      check(Math.abs(rt.foeDamageMul(ward) - 0.7) < 1e-9 && rt.foeDamageMul({ x: room.x1 + 20, z: room.z1 + 20 }) === 1, "cursed candles soften blows on foes in their room only");
+      for (const part of on.view.parts) {
+        player.position.set(part.x + 0.6, 0, part.z);
+        rt.tryUseSwitch();
+        for (let i = 0; i < 20; i++) rt.tickTraps(0.033, false);
+      }
+      check(on.trap.disabled && rt.foeDamageMul(ward) === 1, "snuffing all three candles lifts the curse");
+    }
+    on = onTrap("tripHammer");
+    if (on) {
+      farFoes();
+      player.position.set(on.trap.x, 0, on.trap.z);
+      const hp0 = rt.vitals.hp;
+      for (let i = 0; i < 160; i++) rt.tickTraps(0.033, true);
+      check(rt.vitals.hp < hp0, "the trip hammer slams whoever stands under it");
+      const wiseFoe = (rt.enemies || []).find((e) => e && e.hp > 0);
+      if (wiseFoe) {
+        wiseFoe.eliteAffix = "trapwise";
+        wiseFoe.x = on.trap.x;
+        wiseFoe.z = on.trap.z;
+        const foeHp0 = wiseFoe.hp;
+        player.position.set(on.trap.x + 30, 0, on.trap.z + 30);
+        for (let i = 0; i < 160; i++) rt.tickTraps(0.033, true);
+        check(wiseFoe.hp === foeHp0, "a trapwise elite stands under the hammer untouched");
+      }
+    }
+    rt.trapHold = 0;
+    rt.fillPools();
     rt.startRun(1, 41);
     let brazierLights = 0;
     let brazierShadow = false;
