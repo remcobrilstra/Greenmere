@@ -1,7 +1,7 @@
 import { mulberry32 } from "./rng.js";
 import { floorSpan, enemyBudget, eliteCount, trapBudget } from "./balance.js";
 import { biomeFor } from "./biomes.js";
-import { unreachableSwitches } from "./traps.js";
+import { unreachableSwitches, gauntletWindow } from "./traps.js";
 
 export const TILE = 4;
 // Nothing spawns within SAFE_RADIUS metres or SAFE_STEPS walking tiles of the
@@ -723,7 +723,7 @@ export function generateFloor(runSeed, floorIndex) {
           const n = floorAt(c, r - 1);
           // A plate needs floor on every side, so it can always be stepped around.
           if (e && w && s && n) {
-            roomCells.push({ col: c, row: r });
+            roomCells.push({ col: c, row: r, room: room.id });
             if (room.w >= 5 && room.h >= 5) bigRoomCells.push({ col: c, row: r });
           } else if ((e ? 1 : 0) + (w ? 1 : 0) + (s ? 1 : 0) + (n ? 1 : 0) === 3) {
             // One side is wall: a sarcophagus lies along it.
@@ -845,7 +845,134 @@ export function generateFloor(runSeed, floorIndex) {
     let blockers = 0;
     const placed = {};
     const out = [];
-    for (let n = 0; n < budget; n++) {
+    let left = budget;
+
+    // ---- Set pieces (docs/traps.md §3.3), placed before the budget ----
+    const roomCellsIn = (id) => roomCells.filter((c) => c.room === id);
+    const takeCell = (pool, cell) => {
+      const i = pool.indexOf(cell);
+      if (i >= 0) pool.splice(i, 1);
+    };
+    const ROOM_KIND = { cave: "sporePuff", temple: "spikes", root: "grasp", crypt: "spikes", forge: "tripHammer" };
+    let vaultRoom = -1;
+    // A trapped vault: a dead-end room with a chest, laid out as a trap course.
+    // The chest at its end always holds rare gear or better.
+    if (floorIndex >= 6 && !bossFloor && trng() < 0.5) {
+      for (let i = 0; i < chests.length && vaultRoom < 0; i++) {
+        const room = roomAt(chests[i].col, chests[i].row);
+        if (!room || room.id === 0 || room.id === stairsRoomId || !deadRooms.has(room.id)) continue;
+        const cells = roomCellsIn(room.id);
+        let laid = 0;
+        for (let k = 0; k < cells.length && laid < 3; k++) {
+          const cell = cells[k];
+          if (!free(cell.col, cell.row)) continue;
+          const kind = laid === 1 ? "spikes" : ROOM_KIND[biome.key] || "spikes";
+          busy.add(cell.row * cols + cell.col);
+          takeCell(roomCells, cell);
+          takeCell(bigRoomCells, bigRoomCells.find((b) => b.col === cell.col && b.row === cell.row));
+          out.push({ id: out.length, kind, col: cell.col, row: cell.row, axis: "x", phase: trng(), sw: null, vault: true });
+          laid++;
+        }
+        if (laid) {
+          chests[i].vault = true;
+          vaultRoom = room.id;
+        }
+      }
+    }
+    // A mimic: about one floor in eight from floor 6 hides one among the chests.
+    if (floorIndex >= 6 && trng() < 0.125) {
+      const pickable = chests.filter((c) => !c.vault);
+      if (pickable.length) pickable[Math.floor(trng() * pickable.length)].mimic = true;
+    }
+    // A sealed room: from floor 8, a quiet room bars its doorways when the Warden
+    // reaches its middle and a wave climbs in. At most one per floor.
+    if (floorIndex >= 8 && !bossFloor && trng() < 0.45) {
+      const quiet = rooms.filter((room) => room.id !== 0 && room.id !== stairsRoomId && room.id !== vaultRoom && room.w >= 4 && room.h >= 4 && !(packOf.get(room.id) || 0));
+      shuffle(quiet);
+      for (let q = 0; q < quiet.length; q++) {
+        const room = quiet[q];
+        const m = centerOf(room);
+        if (!floorAt(m.col, m.row) || !open(m.col, m.row) || !free(m.col, m.row)) continue;
+        // Every floor cell just outside the room's edge is a doorway to bar.
+        const doors = [];
+        let blocked = false;
+        for (let r = room.row - 1; r <= room.row + room.h && !blocked; r++) {
+          for (let c = room.col - 1; c <= room.col + room.w; c++) {
+            if (inRect(room, c, r) || !floorAt(c, r)) continue;
+            const edge = (c >= room.col && c < room.col + room.w) || (r >= room.row && r < room.row + room.h);
+            if (!edge) continue;
+            if (busy.has(r * cols + c) || chestCell.has(r * cols + c) || (c === stairs.col && r === stairs.row) || (c === entrance.col && r === entrance.row)) {
+              blocked = true;
+              break;
+            }
+            doors.push({ col: c, row: r, axis: c < room.col || c >= room.col + room.w ? "z" : "x" });
+          }
+        }
+        if (blocked || !doors.length || doors.length > 8) continue;
+        for (const d of doors) busy.add(d.row * cols + d.col);
+        busy.add(m.row * cols + m.col);
+        out.push({
+          id: out.length, kind: "seal", col: m.col, row: m.row, axis: "x", phase: 0, sw: null,
+          room: { col: room.col, row: room.row, w: room.w, h: room.h },
+          doors,
+          wave: Math.min(6, 3 + Math.floor(floorIndex / 15))
+        });
+        break;
+      }
+    }
+    // A gauntlet: three cycling traps in a row down a straight corridor, out of
+    // step, with a start window a sprint can make (gauntletWindow).
+    const gauntletKind = biome.key === "forge" ? "flameJet" : biome.key === "temple" ? "pendulum" : null;
+    if (gauntletKind && left >= 3 && trng() < 0.5) {
+      shuffle(dartCells);
+      for (let g = 0; g < dartCells.length; g++) {
+        const mid = dartCells[g];
+        const dc = mid.axis === "x" ? 1 : 0;
+        const dr = mid.axis === "x" ? 0 : 1;
+        const line = [-1, 0, 1].map((k) => ({ col: mid.col + dc * k, row: mid.row + dr * k }));
+        if (line.some((cell) => !open(cell.col, cell.row) || !free(cell.col, cell.row))) continue;
+        let phases = null;
+        for (let tries = 0; tries < 12 && !phases; tries++) {
+          const p = [trng(), trng(), trng()];
+          if (gauntletWindow(gauntletKind, p, TILE) >= 0.3) phases = p;
+        }
+        if (!phases) continue;
+        for (let k = 0; k < 3; k++) {
+          busy.add(line[k].row * cols + line[k].col);
+          takeCell(corridorCells, corridorCells.find((c) => c.col === line[k].col && c.row === line[k].row));
+          out.push({ id: out.length, kind: gauntletKind, col: line[k].col, row: line[k].row, axis: mid.axis, phase: phases[k], sw: null, gauntlet: true });
+        }
+        left -= 3;
+        break;
+      }
+    }
+    // A collapse tile: from floor 4, off the shortest way to the stairs and never
+    // on a boss floor.
+    if (floorIndex >= 4 && !bossFloor && trng() < 0.35) {
+      const route = new Set();
+      const back = bfsFrom(stairs.col, stairs.row);
+      let cur = entrance.row * cols + entrance.col;
+      for (let guard = 0; guard < tiles.length && back[cur] > 0; guard++) {
+        route.add(cur);
+        const r = (cur / cols) | 0;
+        const c = cur - r * cols;
+        const next = [cur - 1, cur + 1, cur - cols, cur + cols].find((j, k) => (k === 0 ? c > 0 : k === 1 ? c + 1 < cols : true) && j >= 0 && j < tiles.length && back[j] === back[cur] - 1);
+        if (next == null) break;
+        cur = next;
+      }
+      for (let k = 0; k < roomCells.length; k++) {
+        const cell = roomCells[k];
+        const i = cell.row * cols + cell.col;
+        if (route.has(i) || cell.room === vaultRoom || !free(cell.col, cell.row)) continue;
+        busy.add(i);
+        roomCells.splice(k, 1);
+        out.push({ id: out.length, kind: "collapse", col: cell.col, row: cell.row, axis: "x", phase: 0, sw: null });
+        left -= 1;
+        break;
+      }
+    }
+    left = Math.max(0, left);
+    for (let n = 0; n < left; n++) {
       const kinds = [];
       let sum = 0;
       for (const k in WEIGHT) {

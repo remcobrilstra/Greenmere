@@ -808,7 +808,7 @@ export function attachCombat(rt) {
   // Foes climbing out of a sarcophagus (src/play/traps.js): up to `count`
   // skirmishers on the open tiles around (x, z), saved as summons like a boss wave.
   // They may pass the 36 cap: the floor mesh reserves their slots up front.
-  function spawnAmbush(x, z, count) {
+  function spawnAmbush(x, z, count, at, out) {
     const s = session();
     const run = s && s.run;
     const plan = rt.plan;
@@ -816,7 +816,7 @@ export function attachCombat(rt) {
     if (!run || !plan || !claim) return 0;
     if (!run.summons) run.summons = [];
     if (!run.enemyHp) run.enemyHp = {};
-    const spots = neighborSpots(plan, { x, z });
+    const spots = at && at.length ? at : neighborSpots(plan, { x, z });
     let spawned = 0;
     for (let i = 0; i < spots.length && spawned < count; i++) {
       const slot = claim("skirmisher");
@@ -834,6 +834,7 @@ export function attachCombat(rt) {
       rt.enemies.push(foe);
       run.summons.push({ id: foe.id, archetype: "skirmisher", x: foe.x, z: foe.z, hp: foe.hp });
       run.enemyHp[foe.id] = foe.hp;
+      if (out) out.push(foe);
       spawned++;
     }
     if (spawned) noteRunDirty();
@@ -862,12 +863,13 @@ export function attachCombat(rt) {
     for (let i = 0; i < run.summons.length; i++) {
       const src = run.summons[i];
       if (!src || killed.indexOf(src.id) >= 0) continue;
-      if (livingCount(rt.enemies) >= 36) break;
-      const slot = claim ? claim("skirmisher") : -1;
-      if (slot < 0) break;
+      // Slots are reserved per floor (boss waves, ambushes, mimics), so they bound this.
+      const slot = claim ? claim(src.archetype || "skirmisher") : -1;
+      if (slot < 0) continue;
       const foe = stampFoe(run.floorIndex, {
         id: src.id,
         archetype: src.archetype || "skirmisher",
+        eliteAffix: src.eliteAffix || null,
         x: src.x,
         z: src.z,
         slot,
@@ -1178,7 +1180,8 @@ export function attachCombat(rt) {
         spawnId: sid,
         kind: "elite",
         ordinal: 0,
-        force: true
+        force: true,
+        minRarity: c.vault ? 2 : 0
       });
       if (item) {
         const at = landingSpot(ox, oz, base + "0", 0);
@@ -1196,11 +1199,46 @@ export function attachCombat(rt) {
     if (!Array.isArray(run.killed)) run.killed = [];
     if (run.killed.indexOf(CHEST_BASE + c.id) < 0) run.killed.push(CHEST_BASE + c.id);
     noteRunDirty();
+    if (c.mimic) {
+      wakeMimic(c, run);
+      return true;
+    }
     chestLoot(c, run, true);
     if (rt.say) rt.say("The chest gives up its hoard.");
     if (rt.questEvent) rt.questEvent({ type: "chest", floor: run.floorIndex });
     return true;
   }
+  // A mimic (docs/traps.md §3.1): the chest was a thick-hided elite brute all
+  // along. It is saved as a summon, so a resumed floor brings it back; it drops
+  // its elite loot like any other kill.
+  function wakeMimic(c, run) {
+    if (c.group) c.group.visible = false;
+    const claim = rt.dungeonRoot && rt.dungeonRoot.userData.claimSlot;
+    const slot = claim ? claim("brute") : -1;
+    if (rt.say) rt.say("The chest has teeth!");
+    rt.camShake = Math.max(rt.camShake || 0, 0.25);
+    if (slot < 0) return null;
+    if (!run.summons) run.summons = [];
+    if (!run.enemyHp) run.enemyHp = {};
+    const foe = stampFoe(run.floorIndex, {
+      id: nextSummonId(run),
+      archetype: "brute",
+      eliteAffix: "thick",
+      x: c.x,
+      z: c.z,
+      yaw: c.group ? c.group.rotation.y : 0,
+      slot,
+      summon: true
+    });
+    foe.state = "approach";
+    foe.mimic = true;
+    rt.enemies.push(foe);
+    run.summons.push({ id: foe.id, archetype: "brute", eliteAffix: "thick", x: foe.x, z: foe.z, hp: foe.hp });
+    run.enemyHp[foe.id] = foe.hp;
+    if (rt.questEvent) rt.questEvent({ type: "chest", floor: run.floorIndex });
+    return foe;
+  }
+
   function tryOpenChest() {
     return openChest(chestNear());
   }
@@ -1210,6 +1248,11 @@ export function attachCombat(rt) {
       if (killed.indexOf(CHEST_BASE + c.id) < 0) continue;
       c.opened = true;
       c.openT = 1;
+      // A woken mimic is gone from its corner; it comes back as a summon.
+      if (c.mimic) {
+        if (c.group) c.group.visible = false;
+        continue;
+      }
       chestLoot(c, run, false);
     }
   }
@@ -1219,6 +1262,8 @@ export function attachCombat(rt) {
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (!c.opened) {
+        // A mimic breathes: its lid lifts a crack and settles.
+        if (c.mimic && c.lid) c.lid.rotation.x = 0.05 + 0.05 * Math.sin(performance.now() / 380 + i);
         if (c.gem) {
           c.gem.rotation.y += dt * 2;
           c.gem.position.y = 1.25 + Math.sin(performance.now() / 400 + i) * 0.06;

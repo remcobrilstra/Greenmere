@@ -42,7 +42,7 @@ import {
 import { generateFloor, setSealedThrows, tileToWorld, SAFE_RADIUS } from "../sim/floorgen.js";
 import { mendCastSeconds, MEND_PUSHBACK, mendPushback, DEATH_LOCK_S } from "../sim/balance.js";
 import { biomeIndex } from "../sim/biomes.js";
-import { TRAP_BASE, TRAP_SPENT, trapDef, trapHurts, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches, dartVolley, stepDart, dartHits, valveSeconds, trapSenseRange, trapsOnMap, wardedTrapDamage, surefootSlow, surefootHold } from "../sim/traps.js";
+import { TRAP_BASE, TRAP_SPENT, trapDef, trapHurts, makeTrapState, stepTrap, trapHits, trapStrikes, unreachableSwitches, dartVolley, stepDart, dartHits, valveSeconds, trapSenseRange, trapsOnMap, wardedTrapDamage, surefootSlow, surefootHold, gauntletWindow } from "../sim/traps.js";
 import { trapBudget, trapDamage } from "../sim/balance.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
@@ -3619,6 +3619,154 @@ export function installSelfTest(rt) {
       }
     }
     rt.trapHold = 0;
+    rt.fillPools();
+
+    // Phase 4: vaults, mimics, sealed rooms, gauntlets, collapse tiles, boss hazards.
+    let vaultAt = null;
+    let mimicAt = null;
+    let sealAt = null;
+    let collapseAt = null;
+    let gauntlets = 0;
+    let gauntletBad = 0;
+    let earlyPieces = 0;
+    let bossPieces = 0;
+    let vaultBad = 0;
+    let collapseOnRoute = 0;
+    let sealBad = 0;
+    let pieceRouteBad = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      for (let f = 3; f <= 48; f++) {
+        const plan = generateFloor(seed, f);
+        pieceRouteBad += unreachableSwitches(plan).length;
+        const vaults = plan.chests.filter((c) => c.vault);
+        const mimics = plan.chests.filter((c) => c.mimic);
+        const seals = plan.traps.filter((t) => t.kind === "seal");
+        const falls = plan.traps.filter((t) => t.kind === "collapse");
+        if (f < 6 && (vaults.length || mimics.length)) earlyPieces++;
+        if (f < 8 && seals.length) earlyPieces++;
+        if (f % 5 === 0 && (vaults.length || seals.length || falls.length)) bossPieces++;
+        if (vaults.length && !vaultAt) vaultAt = { seed, f };
+        if (mimics.length && !mimicAt) mimicAt = { seed, f };
+        if (seals.length && !sealAt) sealAt = { seed, f };
+        if (falls.length && !collapseAt) collapseAt = { seed, f };
+        for (const v of vaults) {
+          const vt = plan.traps.filter((t) => t.vault);
+          const room = plan.rooms.find((r) => v.col >= r.col && v.col < r.col + r.w && v.row >= r.row && v.row < r.row + r.h);
+          if (!vt.length || !room || vt.some((t) => !(t.col >= room.col && t.col < room.col + room.w && t.row >= room.row && t.row < room.row + room.h))) vaultBad++;
+        }
+        for (const sl of seals) {
+          if (!sl.doors.length || sl.doors.some((d) => plan.tiles[d.row * plan.cols + d.col] !== 1) || !(sl.wave >= 3)) sealBad++;
+        }
+        if (falls.length) {
+          // The shortest walk from the entrance to the stairs never crosses it.
+          const cols = plan.cols;
+          const dist = new Int16Array(plan.tiles.length).fill(-1);
+          const q = [plan.stairs.row * cols + plan.stairs.col];
+          dist[q[0]] = 0;
+          for (let qi = 0; qi < q.length; qi++) {
+            const i = q[qi];
+            for (const j of [i - 1, i + 1, i - cols, i + cols]) {
+              if (j < 0 || j >= plan.tiles.length || dist[j] >= 0 || plan.tiles[j] !== 1) continue;
+              dist[j] = dist[i] + 1;
+              q.push(j);
+            }
+          }
+          let cur = plan.entrance.row * cols + plan.entrance.col;
+          const fallCells = falls.map((t) => t.row * cols + t.col);
+          for (let g = 0; g < 400 && dist[cur] > 0; g++) {
+            if (fallCells.indexOf(cur) >= 0) collapseOnRoute++;
+            const next = [cur - 1, cur + 1, cur - cols, cur + cols].find((j) => j >= 0 && j < plan.tiles.length && dist[j] === dist[cur] - 1);
+            if (next == null) break;
+            cur = next;
+          }
+        }
+        const gt = plan.traps.filter((t) => t.gauntlet);
+        if (gt.length) {
+          gauntlets++;
+          const same = gt.length === 3 && gt.every((t) => t.kind === gt[0].kind && t.axis === gt[0].axis);
+          const line = same && (gt[0].axis === "x" ? gt.every((t) => t.row === gt[0].row) && Math.abs(gt[2].col - gt[0].col) === 2 : gt.every((t) => t.col === gt[0].col) && Math.abs(gt[2].row - gt[0].row) === 2);
+          if (!line || gauntletWindow(gt[0].kind, gt.map((t) => t.phase), 4) < 0.3) gauntletBad++;
+        }
+      }
+    }
+    check(!!vaultAt && !!mimicAt && !!sealAt && !!collapseAt && gauntlets > 0, "floors hold vaults, mimics, sealed rooms, gauntlets and collapse tiles");
+    check(earlyPieces === 0 && bossPieces === 0, "no vault or mimic before floor 6, no sealed room before 8, none of them (or a collapse) on a boss floor");
+    check(vaultBad === 0, "a vault's traps sit in its chest's room");
+    check(sealBad === 0, "a sealed room bars real doorways and brings a wave of three or more");
+    check(collapseOnRoute === 0, "no collapse tile on the shortest way to the stairs");
+    check(gauntletBad === 0, "every gauntlet is three traps in a row a sprint can get through (0.3 s window or more)");
+    check(pieceRouteBad === 0, "every blocking trap's switch is still reachable with the set pieces in");
+    const vaultItem = rollGearDrop(lootRng(1, 6, 5000), { floorIndex: 6, spawnId: 5000, kind: "elite", force: true, minRarity: 2 });
+    check(!!vaultItem && vaultItem.rarity >= 2, "a vault chest's gear is rare or better");
+
+    if (mimicAt) {
+      rt.startRun(mimicAt.seed, mimicAt.f);
+      rt.fillPools();
+      const mc = rt.dungeonRoot.userData.chests.find((c) => c.mimic);
+      player.position.set(mc.x, 0, mc.z);
+      const summonsBefore = (rt.session.run.summons || []).length;
+      check(rt.tryOpenChest() && !mc.group.visible, "opening a mimic chest throws the chest aside");
+      const mimicFoe = rt.enemies.find((e) => e && e.mimic);
+      check(!!mimicFoe && mimicFoe.archetype === "brute" && mimicFoe.eliteAffix === "thick" && rt.session.run.summons.length === summonsBefore + 1, "the mimic wakes as a thick-hided elite brute");
+      rt.applySaveDoc(JSON.parse(JSON.stringify(rt.captureSaveDoc())));
+      const back = rt.enemies.find((e) => e && e.archetype === "brute" && e.eliteAffix === "thick" && e.summon);
+      check(!!back && !rt.dungeonRoot.userData.chests.find((c) => c.mimic).group.visible, "a resumed floor brings the mimic back, not the chest");
+    }
+    if (sealAt) {
+      rt.startRun(sealAt.seed, sealAt.f);
+      rt.fillPools();
+      const si = rt.plan.traps.findIndex((t) => t.kind === "seal");
+      const sv = rt.dungeonRoot.userData.traps[si];
+      const st = rt.trapStates()[si];
+      const doorCells = rt.plan.traps[si].doors.map((d) => d.row * rt.plan.cols + d.col);
+      const livingBefore = livingCount(rt.enemies);
+      player.position.set(sv.x, 0, sv.z);
+      for (let i = 0; i < 40; i++) rt.tickTraps(0.033, true);
+      check(doorCells.every((i) => rt.plan.tiles[i] === 0) && sv.doors.every((d) => d.bars.visible), "reaching a sealed room's middle bars every doorway");
+      check(livingCount(rt.enemies) > livingBefore && rt.session.run.killed.indexOf(TRAP_SPENT + st.id) >= 0, "a wave climbs in, and the room is spent (" + (livingCount(rt.enemies) - livingBefore) + ")");
+      for (const e of st.wave || []) e.hp = 0;
+      rt.tickTraps(0.033, true);
+      check(doorCells.every((i) => rt.plan.tiles[i] === 1) && st.disabled, "killing the wave lifts the bars");
+    }
+    if (collapseAt) {
+      rt.startRun(collapseAt.seed, collapseAt.f);
+      rt.fillPools();
+      const ci = rt.plan.traps.findIndex((t) => t.kind === "collapse");
+      const cs = rt.trapStates()[ci];
+      const hpFall = rt.vitals.hp;
+      player.position.set(cs.x, 0, cs.z);
+      for (let i = 0; i < 40 && rt.session.run.floorIndex === collapseAt.f; i++) rt.tickTraps(0.033, true);
+      check(rt.session.run.floorIndex === collapseAt.f + 1 && rt.vitals.hp < hpFall, "standing on a collapse tile drops the Warden to the next floor, hurt");
+      rt.fillPools();
+    }
+    // Boss hazards: the Moss Colossus drops stone on the Warden, never on itself.
+    rt.startRun(1, 5);
+    rt.fillPools();
+    const caveBoss = rt.enemies.find((e) => e && e.boss);
+    caveBoss.state = "approach";
+    caveBoss.x = player.position.x;
+    caveBoss.z = player.position.z;
+    const bossHp = caveBoss.hp;
+    let sawStone = false;
+    for (let i = 0; i < 260; i++) {
+      caveBoss.state = "approach";
+      rt.tickTraps(0.033, true);
+      if (rt.trapHazards().some((h) => h.trap.kind === "rockfall")) sawStone = true;
+    }
+    check(sawStone && caveBoss.hp === bossHp, "the Moss Colossus brings rockfalls down on the Warden and they spare it");
+    rt.fillPools();
+    rt.startRun(1, 15);
+    rt.fillPools();
+    const idol = rt.enemies.find((e) => e && e.boss);
+    idol.state = "approach";
+    idol.hp = Math.round(idol.hpMax * 0.4);
+    player.position.set(idol.spawnX, 0, idol.spawnZ);
+    rt.tickTraps(0.033, true);
+    rt.tickTraps(0.033, true);
+    check(rt.trapHazards().some((h) => h.trap.kind === "bossFlood") && rt.trapSlow < 1, "the Sunken Idol floods its hall below half health");
+    idol.hp = 0;
+    rt.tickTraps(0.033, true);
+    check(!rt.trapHazards().some((h) => h.trap.kind === "bossFlood"), "the flood drains when the Idol falls");
     rt.fillPools();
     rt.startRun(1, 41);
     let brazierLights = 0;

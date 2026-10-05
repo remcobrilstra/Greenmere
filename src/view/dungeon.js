@@ -87,7 +87,9 @@ function makeRing(inner, outer) {
 // A treasure chest, front on local −z. The lid is its own group hinged on the
 // back top edge: rotation.x from 0 (shut) to about 1.9 (thrown open). A small gold
 // gem hovers over a chest that has not been opened.
-export function buildChest(theme) {
+// `opts.vault` gives the gem a deep red; `opts.mimic` hides a row of teeth under
+// the lid's front edge, seen when it breathes.
+export function buildChest(theme, opts) {
   const wood = [0x6b4428, 0x5a3a24, 0x7a5030];
   const band = theme && theme.trim ? theme.trim : [0xd4a03a, 0xe2ba60];
   const group = new THREE.Group();
@@ -110,6 +112,9 @@ export function buildChest(theme) {
   top.box(0, 0.2, -0.31, 1.0, 0.06, 0.5, wood[1], wood[2]);
   for (const x of [-0.36, 0.36]) top.box(x, 0.13, -0.31, 0.09, 0.2, 0.66, band[0], band[0]);
   top.box(0, 0.06, -0.635, 0.18, 0.12, 0.04, band[1] || band[0]);
+  if (opts && opts.mimic) {
+    for (let k = 0; k < 7; k++) top.tri([-0.42 + k * 0.14, 0.0, -0.6], [-0.35 + k * 0.14, 0.0, -0.6], [-0.385 + k * 0.14, -0.1, -0.6], 0xf4ecd4, 0, 0.5, 0);
+  }
   const lidMesh = new THREE.Mesh(top.geometry(), lambert({ side: THREE.FrontSide }));
   lidMesh.castShadow = true;
   lidMesh.receiveShadow = true;
@@ -117,7 +122,9 @@ export function buildChest(theme) {
   group.add(lid);
   const gem = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.11, 0),
-    new THREE.MeshLambertMaterial({ color: 0xffd27a, emissive: 0xe2ba60, emissiveIntensity: 0.9, flatShading: true })
+    opts && opts.vault
+      ? new THREE.MeshLambertMaterial({ color: 0xff6a5a, emissive: 0xc0283a, emissiveIntensity: 1.0, flatShading: true })
+      : new THREE.MeshLambertMaterial({ color: 0xffd27a, emissive: 0xe2ba60, emissiveIntensity: 0.9, flatShading: true })
   );
   gem.position.set(0, 1.25, 0);
   gem.castShadow = false;
@@ -609,13 +616,13 @@ export function buildFloorMesh(plan) {
     const w = tileToWorld(c.col, c.row, cols, rows);
     const x = w.x + c.ox;
     const z = w.z + c.oz;
-    const chest = buildChest(theme);
+    const chest = buildChest(theme, { vault: !!c.vault, mimic: !!c.mimic });
     chest.position.set(x, 0, z);
     chest.rotation.y = c.yaw || 0;
     chest.name = "chest:" + c.id;
     root.add(chest);
     propColliders.push({ x, z, r: c.r || 0.55, tileX: w.x, tileZ: w.z });
-    chests.push({ id: c.id, x, z, group: chest, lid: chest.userData.lid, gem: chest.userData.gem, hoard: chest.userData.hoard, open: 0, opened: false });
+    chests.push({ id: c.id, x, z, group: chest, lid: chest.userData.lid, gem: chest.userData.gem, hoard: chest.userData.hoard, open: 0, opened: false, vault: !!c.vault, mimic: !!c.mimic });
   }
 
   // ---------- Traps (docs/traps.md) ----------
@@ -870,10 +877,15 @@ export function buildFloorMesh(plan) {
 
   // Spare slots: boss waves, and the dead each sarcophagus lets out (src/sim/traps.js).
   let ambushSpare = 0;
-  for (const t of plan.traps || []) if (t.kind === "sarcophagus") ambushSpare += trapDef("sarcophagus").ambush;
+  for (const t of plan.traps || []) {
+    if (t.kind === "sarcophagus") ambushSpare += trapDef("sarcophagus").ambush;
+    if (t.kind === "seal") ambushSpare += t.wave || 0;
+  }
   const skirmCap = buckets.skirmisher.length + (bossFloor ? 16 : 0) + ambushSpare;
   addPack("skirmisher", new THREE.Vector3(0, 0.7, -0.24), makeRing(0.35, 1.15), skirmCap);
-  addPack("brute", new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length);
+  // A mimic chest wakes as a brute.
+  const mimics = (plan.chests || []).filter((c) => c.mimic).length;
+  addPack("brute", new THREE.Vector3(0, 1.22, -0.32), makeWedge(2), buckets.brute.length + mimics);
   addPack("spitter", new THREE.Vector3(0, 0.5, -0.58), makeRing(0.3, 1.05), buckets.spitter.length);
   addPack("shade", new THREE.Vector3(0, 1.44 * 0.85, -0.28 * 0.85), makeRing(0.3, 1.15), buckets.shade.length);
   addPack("boss", new THREE.Vector3(0, 1.66, -0.42), makeWedge(2.4), buckets.boss.length);

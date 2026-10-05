@@ -213,6 +213,53 @@ export const TRAP_KINDS = {
     tick: 1,
     dmgMul: 2.0
   },
+  // ---- Set pieces (phase 4) ----
+  // A cracked tile that gives way: whoever is on it when it goes drops to the
+  // next floor, hurt. It leaves a hole.
+  collapse: {
+    counter: "triggered",
+    along: 1.3,
+    across: 1.3,
+    arm: 1.0,
+    up: 0.2,
+    rearm: 1e9,
+    dmgMul: 1.5,
+    hurts: false,
+    once: true
+  },
+  // A quiet room whose doorways bar shut when the Warden reaches its middle;
+  // a wave climbs in. The bars lift when the wave is dead.
+  seal: {
+    counter: "triggered",
+    radius: 3.0,
+    arm: 0.8,
+    up: 1e9,
+    rearm: 1e9,
+    dmgMul: 0,
+    hurts: false,
+    once: true,
+    maxClosed: 90
+  },
+
+  // ---- Boss hazards: called down on the Warden mid-fight, never on the boss ----
+  bossFlame: {
+    counter: "triggered",
+    radius: 1.4,
+    arm: 0.9,
+    up: 1.0,
+    rearm: 0.6,
+    tick: 0.5,
+    dmgMul: 0.8,
+    once: true
+  },
+  bossFlood: {
+    counter: "constant",
+    radius: 6.5,
+    tick: 1,
+    dmgMul: 0,
+    slow: 0.6
+  },
+
   // Molten slag in a big room. No switch: walk around it.
   slagPool: {
     counter: "constant",
@@ -476,4 +523,50 @@ export function unreachableSwitches(plan) {
     if (!sw || !seen[sw.row * cols + sw.col]) bad.push(traps[i]);
   }
   return bad;
+}
+
+// Gauntlet check (docs/traps.md §3.3): cycling traps of `kind` stand `spacing`
+// metres apart down a corridor with the given phases. Is there a moment to set
+// off, at a sprint, that carries the Warden down the middle untouched? Returns
+// the longest such window of start times in seconds (0: none).
+export const GAUNTLET_SPRINT = 11.5;
+export function gauntletWindow(kind, phases, spacing, speed) {
+  const def = trapDef(kind);
+  if (!def) return 0;
+  const v = speed || GAUNTLET_SPRINT;
+  const n = phases.length;
+  const first = -((n - 1) / 2) * spacing;
+  const pad = TRAP_FOOT;
+  const reach = (def.along || 0) + pad;
+  const startS = first - reach - 0.5;
+  const endS = -first + reach + 0.5;
+  const span = (endS - startS) / v;
+  const horizon = def.period ? def.period * 4 : cyclePeriod(def) * 4;
+  const step = 0.02;
+  const probe = { kind, x: 0, z: 0, axis: "x", swing: 0 };
+  function hotAt(i, t) {
+    if (def.period) {
+      probe.swing = pendulumAt(def, t, phases[i]);
+      return Math.abs(probe.swing) < def.blade + pad;
+    }
+    return cycleStage(def, t, phases[i]).stage === "fire";
+  }
+  let best = 0;
+  let run = 0;
+  for (let t0 = 0; t0 < horizon; t0 += step) {
+    let clear = true;
+    for (let t = 0; t <= span && clear; t += 1 / 60) {
+      const s = startS + v * t;
+      for (let i = 0; i < n; i++) {
+        const at = first + i * spacing;
+        if (Math.abs(s - at) < reach && hotAt(i, t0 + t)) {
+          clear = false;
+          break;
+        }
+      }
+    }
+    run = clear ? run + step : 0;
+    if (run > best) best = run;
+  }
+  return best;
 }

@@ -155,12 +155,14 @@ function normalizeRun(run) {
   }
   const summons = [];
   if (Array.isArray(run.summons)) {
-    for (let i = 0; i < run.summons.length && summons.length < 16; i++) {
+    // Boss waves, sarcophagi, a sealed room's wave and a mimic all land here.
+    for (let i = 0; i < run.summons.length && summons.length < 24; i++) {
       const src = run.summons[i];
       if (!src || typeof src !== "object") continue;
       summons.push({
         id: clampInt(src.id, 0, 1e6, 0),
         archetype: typeof src.archetype === "string" ? src.archetype.slice(0, 32) : "",
+        eliteAffix: typeof src.eliteAffix === "string" ? src.eliteAffix.slice(0, 16) : null,
         x: finiteNum(src.x, 0),
         z: finiteNum(src.z, 0),
         hp: clampInt(src.hp, 1, 1e7, 1)

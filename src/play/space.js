@@ -263,6 +263,7 @@ export function attachSpace(rt) {
       summons: run.summons.map((entry) => ({
         id: entry.id,
         archetype: entry.archetype,
+        eliteAffix: entry.eliteAffix || null,
         x: entry.x,
         z: entry.z,
         hp: entry.hp

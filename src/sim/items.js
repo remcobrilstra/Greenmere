@@ -143,7 +143,8 @@ export function rollGearDrop(rng, spec) {
   }
   const ilvl = dropIlvl(floorIndex, kind);
   const slotDef = pickSlot(Math.floor(rng() * 100));
-  const rarity = rolledRarity(floorIndex, kind, rng);
+  // `minRarity` (a trapped vault's chest) lifts the roll; it never lowers it.
+  const rarity = Math.max(rolledRarity(floorIndex, kind, rng), Math.min(3, Math.floor(Number(spec && spec.minRarity) || 0)));
   const legal = fisherYates(legalAffixes(slotDef.slot), rng);
   const count = Math.min(rarity, legal.length);
   const affixes = [];

@@ -4,7 +4,7 @@
 |---|---|
 | Owner | Dungeon |
 | Date | 2026-10-04 |
-| Status | Phases 1–3 implemented |
+| Status | Phases 1–4 implemented |
 | Extends | `docs/greenmere-town-and-underwood.md`, `src/sim/floorgen.js`, `src/sim/balance.js` |
 
 Traps add a second layer to a floor: foes threaten the Warden directly, and traps decide where the fight can happen. The Warden has no dodge or jump: the verbs are walk, sprint, strike, ward, mend (a channel that moving breaks), and extract. So every trap is beaten by **position, timing, or a switch**, never by reflexes the controls do not have.
@@ -94,7 +94,7 @@ Biomes repeat after 50 floors (`BIOME_BAND` × 5). From the second cycle on, a f
 - The **trapwise** elite affix (new, from floor 15): this foe knows the traps. Nothing springs under it, and no trap, dart, or slow touches it. It is a fourth affix next to `hasted`, `thick`, and `warding`.
 - Foes do not set off triggered traps unless they are a brute or an elite. That keeps skirmishers from setting off every plate on the floor before you get there.
 - Spitter orbs that land on a plate set it off.
-- **Bosses** use their biome's traps. The Ember Custodian lights the room's flame jets every third swing, the Moss Colossus brings down stalactites, and the Sunken Idol floods the room. A boss's traps can be switched off only after it reaches 50% HP.
+- **Bosses** call their biome's hazard down under the Warden every 6.5 s while they fight, every 4 s below half health. The Moss Colossus drops rockfalls, the Rooted King lashes with grasping roots, the Slate Warden and the Sunken Idol spring spikes, and the Ember Custodian bursts fire out of the floor. The Sunken Idol also floods its hall once it falls below half health, and the water drains when it dies. Every hazard has its usual tell, and a boss's hazards never touch the boss.
 
 ## 5. Counterplay and progression
 
@@ -170,8 +170,19 @@ New pass in `generateFloor`, after chests and before props:
 - **Cursed candles:** while any candle burns, foes standing in the room take 30% less damage (`rt.foeDamageMul`, applied in `woundFoe`). Snuffing a candle is not saved until all three are out.
 - **Not done:** borrowing a trap from the previous biome on the second cycle, the collapse tile, and the mimic (phase 4).
 
+## 9d. Phase 4 notes
+
+- **Vault (from floor 6, half the floors that can hold one):** a dead-end room that holds a chest gets up to three traps (the biome's room trap and a spike plate), placed before the budget. The chest has a red gem and always gives rare gear or better (`rollGearDrop` `minRarity`).
+- **Mimic (from floor 6, about 1 floor in 8):** one ordinary chest breathes: its lid lifts a crack, showing a row of teeth. Opening it hides the chest and wakes a thick-hided elite brute, saved as a summon (`eliteAffix` now survives the save and the resume). It drops elite loot when killed. Brute mesh slots are reserved for it.
+- **Sealed room (from floor 8, never on a boss floor):** a quiet room (no pack) with up to 8 doorways. Reaching within 3 m of its middle raises iron bars in every doorway (0.8 s; they wait if anyone stands in one). The doorway cells turn to rock, and a wave of 3–6 skirmishers climbs in on the far side. The bars lift when the wave is dead, or after 90 s. It is spent the moment it shuts.
+- **Gauntlet (Temple and Forge):** three pendulums or flame jets on consecutive cells of a straight corridor, counted against the budget. The phases are re-rolled (up to 12 times) until `gauntletWindow` finds at least 0.3 s of start times from which a sprint down the middle of the corridor gets through untouched.
+- **Collapse tile (from floor 4, never on a boss floor):** a cracked room tile off the shortest way to the stairs. It shudders for 1.0 s after you step on it, then gives way. Anyone still on it takes 1.5× damage, and the Warden falls to the next floor. That counts as a descent like the stairs (floor events, best depth). It leaves a pit that stays rock on a resumed floor.
+- **Saves:** summons are kept up to 24 (was 16) with their `eliteAffix`. Ambushes, seal waves, and mimics may go past the 36-foe cap because their mesh slots are reserved when the floor is built. Rehydration claims a slot of the summon's own archetype.
+
 ## 10. Open points
 
-- Should a collapse tile count as completing the floor for quests and floor-clear rewards?
-- Is a slag pool with no switch too punishing in the Forge's narrow rooms? Maybe allow it only in rooms at least 5 tiles wide.
-- Can the player see trap tells in the dark from the camera height? This needs a test with real art before phase 2.
+- ~~Should a collapse tile count as completing the floor?~~ Yes: falling is a descent like the stairs.
+- ~~Is a slag pool too punishing in narrow rooms?~~ It is only placed in rooms at least 5 tiles wide.
+- Trap tells in the dark: the Crypt's gong reads small and dark, and the thorn wall's sprouts are subtle. Worth a pass with real lighting.
+- Second biome cycle: borrowing one trap from the previous biome is not built yet.
+- Tuning: all trap damage, timings, and set-piece chances are first guesses that need playtesting.

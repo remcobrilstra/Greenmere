@@ -19,13 +19,16 @@ import {
   surefootSlow,
   surefootHold
 } from "../sim/traps.js";
-import { syncTrapView, syncValveView, syncCandleView, syncDarts } from "../view/traps.js";
+import { syncTrapView, syncValveView, syncCandleView, syncDarts, buildHazard } from "../view/traps.js";
+import { dungeonTheme } from "../view/lights.js";
 
 // Runs the floor's traps (docs/traps.md): steps each one from src/sim/traps.js,
 // hurts, slows and roots the Warden (rt.applyIncoming, rt.trapSlow, rt.trapHold)
 // and foes (rt.woundFoe, e.trapSlow, e.trapHold), flies dart volleys, rings gongs,
 // opens sarcophagi, seals rooms with thorns, and runs the switches: valves and
 // levers (F, held), root hearts (struck), cursed candles (F, held, one by one).
+// Phase 4 set pieces: sealed rooms (bars and a wave), collapse tiles (a fall to
+// the next floor), and the hazards a boss calls down on the Warden mid-fight.
 // combat.js calls rt.tickTraps every dungeon frame; live = false while combat is
 // paused (only the art moves).
 
@@ -34,6 +37,13 @@ const CANDLE_REACH = 1.6;
 const CANDLE_SECONDS = 0.5;
 const SWITCH_MOVE = 0.6;
 const FOE_HIT = "#ff9a4a";
+
+// The hazard each biome's boss calls down under the Warden, every few seconds
+// while it fights (faster below half health). The Sunken Idol also floods its
+// hall once it is wounded past half.
+const BOSS_HAZARD = { cave: "rockfall", temple: "spikes", root: "grasp", crypt: "spikes", forge: "bossFlame" };
+const BOSS_EVERY = 6.5;
+const BOSS_EVERY_HURT = 4;
 
 // What the F prompt says at each switch, and the cast bar name.
 const SWITCH_TEXT = {
@@ -51,6 +61,10 @@ export function attachTraps(rt) {
   let time = 0;
   // The switch being worked: { trap, view, part?, t, total, x0, z0, hp0 }.
   let turning = null;
+  // Boss hazards in play: { trap, view, life }.
+  let hazards = [];
+  let bossClock = 0;
+  let flooded = false;
 
   function session() {
     return rt.session;
@@ -82,6 +96,9 @@ export function attachTraps(rt) {
     time = 0;
     traps = [];
     darts = [];
+    hazards = [];
+    bossClock = 0;
+    flooded = false;
     views = (root && root.userData.traps) || [];
     const run = session() && session().run;
     const killed = (run && run.killed) || [];
@@ -91,6 +108,8 @@ export function attachTraps(rt) {
       const out = killed.indexOf(TRAP_BASE + v.id) >= 0;
       trap.disabled = out || killed.indexOf(TRAP_SPENT + v.id) >= 0;
       if (trap.disabled && v.parts) for (const p of v.parts) p.lit = false;
+      // A collapsed tile is still a hole when the floor is resumed.
+      if (trap.disabled && v.kind === "collapse") setCell(v.x, v.z, true);
       // Spoils the Warden has not picked up yet lie where they fell.
       if (out && rt.spawnTrapSpoils) {
         const at = spoilsAt(v);
@@ -192,6 +211,159 @@ export function attachTraps(rt) {
     rt.camShake = Math.max(rt.camShake || 0, 0.35);
     if (rt.say) rt.say(woken ? "A gong booms through the halls. Something stirs." : "A gong booms through the empty halls.");
     return woken;
+  }
+
+  function setCell(x, z, solid) {
+    const plan = rt.plan;
+    if (!plan) return;
+    const c = Math.round(x / 4 + (plan.cols - 1) / 2);
+    const r = Math.round(z / 4 + (plan.rows - 1) / 2);
+    if (c < 0 || r < 0 || c >= plan.cols || r >= plan.rows) return;
+    plan.tiles[r * plan.cols + c] = solid ? 0 : 1;
+  }
+
+  // ---- Sealed room ----
+  // Reaching the middle starts the bars rising; once they are up every doorway
+  // is rock in the floor plan and a wave climbs in. The bars lift when the wave
+  // is dead (or after maxClosed). It is spent the moment it shuts, so a resumed
+  // floor keeps the wave (as summons) but never shuts again.
+  function stepSeal(trap, view, dt, live) {
+    const def = trapDef("seal");
+    if (trap.openT > 0) trap.openT += dt;
+    if (trap.disabled || trap.opened) return;
+    const p = rt.player.position;
+    const inDoor = () => (view.doors || []).some((d) => Math.abs(p.x - d.group.position.x) < 2.45 && Math.abs(p.z - d.group.position.z) < 2.45);
+    if (trap.state === "idle") {
+      if (live && trapHits(trap, p.x, p.z, 0)) {
+        trap.state = "arming";
+        trap.stateT = 0;
+        rt.camShake = Math.max(rt.camShake || 0, 0.2);
+        if (rt.say) rt.say("Iron grinds in the doorways…");
+      }
+      return;
+    }
+    trap.stateT += dt;
+    if (trap.state === "arming") {
+      if (inDoor()) trap.stateT = Math.min(trap.stateT, def.arm * 0.5);
+      if (trap.stateT < def.arm) return;
+      trap.state = "up";
+      trap.stateT = 0;
+      remember(TRAP_SPENT + trap.id);
+      for (const d of view.doors || []) setCell(d.group.position.x, d.group.position.z, true);
+      trap.wave = [];
+      const spots = waveSpots(view, p);
+      if (rt.spawnAmbush) rt.spawnAmbush(view.x, view.z, view.wave || 3, spots, trap.wave);
+      if (rt.say) rt.say("The bars slam down. Something climbs in from the dark.");
+      return;
+    }
+    const alive = (trap.wave || []).some((e) => e && e.hp > 0);
+    if (!alive || trap.stateT >= def.maxClosed) {
+      for (const d of view.doors || []) setCell(d.group.position.x, d.group.position.z, false);
+      trap.opened = true;
+      trap.disabled = true;
+      trap.openT = 0.0001;
+      if (rt.say) rt.say("The bars grind back into the floor.");
+    }
+  }
+
+  // Where a sealed room's wave appears: open cells of the room, far side first.
+  function waveSpots(view, p) {
+    const plan = rt.plan;
+    const room = view.room;
+    const out = [];
+    if (!plan || !room) return out;
+    for (let z = room.z0 + 2; z < room.z1; z += 4) {
+      for (let x = room.x0 + 2; x < room.x1; x += 4) {
+        const c = Math.round(x / 4 + (plan.cols - 1) / 2);
+        const r = Math.round(z / 4 + (plan.rows - 1) / 2);
+        if (plan.tiles[r * plan.cols + c] !== 1) continue;
+        const d = Math.hypot(x - p.x, z - p.z);
+        if (d < 3) continue;
+        out.push({ x, z, d });
+      }
+    }
+    out.sort((a, b) => b.d - a.d);
+    return out;
+  }
+
+  // ---- Collapse ----
+  function giveWay(trap, view, floor) {
+    const def = trapDef("collapse");
+    const p = rt.player.position;
+    const dmg = trapDamage(floor, def.dmgMul);
+    setCell(view.x, view.z, true);
+    const enemies = rt.enemies || [];
+    for (let k = 0; k < enemies.length; k++) {
+      const e = enemies[k];
+      if (e && e.hp > 0 && !e.boss && trapHits(trap, e.x, e.z, (e.hurt || 0.45) * 0.6) && rt.woundFoe) rt.woundFoe(e, dmg, FOE_HIT);
+    }
+    if (!trapHits(trap, p.x, p.z, TRAP_FOOT) || rt.vitals.deathLock) return false;
+    if (rt.applyIncoming) rt.applyIncoming(wardedTrapDamage(dmg, gear("trapward")));
+    if (rt.vitals.deathLock || !rt.descendFloor) return false;
+    // The Warden drops through to the next floor, skipping its stairs.
+    if (!rt.descendFloor()) return false;
+    if (rt.say) rt.say("The floor gives way! You land hard on floor " + (session().run ? session().run.floorIndex : "") + ".");
+    return true;
+  }
+
+  // ---- Boss hazards ----
+  function addHazard(kind, x, z) {
+    const root = builtFor;
+    const plan = rt.plan;
+    if (!root || !plan) return null;
+    const view = buildHazard(kind, dungeonTheme(plan.themeId), x, z, 0);
+    root.add(view.root);
+    const trap = makeTrapState({ id: -1, kind, x, z, axis: "x", phase: 0 });
+    trap.fromBoss = true;
+    if (trapDef(kind).counter === "triggered") trap.state = "arming";
+    const h = { trap, view, life: 0 };
+    hazards.push(h);
+    return h;
+  }
+
+  function dropHazard(i) {
+    const h = hazards[i];
+    hazards.splice(i, 1);
+    if (h.view.root.parent) h.view.root.parent.remove(h.view.root);
+    h.view.root.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+    });
+  }
+
+  function tickBoss(dt, live, floor) {
+    const enemies = rt.enemies || [];
+    let boss = null;
+    for (let k = 0; k < enemies.length && !boss; k++) if (enemies[k] && enemies[k].boss && enemies[k].hp > 0) boss = enemies[k];
+    if (live && boss && (boss.state === "approach" || boss.state === "telegraph") && !rt.vitals.deathLock) {
+      const hurt = boss.hpMax > 0 && boss.hp <= boss.hpMax * 0.5;
+      bossClock += dt;
+      if (bossClock >= (hurt ? BOSS_EVERY_HURT : BOSS_EVERY)) {
+        bossClock = 0;
+        const kind = BOSS_HAZARD[rt.plan && rt.plan.biomeKey] || "spikes";
+        const p = rt.player.position;
+        addHazard(kind, p.x, p.z);
+      }
+      if (hurt && !flooded && rt.plan && rt.plan.biomeKey === "temple") {
+        flooded = true;
+        addHazard("bossFlood", boss.spawnX, boss.spawnZ);
+        if (rt.say) rt.say("The Sunken Idol calls the water up into its hall.");
+      }
+    }
+    for (let i = hazards.length - 1; i >= 0; i--) {
+      const h = hazards[i];
+      const def = trapDef(h.trap.kind);
+      h.life += dt;
+      if (h.trap.kind === "bossFlood" && !boss) h.trap.disabled = true;
+      stepTrap(h.trap, dt, time, false);
+      if (live && h.trap.hot && trapFootprint(h.trap.kind)) {
+        const dmg = def.dmgMul > 0 ? trapDamage(floor, def.dmgMul) : 0;
+        touchHero(h.trap, def, dmg, !!def.blast);
+        touchFoes(h.trap, def, dmg, !!def.blast);
+      }
+      syncTrapView(h.view, h.trap, time, 0);
+      const span = def.counter === "constant" ? (h.trap.disabled ? 0 : 1e9) : def.arm + def.up + (def.rearm < 100 ? def.rearm : 0) + 1.2;
+      if (h.life >= span) dropHazard(i);
+    }
   }
 
   // ---- Thorn wall ----
@@ -321,7 +493,7 @@ export function attachTraps(rt) {
     const enemies = rt.enemies || [];
     for (let k = 0; k < enemies.length; k++) {
       const e = enemies[k];
-      if (!e || !(e.hp > 0) || wise(e)) continue;
+      if (!e || !(e.hp > 0) || wise(e) || (trap.fromBoss && e.boss)) continue;
       if (!trapHits(trap, e.x, e.z, (e.hurt || 0.45) * 0.6, wide)) continue;
       if (def.slow) e.trapSlow = Math.min(e.trapSlow || 1, def.slow);
       if (!trapStrikes(trap, e, time)) continue;
@@ -336,7 +508,6 @@ export function attachTraps(rt) {
     if (rt.trapHold > 0) rt.trapHold = Math.max(0, rt.trapHold - dt);
     const enemies = rt.enemies || [];
     for (let k = 0; k < enemies.length; k++) if (enemies[k]) enemies[k].trapSlow = 1;
-    if (!traps.length) return;
     time += dt;
     const p = rt.player.position;
     const run = session() && session().run;
@@ -349,8 +520,9 @@ export function attachTraps(rt) {
       if (trap.ringT > 0) trap.ringT = Math.max(0, trap.ringT - dt);
       if (trap.flashT > 0) trap.flashT = Math.max(0, trap.flashT - dt);
       if (trap.witherT > 0) trap.witherT = Math.max(0, trap.witherT - dt * 1.5);
-      if (trap.kind === "thornWall") {
-        stepThorns(trap, view, dt, live);
+      if (trap.kind === "thornWall" || trap.kind === "seal") {
+        if (trap.kind === "seal") stepSeal(trap, view, dt, live);
+        else stepThorns(trap, view, dt, live);
         syncTrapView(view, trap, time, 0);
         continue;
       }
@@ -367,7 +539,10 @@ export function attachTraps(rt) {
       if (live && trap.state === "up" && was !== "up") {
         if (trap.kind === "darts") loose(trap, view, floor);
         else if (trap.kind === "gong") ringGong(trap, view);
-        else if (trap.kind === "sarcophagus") {
+        else if (trap.kind === "collapse") {
+          // A fall rebuilds the floor under us: stop this frame here.
+          if (giveWay(trap, view, floor)) return;
+        } else if (trap.kind === "sarcophagus") {
           const n = rt.spawnAmbush ? rt.spawnAmbush(view.x, view.z, def.ambush) : 0;
           if (rt.say) rt.say(n ? "The lid grinds aside. The dead climb out." : "The lid grinds aside. The coffin is empty.");
         }
@@ -390,6 +565,7 @@ export function attachTraps(rt) {
     }
     stepDarts(dt, live);
     if (builtFor) syncDarts(builtFor.userData.trapDarts, darts);
+    tickBoss(dt, live, floor);
     tickSwitch(dt);
   }
 
@@ -507,5 +683,8 @@ export function attachTraps(rt) {
   };
   rt.trapDarts = function () {
     return darts;
+  };
+  rt.trapHazards = function () {
+    return hazards;
   };
 }

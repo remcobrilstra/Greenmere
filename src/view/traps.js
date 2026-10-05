@@ -620,6 +620,127 @@ function buildSwitch(type, theme) {
   return Object.assign(buildValve(theme), { type: "valve" });
 }
 
+// ---- Set pieces and boss hazards (docs/traps.md §3.3, §4) ----
+
+// A cracked floor tile; it shudders and sheds dust as it goes, then leaves a pit.
+function buildCollapse(theme, def) {
+  const group = new THREE.Group();
+  const floor = theme.floor || [0x4a5a3a, 0x55663f, 0x3f5034];
+  const s = def.along * 2;
+  const b = makeBuilder();
+  // Four slabs a hair apart, as if the tile had already split.
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    b.box(x * s / 4, 0.015, z * s / 4, s / 2 - 0.08, 0.03, s / 2 - 0.08, floor[1] || floor[0], floor[0]);
+  }
+  for (let k = 0; k < 5; k++) {
+    const a = k * 1.26 + 0.2;
+    b.at(Math.cos(a) * 0.5, 0, Math.sin(a) * 0.5, -a, 1);
+    b.box(0, 0.035, 0, 0.9, 0.01, 0.04, 0x1c1a19);
+  }
+  b.at(0, 0, 0, 0, 1);
+  const slabs = new THREE.Mesh(b.geometry(), lambert({ side: THREE.FrontSide }));
+  slabs.receiveShadow = true;
+  group.add(slabs);
+  const pit = new THREE.Mesh(new THREE.BoxGeometry(s, 0.02, s), new THREE.MeshBasicMaterial({ color: 0x050403 }));
+  pit.position.y = 0.012;
+  pit.visible = false;
+  group.add(pit);
+  const rb = makeBuilder();
+  for (let k = 0; k < 12; k++) {
+    const side = k % 4;
+    const u = (Math.floor(k / 4) - 1) * 0.8;
+    const x = side === 0 ? -s / 2 : side === 1 ? s / 2 : u;
+    const z = side === 2 ? -s / 2 : side === 3 ? s / 2 : u;
+    rb.box(x, 0.05, z, 0.32, 0.1, 0.32, floor[k % 3] || floor[0]);
+  }
+  const rim = new THREE.Mesh(rb.geometry(), lambert({ side: THREE.FrontSide }));
+  rim.visible = false;
+  group.add(rim);
+  return { group, slabs, pit, rim };
+}
+
+// Iron bars that rise out of a doorway's floor slot; local x runs along the corridor.
+function buildBars() {
+  const group = new THREE.Group();
+  const b = makeBuilder();
+  b.box(0, 0.01, 0, 0.3, 0.02, 3.9, 0x15110f);
+  const slot = new THREE.Mesh(b.geometry(), lambert({ side: THREE.FrontSide }));
+  group.add(slot);
+  const bb = makeBuilder();
+  for (let k = 0; k < 9; k++) bb.box(0, 1.6, -1.8 + k * 0.45, 0.1, 3.2, 0.1, IRON[1], IRON[0]);
+  for (const y of [0.6, 1.8, 3.0]) bb.box(0, y, 0, 0.12, 0.12, 3.9, IRON[0], IRON[1]);
+  const bars = new THREE.Mesh(bb.geometry(), lambert({ side: THREE.FrontSide }));
+  bars.castShadow = true;
+  bars.position.y = -3.4;
+  bars.visible = false;
+  group.add(bars);
+  return { group, bars };
+}
+
+// A boss's flame burst: a ring of grates around the spot, fire up out of all of them.
+function buildBossFlame(def) {
+  const group = new THREE.Group();
+  const ember = glowMat(0x5a1c0c, 0.2);
+  ember.emissive.setHex(FLAME_EDGE);
+  const ring = new THREE.Mesh(new THREE.CircleGeometry(def.radius, 14), ember);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.02;
+  group.add(ring);
+  const tongues = buildTongues(def.radius * 1.6);
+  const cross = buildTongues(def.radius * 1.6);
+  cross.rotation.y = Math.PI / 2;
+  const fire = new THREE.Group();
+  fire.add(tongues, cross);
+  group.add(fire);
+  return { group, ember, tongues: fire };
+}
+
+function buildBossFlood(def) {
+  const group = new THREE.Group();
+  const water = new THREE.Mesh(
+    new THREE.CylinderGeometry(def.radius, def.radius, 0.05, 20),
+    new THREE.MeshLambertMaterial({ color: 0x2e6a86, emissive: 0x12384a, emissiveIntensity: 0.4, flatShading: true, transparent: true, opacity: 0.72 })
+  );
+  water.position.y = 0.03;
+  group.add(water);
+  return { group, water };
+}
+
+// One hazard a boss calls down mid-fight (src/play/traps.js), built like a floor
+// trap of that kind at (x, z). The caller adds `item.root` to the floor and
+// removes it when the hazard is done.
+export function buildHazard(kind, theme, x, z, phase) {
+  const def = trapDef(kind);
+  const t = { id: -1, kind, axis: "x", phase: phase || 0 };
+  const built = buildKind(t, def, theme);
+  built.group.position.set(x, 0, z);
+  built.group.name = "hazard:" + kind;
+  return Object.assign({ id: -1, kind, x, z, axis: "x", phase: phase || 0, sw: null }, built, { root: built.group });
+}
+
+function buildKind(t, def, theme) {
+  if (t.kind === "collapse") return buildCollapse(theme, def);
+  if (t.kind === "seal") return { group: new THREE.Group() };
+  if (t.kind === "bossFlame") return buildBossFlame(def);
+  if (t.kind === "bossFlood") return buildBossFlood(def);
+  if (t.kind === "spikes") return buildSpikes(theme, def);
+  if (t.kind === "darts") return buildDartPlate(theme, def);
+  if (t.kind === "gong") return buildGong(theme, t.side || 1);
+  if (t.kind === "sporePuff") return buildSporePuff(theme);
+  if (t.kind === "rockfall") return buildRockfall(theme);
+  if (t.kind === "sporeVent") return buildSporeVent(def);
+  if (t.kind === "pendulum") return buildPendulum(theme);
+  if (t.kind === "flood") return buildFlood(def);
+  if (t.kind === "grasp") return buildGrasp(theme);
+  if (t.kind === "thornWall") return buildThornWall(theme, def);
+  if (t.kind === "briar") return buildBriar(theme, def);
+  if (t.kind === "sarcophagus") return buildSarcophagus(theme);
+  if (t.kind === "tripHammer") return buildTripHammer(theme);
+  if (t.kind === "slagPool") return buildSlagPool(def);
+  if (t.kind === "candles") return { group: new THREE.Group() };
+  return buildFlames(def, def.counter === "constant");
+}
+
 // Every trap and valve on the floor. Valves add a circle to `colliders`.
 export function buildTraps(plan, theme, colliders) {
   const group = new THREE.Group();
@@ -632,23 +753,7 @@ export function buildTraps(plan, theme, colliders) {
     if (!def) continue;
     const w = tileToWorld(t.col, t.row, plan.cols, plan.rows);
     const item = { id: t.id, kind: t.kind, x: w.x, z: w.z, axis: t.axis, phase: t.phase, sw: null };
-    let built;
-    if (t.kind === "spikes") built = buildSpikes(theme, def);
-    else if (t.kind === "darts") built = buildDartPlate(theme, def);
-    else if (t.kind === "gong") built = buildGong(theme, t.side || 1);
-    else if (t.kind === "sporePuff") built = buildSporePuff(theme);
-    else if (t.kind === "rockfall") built = buildRockfall(theme);
-    else if (t.kind === "sporeVent") built = buildSporeVent(def);
-    else if (t.kind === "pendulum") built = buildPendulum(theme);
-    else if (t.kind === "flood") built = buildFlood(def);
-    else if (t.kind === "grasp") built = buildGrasp(theme);
-    else if (t.kind === "thornWall") built = buildThornWall(theme, def);
-    else if (t.kind === "briar") built = buildBriar(theme, def);
-    else if (t.kind === "sarcophagus") built = buildSarcophagus(theme);
-    else if (t.kind === "tripHammer") built = buildTripHammer(theme);
-    else if (t.kind === "slagPool") built = buildSlagPool(def);
-    else if (t.kind === "candles") built = { group: new THREE.Group() };
-    else built = buildFlames(def, def.counter === "constant");
+    const built = buildKind(t, def, theme);
     built.group.position.set(w.x, 0, w.z);
     // Local +x runs along the corridor.
     built.group.rotation.y = t.axis === "z" ? Math.PI / 2 : 0;
@@ -673,6 +778,20 @@ export function buildTraps(plan, theme, colliders) {
         group.add(candle.group);
         if (colliders) colliders.push({ x: pw.x, z: pw.z, r: 0.28, tileX: pw.x, tileZ: pw.z });
         item.parts.push(Object.assign(candle, { x: pw.x, z: pw.z, lit: true }));
+      }
+    }
+    if (t.kind === "seal") {
+      // Bars in every doorway of the room, sunk in their floor slots until it shuts.
+      item.doors = [];
+      for (const d of t.doors || []) {
+        const dw = tileToWorld(d.col, d.row, plan.cols, plan.rows);
+        const bars = buildBars();
+        bars.group.position.set(dw.x, 0, dw.z);
+        // The bars span the doorway: across the way into the room.
+        bars.group.rotation.y = d.axis === "z" ? 0 : Math.PI / 2;
+        bars.group.name = "bars:" + t.id;
+        group.add(bars.group);
+        item.doors.push(Object.assign(bars, { col: d.col, row: d.row }));
       }
     }
     if (t.room) {
@@ -966,6 +1085,63 @@ const POSE = {
     else lift = 0.75 * Math.min(1, trap.stageU * 0.4);
     item.arm.rotation.z = lift;
     item.glow.emissiveIntensity = trap.stage === "fire" ? 1.4 * (1 - trap.stageU * 0.6) : 0;
+  },
+  collapse(item, trap, time) {
+    const def = trapDef("collapse");
+    const gone = trap.disabled || trap.state === "up";
+    item.pit.visible = gone;
+    item.rim.visible = gone;
+    item.slabs.visible = !gone;
+    if (trap.state === "arming") {
+      // The slabs shudder and sag as the tile gives.
+      const u = Math.min(1, trap.stateT / def.arm);
+      item.slabs.position.set(Math.sin(time * 60) * 0.03 * u, -0.06 * u, Math.cos(time * 53) * 0.03 * u);
+    } else {
+      item.slabs.position.set(0, 0, 0);
+    }
+  },
+  seal(item, trap) {
+    const def = trapDef("seal");
+    let u = 0;
+    if (trap.state === "arming") u = Math.min(1, trap.stateT / def.arm);
+    else if (trap.state === "up" && !trap.opened) u = 1;
+    if (trap.openT > 0) u = Math.max(0, 1 - trap.openT / 0.8);
+    for (const d of item.doors || []) {
+      d.bars.visible = u > 0.01;
+      d.bars.position.y = -3.4 + 3.4 * u;
+    }
+  },
+  bossFlame(item, trap, time) {
+    const def = trapDef("bossFlame");
+    let height = 0;
+    let ember = 0.2;
+    if (trap.state === "arming") {
+      const u = Math.min(1, trap.stateT / def.arm);
+      height = 0.15 * u;
+      ember = 0.3 + 1.0 * u;
+    } else if (trap.state === "up") {
+      height = 1;
+      ember = 1.4;
+    } else if (trap.state === "rearm") {
+      height = Math.max(0, 1 - trap.stateT / def.rearm);
+      ember = 1.4 * height;
+    }
+    item.ember.emissiveIntensity = ember;
+    const flames = item.tongues;
+    flames.visible = height > 0.01;
+    for (const band of flames.children) {
+      for (let i = 0; i < band.children.length; i++) {
+        const k = band.children[i];
+        const seed = k.userData.seed;
+        const flick = 0.75 + 0.25 * Math.sin(time * (9 + seed * 8) + seed * 20);
+        const h = height * (k.userData.core ? 1.2 : 1.9 + seed * 0.6) * flick;
+        k.scale.set(0.9 + 0.3 * flick, Math.max(0.01, h), 0.9 + 0.3 * flick);
+      }
+    }
+  },
+  bossFlood(item, trap, time) {
+    item.water.visible = !trap.disabled;
+    item.water.position.y = 0.03 + Math.sin(time * 1.5) * 0.01;
   },
   slagPool(item, trap, time) {
     item.molten.emissiveIntensity = 0.8 + 0.25 * Math.sin(time * 1.6 + item.id);
