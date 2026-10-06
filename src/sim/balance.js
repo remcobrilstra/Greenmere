@@ -204,10 +204,17 @@ export function upgradeCost(ilvl, themeId) {
   return { gold: upgradeGold(ilvl), materials: { slag: 2, emberglass: 1 } };
 }
 
+// Affix magnitude. The roll (t) sets the value at ilvl 1; every item level after
+// that adds AFFIX_GROWTH of it, in a straight line, so each smith upgrade counts
+// the same and a good roll keeps its lead.
+export const AFFIX_GROWTH = 0.06;
+const AFFIX_START = 0.25 + 0.75 / 26;
+
 export function affixValue(def, affix, ilvl) {
-  const s = ilvl / (ilvl + 25);
+  const lv = Math.max(1, Number(ilvl) || 1);
   const span = def.max - def.min;
-  return def.min + span * (0.25 + 0.75 * s) * (0.55 + 0.45 * affix.t);
+  const roll = def.min + span * AFFIX_START * (0.55 + 0.45 * affix.t);
+  return roll * (1 + AFFIX_GROWTH * (lv - 1));
 }
 
 export function dropIlvl(floorIndex, kind) {

@@ -1003,6 +1003,28 @@ const PROP = {
       kit.box("props", 0.4, 0.02, 0.045, [0x6b4428], s * 0.36, y, -0.08);
     }
   },
+  // The Delver's Post: a gallows sign by the gate, its board marked with a
+  // row of brass studs for the floors it can send you to (front is local +z).
+  // Writes to its own role so the Blender props swap leaves it standing.
+  delvesign(kit, p) {
+    const R = "delvesign";
+    const w = p.w;
+    kit.box(R, 0.46, 0.16, 0.46, STONE, -w / 2, 0.08, 0);
+    kit.box(R, 0.15, 2.7, 0.15, TIMBER_D, -w / 2, 1.35, 0);
+    kit.cone(R, 0.13, 0.2, 4, TIMBER_D, -w / 2, 2.8, 0, Math.PI / 4);
+    kit.box(R, w + 0.25, 0.12, 0.12, TIMBER_D, 0.1, 2.45, 0);
+    kit.box(R, 0.08, 0.5, 0.08, TIMBER_D, -w / 2 + 0.22, 2.2, 0, 0, 0, -Math.PI / 4);
+    for (const s of [-1, 1]) kit.box(R, 0.025, 0.3, 0.025, IRON, s * 0.36 + 0.12, 2.25, 0);
+    // the board: dark timber framed in iron, the gate's gold arch painted on it
+    kit.box(R, 0.9, 1.0, 0.07, TIMBER_M, 0.12, 1.6, 0);
+    for (const y of [1.1, 2.1]) kit.box(R, 0.96, 0.06, 0.1, IRON, 0.12, y, 0);
+    kit.box(R, 0.06, 0.62, 0.012, GOLD, -0.12, 1.72, 0.04);
+    kit.box(R, 0.06, 0.62, 0.012, GOLD, 0.36, 1.72, 0.04);
+    kit.box(R, 0.54, 0.07, 0.012, GOLD, 0.12, 2.02, 0.04);
+    kit.box(R, 0.42, 0.56, 0.01, [0x6a4a9c, 0x5b3f8a], 0.12, 1.71, 0.038);
+    // studs down the right edge: one per five floors
+    for (let i = 0; i < 4; i++) kit.cyl(R, 0.035, 0.035, 0.02, 8, GOLD, 0.48, 1.25 + i * 0.22, 0.045, 0, Math.PI / 2, 0);
+  },
   cart(kit, p) {
     kit.box("props", p.w, 0.12, p.d - 0.6, TIMBER_L, 0, 0.75, -0.3);
     for (const s of [-1, 1]) kit.box("props", 0.08, 0.4, p.d - 0.6, TIMBER_M, s * (p.w / 2 - 0.04), 0.98, -0.3);
@@ -1201,6 +1223,8 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
   const propsB = kit.take("interior");
   const propsGeo = mergeParts([propsA, propsB].filter(Boolean));
   const props = mesh(propsGeo, shared, true, true, "townProps");
+  const delveGeo = kit.take("delvesign");
+  if (delveGeo) mesh(delveGeo, shared, true, true, "delversPost");
   collectGlow();
 
   // Depth-tier dressing: one mesh per tier for the whole town, shown by setTier.
@@ -1276,6 +1300,17 @@ export function buildTownBuildings(townRoot, addCollider, addBoxCollider) {
       id: "tour", name: "The Wayboard",
       x: p.x + Math.sin(p.yaw) * 1.2, z: p.z + Math.cos(p.yaw) * 1.2,
       interact: INTERACT_R, keeperLine: "",
+      group: props, footMesh: null, footY: 0, colliders: [], decor: []
+    });
+  }
+
+  // The Delver's Post beside the gate opens the starting-floor panel on F.
+  for (const p of PROPS) {
+    if (p.type !== "delvesign") continue;
+    stations.push({
+      id: "delve", panel: "delve", name: "The Delver's Post",
+      x: p.x + Math.sin(p.yaw) * 1.2, z: p.z + Math.cos(p.yaw) * 1.2,
+      interact: 1.6, keeperLine: "",
       group: props, footMesh: null, footY: 0, colliders: [], decor: []
     });
   }

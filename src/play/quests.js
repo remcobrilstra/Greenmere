@@ -6,6 +6,7 @@ import {
   boardOffers, requestFor, findActive, isComplete, progressOf, QUEST_CAP
 } from "../sim/quests.js";
 import { KEEPER_FOR } from "./dialogue.js";
+import { RARITY_EDGE as PICKUP_COLOR } from "../ui/gearui.js";
 
 const GIVER_STATION = { board: "board", maud: "store", orrin: "smith", wen: "still", tamsin: "trainer", pell: "inn", aldous: "bank" };
 const GIVER_NAME = { board: "the notice board", maud: "Maud", orrin: "Orrin", wen: "Sister Wen", tamsin: "Old Tamsin", pell: "Pell", aldous: "Aldous" };
@@ -41,10 +42,18 @@ export function attachQuests(rt) {
   function questEvent(e) {
     const s = rt.session;
     // Every pickup passes through here: show what was picked up over the hero.
-    if (e && rt.pushFloater && rt.player && (e.type === "gold" || e.type === "material")) {
+    if (e && rt.pushFloater && rt.player) {
       const p = rt.player.position;
-      const text = e.type === "gold" ? "+" + e.amount + " gold" : "+" + e.amount + " " + e.material;
-      rt.pushFloater(text, p.x, p.y + 2.3, p.z, e.type === "gold" ? "#e2ba60" : "#8ed15a");
+      if (e.type === "gold" || e.type === "material") {
+        const text = e.type === "gold" ? "+" + e.amount + " gold" : "+" + e.amount + " " + e.material;
+        rt.pushFloater(text, p.x, p.y + 2.3, p.z, e.type === "gold" ? "#e2ba60" : "#8ed15a");
+      } else if (e.type === "gear" && e.name) {
+        // Gear lingers longer and larger, in its rarity colour; ▲ when it beats what is worn.
+        const r = Math.max(0, Math.min(3, Math.floor(Number(e.rarity) || 0)));
+        rt.pushFloater((e.better ? "▲ " : "+ ") + e.name, p.x, p.y + 2.3, p.z, PICKUP_COLOR[r], { life: 1.8 + r * 0.3, size: 20 + r * 2 });
+      } else if (e.type === "draught") {
+        rt.pushFloater("+" + e.amount + (e.draught === "draught-mp" ? " mana draught" : " health draught"), p.x, p.y + 2.3, p.z, e.draught === "draught-mp" ? "#8fb3f5" : "#ef8a7e");
+      }
     }
     if (!s || s.devRun) return [];
     const state = fresh();

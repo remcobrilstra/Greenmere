@@ -108,8 +108,14 @@ export function attachHud(rt) {
   document.body.appendChild(floaterRoot);
   const floaterPool = [];
   const floaters = [];
-  function pushFloater(text, x, y, z, color) {
-    floaters.push({ text: String(text), x, y, z, color: color || "#f4e7c8", life: 0.85 });
+  // `opts.life` (seconds) and `opts.size` (px) let a rarer pickup linger and stand out.
+  // Floaters born together on one spot stack upward instead of printing over each other.
+  function pushFloater(text, x, y, z, color, opts) {
+    const o = opts || {};
+    const life = o.life || 0.85;
+    let young = 0;
+    for (const f of floaters) if (f.maxLife - f.life < 0.3 && Math.abs(f.x - x) + Math.abs(f.z - z) < 0.5) young++;
+    floaters.push({ text: String(text), x, y: y + young * 0.38, z, color: color || "#f4e7c8", life, maxLife: life, size: o.size || 18 });
   }
   function drawFloaters(dt) {
     for (let i = floaters.length - 1; i >= 0; i--) {
@@ -119,7 +125,7 @@ export function attachHud(rt) {
     }
     while (floaterPool.length < floaters.length) {
       const el = document.createElement("div");
-      el.style.cssText = "position:absolute;font:18px Palatino, 'Palatino Linotype', 'Book Antiqua', serif;text-shadow:0 1px 0 #2a1c12;white-space:nowrap;";
+      el.style.cssText = "position:absolute;transform:translate(-50%, -50%);font:18px Palatino, 'Palatino Linotype', 'Book Antiqua', serif;text-shadow:0 1px 0 #2a1c12;white-space:nowrap;";
       floaterRoot.appendChild(el);
       floaterPool.push(el);
     }
@@ -137,7 +143,8 @@ export function attachHud(rt) {
       }
       el.style.display = "block";
       el.style.color = f.color;
-      el.style.opacity = String(Math.max(0, Math.min(1, f.life / 0.85)));
+      el.style.opacity = String(Math.max(0, Math.min(1, f.life / Math.min(0.85, f.maxLife))));
+      el.style.fontSize = f.size + "px";
       el.style.left = p.x + "px";
       el.style.top = p.y + "px";
       el.textContent = f.text;

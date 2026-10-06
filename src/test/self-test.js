@@ -47,9 +47,10 @@ import { trapBudget, trapDamage } from "../sim/balance.js";
 import { terrainHeight } from "../sim/terrain.js";
 import { freshGame as freshSave, migrate, parseSave, ledgerExceedsCap, SAVE_KEY, SAVE_BAK_KEY, SAVE_MAX_CHARS, SCHEMA } from "../sim/save.js";
 import { vendorValue, sellValue, addMaterial } from "../ui/panels.js";
+import { RARITY_EDGE } from "../ui/gearui.js";
 import { heroStats, compareEquip, compareUpgrade, trackNext, trackEffects, affixLines } from "../sim/gearstats.js";
 import { KEEPERS, WANDERERS, VENDORS, FOLK_RADIUS, HEN_YARDS, BARKS_TIER, buildTownGraph, createWalker, stepWalker, clearanceAt, segmentClear, yardCenter, staticTownColliders, shiftPart } from "../sim/townfolk.js";
-import { YARD_D, STAIR_W, townTier, levelTop, groundAtLevel, nextLevel, upperBuildingAt, insideRect } from "../sim/townplan.js";
+import { YARD_D, STAIR_W, townTier, startFloors, levelTop, groundAtLevel, nextLevel, upperBuildingAt, insideRect } from "../sim/townplan.js";
 import { applyTownTime, townDayKeys } from "../view/lights.js";
 import { loreState, talkLines, guideHint, rumour, themeOf } from "../sim/townlore.js";
 import { upgradeStatus as upgradeStatusRaw } from "../ui/character.js";
@@ -592,6 +593,22 @@ export function installSelfTest(rt) {
       rt.resetInterior();
     }
 
+    // The Delver's Post: every fifth floor, once an extract from deeper proves it.
+    {
+      check(startFloors(0).join() === "1" && startFloors(5).join() === "1" && startFloors(6).join() === "1,5" && startFloors(10).join() === "1,5" && startFloors(21).join() === "1,5,10,15,20", "starting floors unlock past each fifth floor");
+      const post = rt.stations.find((st) => st.id === "delve");
+      check(!!post && rt.stationAt(post.x, post.z) === post, "the Delver's Post answers F beside the gate");
+      const depthWas = rt.session.bestDepth;
+      rt.session.bestDepth = 11;
+      rt.openPanel("delve", post);
+      const picks = Array.from(document.querySelectorAll('#panel [data-act="delve-start"]')).map((b) => b.getAttribute("data-floor"));
+      check(picks.join() === "1,5,10", "the post offers floors 1, 5 and 10 after an extract from floor 11");
+      rt.closePanel();
+      check(rt.enterFromGate(15) === false && rt.space === "town" && !rt.session.run, "a locked floor does not open");
+      rt.session.bestDepth = depthWas;
+      rt.syncTownTier();
+    }
+
     // Kill drops (spec: gold killGold(n) x3 elite x8 boss; 40% theme material).
     {
       const e10 = killExtras(extrasRng(7, 10, 3), { floorIndex: 10, kind: "boss" });
@@ -962,10 +979,38 @@ export function installSelfTest(rt) {
       check(!guideNode.hidden && guideNode.textContent.indexOf("hold X") >= 0, "below ground the guide explains extracting");
       let floated = "";
       const pushWas = rt.pushFloater;
-      rt.pushFloater = (t) => { floated = t; };
+      let floatColor = "";
+      let floatOpts = null;
+      rt.pushFloater = (t, x, y, z, c, o) => { floated = t; floatColor = c; floatOpts = o || null; };
       rt.questEvent({ type: "gold", amount: 7 });
-      rt.pushFloater = pushWas;
       check(floated === "+7 gold", "picking up gold floats the amount (" + floated + ")");
+      rt.questEvent({ type: "gear", rarity: 2, name: "Keen Moss Blade", better: true });
+      check(floated === "▲ Keen Moss Blade" && floatColor === RARITY_EDGE[2] && !!floatOpts && floatOpts.life > 1.5, "picking up gear floats its name in its rarity colour, marked when better (" + floated + ")");
+      rt.questEvent({ type: "draught", draught: "draught-hp", amount: 1 });
+      check(floated === "+1 health draught", "picking up a draught floats it (" + floated + ")");
+      rt.pushFloater = pushWas;
+      {
+        const packWas = rt.session.pack;
+        const spare = { uid: "drop-test-spare", kind: "gear", slot: "head", rarity: 0, ilvl: 1, baseId: "circlet", themeId: 0, affixes: [], name: "Spare Circlet" };
+        rt.session.pack = [spare];
+        const p = rt.player.position;
+        const home = { x: p.x, z: p.z };
+        const res = rt.dropPackItem(0);
+        const lying = (rt.groundDrops || []).find((d) => d && d.item === spare);
+        check(res.ok && rt.session.pack.length === 0 && !!lying && lying.leftBehind === true, "below ground a carried piece can be dropped beside the Warden");
+        if (lying) lying.fly = null;
+        rt.collectDrops();
+        check(rt.session.pack.length === 0, "a piece just put down is not picked straight back up");
+        if (lying) {
+          p.x = lying.x + 3; p.z = lying.z;
+          rt.collectDrops();
+          p.x = lying.x; p.z = lying.z;
+          rt.collectDrops();
+        }
+        check(rt.session.pack.length === 1 && rt.session.pack[0] === spare, "after walking away, the dropped piece can be picked up again");
+        p.x = home.x; p.z = home.z;
+        rt.session.pack = packWas;
+      }
       rt.arriveTown("extract");
       rt.suspendCombat = false;
       rt.session.bestDepth = depthWas;
@@ -1303,7 +1348,11 @@ export function installSelfTest(rt) {
     const heirs = freshSave().hero.equipped;
     check(heirs.weapon && heirs.weapon.themeId === 0 && heirs.offhand.themeId === 0 && heirs.head.themeId === 0 && heirs.body.themeId === 0 && heirs.feet.themeId === 0 && heirs.trinket === null && heirs.weapon.weaponBase === 12 && heirs.weapon.baseId === "blade", "themeId 0 heirloom");
     const nakedGear = gearTotals(heirs);
-    check(nakedGear.might === 0 && nakedGear.guard === 0 && nakedGear.focus === 0 && nakedGear.flatHp === 0 && nakedGear.flatMp === 0, "heirlooms add no Might, Guard, Focus, or flat pools");
+    check(nakedGear.might === 0 && nakedGear.guard === 0 && nakedGear.focus === 0 && nakedGear.armor === 0 && nakedGear.flatHp === 0 && nakedGear.flatMp === 0 && nakedGear.quick === 0, "ilvl-1 heirlooms add no Might, Guard, Focus, armor, flat pools, or speed");
+    const grown = gearTotals({ offhand: { slot: "offhand", ilvl: 11, affixes: [] }, body: { slot: "body", ilvl: 11, affixes: [] }, head: { slot: "head", ilvl: 11, affixes: [] }, feet: { slot: "feet", ilvl: 11, affixes: [] }, trinket: { slot: "trinket", ilvl: 11, affixes: [] } });
+    check(grown.armor === 10 && grown.flatHp === 60 && grown.flatMp === 50 && Math.abs(grown.quick - 2.5) < 1e-9, "base stats grow per item level: armor, health, mana, speed");
+    const affixAt = (lv) => affixValue({ min: 8, max: 18 }, { id: "keen", t: 0 }, lv);
+    check(Math.abs((affixAt(11) - affixAt(10)) - (affixAt(21) - affixAt(20))) < 1e-9 && affixAt(11) > affixAt(10) * 1.03, "affixes grow by the same step each item level");
     const keptT = rich.affixes[0].t;
     const richDef = affixDef(rich.affixes[0].id);
     const readAt = affixValue(richDef, rich.affixes[0], rich.ilvl);
@@ -1593,6 +1642,9 @@ export function installSelfTest(rt) {
         check(rt.space === "dungeon", "a crossing that pauses inside the gate line's band still delves");
       }
     }
+    rt.freshGame();
+    rt.session.bestDepth = 11;
+    check(rt.enterFromGate(10) === true && rt.session.run.floorIndex === 10 && rt.space === "dungeon", "the gate starts a delve on an unlocked floor");
     rt.freshGame();
     const injectedRolls = countRandom(function () { rt.startRun(0, 1); });
     rt.freshGame();
@@ -2366,8 +2418,29 @@ export function installSelfTest(rt) {
       const down = compareEquip(rt.session, weak);
       check(up.verdict === "better" && up.changes.some((c) => c.key === "damage" && c.delta > 0 && c.good), "a stronger blade compares as better with more strike damage");
       check(down.verdict === "worse" && down.changes.every((c) => !c.good), "a weaker blade compares as worse");
-      const hollow = compareUpgrade(rt.session, { kind: "gear", slot: "head", ilvl: 1, themeId: 0, affixes: [] });
-      check(hollow.hollow === true && !hollow.changes.length, "upgrading a piece with no affixes is flagged as changing nothing");
+      const plain = compareUpgrade(rt.session, { kind: "gear", slot: "head", ilvl: 1, themeId: 0, affixes: [] });
+      check(plain.changes.some((c) => c.key === "mp" && c.delta > 0) && plain.grows.length === 1, "upgrading a plain circlet still raises max mana through its base stat");
+      for (const slot of ["offhand", "head", "body", "feet", "trinket"]) {
+        for (const ilvl of [1, 5, 12, 25]) {
+          const piece = { kind: "gear", slot, ilvl, themeId: 0, affixes: [{ id: slot === "feet" ? "quick" : "might", t: 0.5 }] };
+          const u = compareUpgrade(rt.session, piece);
+          check(u.changes.some((c) => c.good) && u.grows.length > 0, "every " + slot + " upgrade at ilvl " + ilvl + " shows a gain");
+        }
+      }
+      const shield = (affixes, ilvl) => ({ kind: "gear", slot: "offhand", baseId: "shield", ilvl, themeId: 0, affixes });
+      const wornShield = rt.session.equipped.offhand;
+      rt.session.equipped.offhand = shield([{ id: "guard", t: 0.8 }, { id: "wardweave", t: 0.7 }, { id: "trapward", t: 0.5 }], 6);
+      const plainShield = compareEquip(rt.session, shield([], 6));
+      check(plainShield.verdict === "worse" && plainShield.changes.every((c) => !c.good), "a plain shield against a rare one is worse, every row red (" + plainShield.verdict + ")");
+      const taken = plainShield.changes.find((c) => c.key === "reduce");
+      check(!!taken && taken.delta > 0 && !taken.good, "losing Guard reads as more damage taken, in red");
+      check(!plainShield.changes.some((c) => c.key === "guard" || c.key === "might"), "comparisons list outcomes, not the attributes behind them");
+      check(plainShield.changes.some((c) => c.key === "trapCut"), "losing trapward shows as a trap damage change");
+      const thinMight = compareEquip(rt.session, shield([{ id: "might", t: 0 }], 3));
+      check(thinMight.verdict === "worse", "a thin Might shield against a rare one is worse overall, not a trade-off (" + thinMight.score.toFixed(3) + ")");
+      const deepRare = compareEquip(rt.session, shield([{ id: "guard", t: 0.5 }, { id: "might", t: 0.5 }, { id: "wardweave", t: 0.5 }], 20));
+      check(deepRare.verdict === "better", "a deep rare shield beats a shallow one (" + deepRare.score.toFixed(3) + ")");
+      rt.session.equipped.offhand = wornShield;
       const blade = compareUpgrade(rt.session, strong);
       check(blade.changes.some((c) => c.key === "damage" && c.delta > 0), "upgrading a blade shows the strike damage it gains");
       const edge0 = trackNext("edge", 0);
@@ -2735,7 +2808,7 @@ export function installSelfTest(rt) {
     const glintMesh = glint.mesh;
     update(0.016);
     check(rt.session.pack.length === 24 && rt.groundDrops.indexOf(glint) >= 0 && glintMesh.parent && glintMesh.material.flatShading === true && glintMesh.material.type === "MeshLambertMaterial" && !glintMesh.material.map, "a full pack does not consume the glint");
-    check(castLine.textContent === "Your pack is full.", "a full pack of gear says Your pack is full.");
+    check(castLine.textContent.indexOf("Your pack is full.") === 0 && castLine.textContent.indexOf("drop") > 0, "a full pack of gear says so and points at dropping");
     check(glintMesh.userData.rarity === held.rarity && held.rarity >= 2 && !!glintMesh.getObjectByName("glintBeam") && !!glintMesh.getObjectByName("glintRing"), "a boss drop stands in a beam and ring of its rarity");
     rt.suspendCombat = true;
     rt.startRun(3, 1);

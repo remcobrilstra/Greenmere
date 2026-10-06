@@ -286,6 +286,8 @@ export function gearTip(session, it, opts) {
         t.line(cmp.worn ? "If worn instead of " + itemName(cmp.worn) + ":" : "If worn (slot is empty):", "muted");
         if (!cmp.changes.length) t.line("No change.", "muted");
         for (const c of cmp.changes) t.line(changeText(c), c.good ? "up" : "down");
+        const mixed = cmp.changes.some((c) => c.good) && cmp.changes.some((c) => !c.good);
+        if (mixed) t.line(cmp.verdict === "better" ? "Stronger overall." : cmp.verdict === "worse" ? "Weaker overall." : "About even: a trade-off.", "muted");
       }
     }
     const up = upgradeStatus(session || {}, it);

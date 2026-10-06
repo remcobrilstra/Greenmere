@@ -155,9 +155,9 @@ export function attachCharacter(rt) {
     statRow(combat, "Health", (v.hpMax ? Math.ceil(v.hp) + " / " : "") + R(st.hp), "c:hp", ["40 + 8 per Might + 4 per Guard" + (gear.flatHp ? " + " + R(gear.flatHp) + " from gear" : "") + "."]);
     statRow(combat, "Mana", (v.mpMax ? Math.floor(v.mp) + " / " : "") + R(st.mp), "c:mp", ["20 + 6 per Focus" + (gear.flatMp ? " + " + R(gear.flatMp) + " from gear" : "") + "."]);
     statRow(combat, "Strike damage", String(R(st.damage)), "c:dmg", ["From level, Might, the weapon's base damage, Keen, and Edge training."]);
-    statRow(combat, "Damage taken", "−" + st.reduce + "%", "c:reduce", ["Guard ÷ (Guard + 50). More Guard, less damage from every hit."]);
+    statRow(combat, "Damage taken", "−" + st.reduce + "%", "c:reduce", ["(Guard + armor) ÷ (Guard + armor + 50). More of either, less damage from every hit.", "Armor " + R(st.armor) + ", from shields: it counts as Guard against hits only."]);
     statRow(combat, "Ward absorbs", String(R(st.ward)), "c:ward", ["Damage one ward soaks up. Grows with Guard, Bulwark, and Woven gear."]);
-    statRow(combat, "Move speed", (st.speed ? "+" + st.speed : "+0") + "%", "c:speed", ["Bonus from Quick boots. Delver training raises the base speed."]);
+    statRow(combat, "Move speed", (st.speed ? "+" + st.speed : "+0") + "%", "c:speed", ["Bonus from boots: their base stat and Quick. Delver training raises the base speed."]);
 
     const train = group(side, "Training");
     const tracks = s.tracks || {};
@@ -180,10 +180,14 @@ export function attachCharacter(rt) {
     const pack = Array.isArray(s.pack) ? s.pack : [];
     body.appendChild(el("p", "section-label", "Pack " + pack.length + " / " + PACK_CAP + (below ? "  ·  lost if you fall" : "")));
     const grid = el("div", "pack-grid");
+    if (!pack[picked]) picked = -1;
     for (let i = 0; i < PACK_CAP; i++) {
       const it = pack[i] || null;
       const cell = itemCell(s, it, "pack:" + i, null, false);
       if (it) {
+        cell.setAttribute("data-act", "pick");
+        cell.setAttribute("data-index", String(i));
+        if (i === picked) cell.classList.add("picked");
         const cmp = it.kind !== "consumable" ? compareEquip(s, it) : null;
         if (cmp && cmp.verdict === "better") cell.appendChild(el("span", "up-mark", "▲"));
         cell.appendChild(el("span", "sr", itemName(it) + (it.kind !== "consumable" ? " ilvl " + int(it.ilvl) : "")));
@@ -194,12 +198,37 @@ export function attachCharacter(rt) {
       grid.appendChild(cell);
     }
     body.appendChild(grid);
+    body.appendChild(pickedBar(s, pack[picked] || null, below));
     const stash = Array.isArray(s.stash) ? s.stash.length : 0;
     body.appendChild(el("p", "sheet-line muted", "▲ would raise your numbers if worn.  ·  Stash " + stash + " / 48, safe at the Counting House."));
     body.appendChild(el("p", "section-label", "How loot works"));
-    body.appendChild(el("p", "sheet-line", "Gold, materials, and gear drop where foes fall. Walk over them to pick them up; gear needs room in the pack."));
+    body.appendChild(el("p", "sheet-line", "Gold, materials, and gear drop where foes fall. Walk over them to pick them up; gear needs room in the pack. Below ground, click a carried item here to drop it."));
     body.appendChild(el("p", "sheet-line", "Hold X below ground, standing still, to extract: everything you carry comes home."));
     body.appendChild(el("p", "sheet-line", "Fall in the Underwood and you lose your pack and purse. Worn gear, materials, the bank, and the stash are always kept."));
+  }
+
+  // The item clicked in the pack, with what can be done with it here.
+  let picked = -1;
+  function pickedBar(s, it, below) {
+    const bar = el("div", "pack-pick");
+    if (!it) {
+      bar.appendChild(el("span", "muted", below ? "Click an item to drop it." : "Click an item to see what to do with it."));
+      return bar;
+    }
+    const name = el("span", "name", itemName(it));
+    if (it.kind !== "consumable") name.style.color = RARITY_EDGE[Math.max(0, Math.min(3, int(it.rarity)))];
+    bar.appendChild(name);
+    if (below) {
+      const gear = it.kind !== "consumable";
+      bar.appendChild(el("span", "muted", gear ? "Drops beside you and stays on this floor." : "Discarded for good."));
+      const b = el("button", "slot", gear ? "Drop" : "Discard");
+      b.type = "button";
+      b.setAttribute("data-act", "drop");
+      bar.appendChild(b);
+    } else {
+      bar.appendChild(el("span", "muted", "Sell it at Bramble & Board, stash it at the Counting House, or equip it at a counter."));
+    }
+    return bar;
   }
 
   let timeNode = null;
@@ -319,7 +348,7 @@ export function attachCharacter(rt) {
     const L = Object.assign({}, s.stats || {}, { playSeconds: 0, delveSeconds: 0 });
     const v = rt.vitals || {};
     return JSON.stringify([s.level, s.xp, s.skillPoints, s.purse, s.bank, s.materials, s.equipped, s.pack, s.tracks,
-      s.bestDepth, s.stash ? s.stash.length : 0, L, rt.space, Math.ceil(v.hp || 0), Math.floor(v.mp || 0), rt.sheetTab]);
+      s.bestDepth, s.stash ? s.stash.length : 0, L, rt.space, Math.ceil(v.hp || 0), Math.floor(v.mp || 0), rt.sheetTab, picked]);
   }
 
   let sig = "";
@@ -359,6 +388,16 @@ export function attachCharacter(rt) {
     const act = btn.getAttribute("data-act");
     if (act === "sheet-close") setOpen(false);
     else if (act === "tab") setTab(btn.getAttribute("data-tab"));
+    else if (act === "pick") {
+      const i = Number(btn.getAttribute("data-index"));
+      picked = picked === i ? -1 : i;
+      sig = signature();
+      render();
+    } else if (act === "drop" && picked >= 0 && rt.dropPackItem) {
+      if (rt.dropPackItem(picked).ok) picked = -1;
+      sig = signature();
+      render();
+    }
   });
   const portrait = document.querySelector("#vitals .portrait");
   if (portrait) {

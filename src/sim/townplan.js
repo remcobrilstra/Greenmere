@@ -26,6 +26,16 @@ export function townTier(bestDepth) {
   return tier;
 }
 
+// Floors the Delver's Post by the gate can send the Warden to: always floor 1,
+// plus every fifth floor once an extract from deeper than it proves it beaten.
+export const START_STEP = 5;
+export function startFloors(bestDepth) {
+  const d = Math.max(0, Math.floor(Number(bestDepth) || 0));
+  const out = [1];
+  for (let f = START_STEP; f < d; f += START_STEP) out.push(f);
+  return out;
+}
+
 // The hearth is a camp beside the gate road, where extract and death land.
 export const HEARTH = { x: 6.5, z: -28.5 };
 export const GATE = { x: 0, z: -36, descent: { x: 0, z: -34.2, r: 1.8 } };
@@ -608,6 +618,8 @@ export const PROPS = [
   // The wayboard across the gate road from the hearth: a painted map of the town.
   // F replays the first-visit tour (play/intro.js). Faces the arrival spot.
   { type: "wayboard", x: -6.4, z: -28.6, yaw: Math.atan2(6.4, 1.6), w: 1.4, d: 0.4 },
+  // The Delver's Post beside the gate: F picks a starting floor (play/space.js).
+  { type: "delvesign", x: 3.7, z: -33.2, yaw: Math.atan2(-3.7, 6.2), w: 1.1, d: 0.4 },
   { type: "cart", x: 4.4, z: -14.5, yaw: 0.25, w: 1.6, d: 2.8 },
   { type: "woodpile", x: 22.9, z: -2.0, yaw: Math.PI / 2, w: 2.2, d: 0.9 },
   { type: "barrels", x: -12.6, z: 3.4, r: 0.75 },

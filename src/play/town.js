@@ -35,7 +35,8 @@ export function attachTown(rt) {
     inn: "Rest to restore health and mana",
     bank: "Bank your gold",
     board: "Read the notices",
-    tour: "Take the tour of Greenmere again"
+    tour: "Take the tour of Greenmere again",
+    delve: "Choose the floor to start on"
   };
 
   // Gear lying within reach (the same reach F uses to pick it up).
@@ -108,6 +109,15 @@ export function attachTown(rt) {
     if (rt.portalTransit) rt.portalTransit(kind, action);
     else action();
   }
+
+  // The Delver's Post: step through the gate onto an unlocked floor.
+  rt.delveFrom = function (floor) {
+    if (rt.space !== "town" || rt.transit || (rt.session && rt.session.run)) return false;
+    if (rt.startFloors && rt.startFloors().indexOf(floor) < 0) return false;
+    if (rt.closePanel) rt.closePanel();
+    viaPortal("gate", () => rt.enterFromGate(floor));
+    return true;
+  };
 
   function interactStation() {
     if (rt.transit) return;

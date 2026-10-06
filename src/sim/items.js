@@ -168,13 +168,34 @@ export function rollGearDrop(rng, spec) {
   return item;
 }
 
+// Every piece has a base stat for its slot that grows with item level, the way
+// a blade's base damage does: nothing at ilvl 1, the same step each level after.
+// `armor` adds to Guard against hits only (no health, no ward).
+const IMPLICIT = {
+  offhand: [{ key: "armor", per: 1 }],
+  body: [{ key: "flatHp", per: 4 }],
+  head: [{ key: "flatMp", per: 3 }],
+  feet: [{ key: "quick", per: 0.25 }],
+  trinket: [{ key: "flatHp", per: 2 }, { key: "flatMp", per: 2 }]
+};
+
+// [{ key, value }] for one piece's base stat at its item level.
+export function implicitStats(item) {
+  const rows = item && item.kind !== "consumable" ? IMPLICIT[item.slot] : null;
+  if (!rows) return [];
+  const steps = Math.max(0, Math.floor(Number(item.ilvl) || 1) - 1);
+  return rows.map((r) => ({ key: r.key, value: Math.round(r.per * steps * 100) / 100 }));
+}
+
 export function gearTotals(equipped) {
-  const out = { might: 0, guard: 0, focus: 0, flatHp: 0, flatMp: 0, quick: 0, wardweave: 0, trapward: 0, surefoot: 0, wary: 0 };
+  const out = { might: 0, guard: 0, focus: 0, armor: 0, flatHp: 0, flatMp: 0, quick: 0, wardweave: 0, trapward: 0, surefoot: 0, wary: 0 };
   if (!equipped || typeof equipped !== "object") return out;
   const keys = ["weapon", "offhand", "head", "body", "feet", "trinket"];
   for (let s = 0; s < keys.length; s++) {
     const item = equipped[keys[s]];
-    if (!item || !Array.isArray(item.affixes)) continue;
+    if (!item) continue;
+    for (const imp of implicitStats(item)) out[imp.key] += imp.value;
+    if (!Array.isArray(item.affixes)) continue;
     const ilvl = Math.max(1, Math.floor(Number(item.ilvl) || 1));
     for (let i = 0; i < item.affixes.length; i++) {
       const affix = item.affixes[i];

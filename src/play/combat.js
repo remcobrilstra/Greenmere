@@ -69,6 +69,7 @@ export function attachCombat(rt) {
     s.might = 9 + level + gear.might;
     s.guard = 9 + level + gear.guard;
     s.focus = 9 + level + gear.focus;
+    s.armor = gear.armor;
     s.quick = gear.quick;
     s.wardweave = gear.wardweave;
     s.trapward = gear.trapward;
@@ -598,7 +599,7 @@ export function attachCombat(rt) {
     const s = session();
     const run = s && s.run;
     if (!s || !run || rt.vitals.deathLock) return 0;
-    const dealt = incomingDamage(raw, s.guard, {
+    const dealt = incomingDamage(raw, s.guard + (s.armor || 0), {
       absorb: s.wardAbsorb || 0,
       bulwarkRank: s.tracks.bulwark || 0
     });
@@ -1315,6 +1316,18 @@ export function attachCombat(rt) {
 
   rt.derivePools = derive;
   rt.fillPools = fillPools;
+  // A walkable spot about a metre from (ox, oz), for gear the Warden puts down.
+  rt.clearSpotNear = (ox, oz) => {
+    const a0 = Math.random() * Math.PI * 2;
+    for (let k = 0; k < 12; k++) {
+      const ang = a0 + k * 0.52;
+      const r = k < 6 ? 1.1 : 0.7;
+      const x = ox + Math.cos(ang) * r;
+      const z = oz + Math.sin(ang) * r;
+      if (spotClear(x, z)) return { x, z };
+    }
+    return { x: ox, z: oz };
+  };
   rt.placeGearDrop = placeGearDrop;
   rt.releaseDropMesh = releaseDropMesh;
   rt.beginMend = beginMend;

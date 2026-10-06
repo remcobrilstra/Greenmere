@@ -11,7 +11,7 @@ export const BUYBACK_CAP = 8;
 export const DRAUGHT_PRICE = 25;
 export const DRAUGHT_STACK = 20;
 export const DRAUGHT_HEAL = 45;
-const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still", bank: "The Counting House", inn: "The Banked Fire", board: "Notice Board" };
+const PANEL_TITLES = { store: "Bramble & Board", smith: "The Quench", trainer: "The Circle", still: "The Still", bank: "The Counting House", inn: "The Banked Fire", board: "Notice Board", delve: "The Delver's Post" };
 const WORN_KEYS = ["weapon", "offhand", "head", "body", "feet", "trinket"];
 const SLOT_LABEL = { weapon: "Weapon", offhand: "Offhand", head: "Head", body: "Body", feet: "Feet", trinket: "Trinket" };
 const MAT_LABEL = { heartwood: "Heartwood", rootfiber: "Rootfiber", slag: "Slag", emberglass: "Emberglass" };
@@ -214,11 +214,17 @@ export function attachPanels(rt) {
     if (!opts || !opts.compare) return;
     const cmp = compareEquip(rt.session, item);
     if (!cmp) return;
-    const tag = { better: "▲ Better", worse: "▼ Worse", mixed: "◆ Trade-off", same: "= Same" }[cmp.verdict];
+    const tag = { better: "▲ Better", worse: "▼ Worse", mixed: "◆ Trade-off", same: "= Same" }[cmp.verdict] + netText(cmp);
     card.head.appendChild(el("span", "verdict " + cmp.verdict, tag));
     const vs = "vs " + (cmp.worn ? itemLabel(cmp.worn) : "empty " + item.slot) + ": ";
     if (cmp.changes.length) changeLine(card.main, vs, cmp.changes);
     else detail(card.main, vs + "no change to your stats.", "muted");
+  }
+
+  // " overall" when the verdict weighs gains against losses.
+  function netText(cmp) {
+    const mixed = cmp.changes.some((c) => c.good) && cmp.changes.some((c) => !c.good);
+    return mixed && cmp.verdict !== "mixed" ? " overall" : "";
   }
 
   function supplyDetails(card, item) {
@@ -427,6 +433,29 @@ export function attachPanels(rt) {
       if (!done) actions.push(button("quest-drop", "Abandon", { "data-key": a.key }));
       questRow(mine, a, actions);
     }
+  }
+
+  // The Delver's Post by the gate: start a delve on floor 1 or any unlocked fifth floor.
+  function renderDelve() {
+    const floors = rt.startFloors ? rt.startFloors() : [1];
+    const best = rt.session ? Math.floor(Number(rt.session.bestDepth) || 0) : 0;
+    const { keeper, counter } = frame("The Delver's Post", []);
+    keeper.appendChild(el("p", "panel-line keeper", "The gate opens onto any landing you have already won past. Every fifth floor holds a guardian; return from beyond one and its landing is yours to start from."));
+    keeper.appendChild(el("p", "panel-line muted kp-note", best ? "Your deepest extract: floor " + best + "." : "You have not yet returned from the Underwood."));
+    section(counter, "Starting floors");
+    const grid = el("div", "card-grid");
+    counter.appendChild(grid);
+    for (const f of floors) {
+      const card = el("div", "kp-card");
+      card.appendChild(el("p", "feature-title", "Floor " + f));
+      card.appendChild(el("p", "panel-line", f === 1 ? "The top of the Underwood." : "Below the guardian of floor " + f + "."));
+      const row = el("div", "row");
+      row.appendChild(button("delve-start", "Step through", { "data-floor": String(f) }));
+      card.appendChild(row);
+      grid.appendChild(card);
+    }
+    const next = floors[floors.length - 1] + (floors.length > 1 ? 5 : 4);
+    empty(counter, "Next: floor " + next + ", once you extract from floor " + (next + 1) + " or deeper.");
   }
 
   function vitalBar(parent, cls, now, max, label) {
@@ -643,13 +672,8 @@ export function attachPanels(rt) {
     card.head.appendChild(el("span", "ilvl-step", "ilvl " + ilvl + " → " + (ilvl + 1)));
     if (worn) detail(card.main, "Worn · " + worn, "muted");
     const up = compareUpgrade(rt.session, item);
-    if (up && up.hollow) {
-      detail(card.main, "No affixes: levelling it changes none of your stats.", "down");
-    } else if (up && up.changes.length) {
-      changeLine(card.main, worn ? "You gain: " : "If worn: ", up.changes);
-    } else {
-      detail(card.main, "Too small to show this level; affixes grow slowly with item level.", "muted");
-    }
+    if (up && up.changes.length) changeLine(card.main, worn ? "You gain: " : "If worn: ", up.changes);
+    if (up && up.grows.length) detail(card.main, "Grows: " + up.grows.map((g) => g[0] ? g[0] + " → " + g[1] : g[1]).join("  ·  "), "muted");
     detail(card.main, "Sells for " + sellValue(item) + " → " + sellValue(upgradedCopy(item)) + " gold", "muted");
     costChips(card.main, upgradeCost(ilvl, themeId));
     const status = upgradeStatus(rt.session || {}, item);
@@ -674,6 +698,7 @@ export function attachPanels(rt) {
     if (panelKind === "bank") return renderBank();
     if (panelKind === "inn") return renderInn();
     if (panelKind === "board") return renderBoard();
+    if (panelKind === "delve") return renderDelve();
     const session = rt.session;
     const pack = session && Array.isArray(session.pack) ? session.pack : [];
     const purse = session ? Math.floor(Number(session.purse) || 0) : 0;
@@ -794,6 +819,10 @@ export function attachPanels(rt) {
       tabFor[panelKind] = btn.getAttribute("data-tab");
       tips.hide();
       renderKeep();
+      return;
+    }
+    if (act === "delve-start") {
+      if (!rt.delveFrom || !rt.delveFrom(Number(btn.getAttribute("data-floor")))) refuse(btn);
       return;
     }
     if (act === "talk") {
@@ -1136,6 +1165,11 @@ export function attachPanels(rt) {
       }
       if (drop.fly) continue;
       const dist = Math.hypot(player.position.x - drop.x, player.position.z - drop.z);
+      // A piece the Warden put down waits until they have walked away from it once.
+      if (drop.leftBehind) {
+        if (dist > 2.2) drop.leftBehind = false;
+        continue;
+      }
       if (dist > 1.35 + 1e-4) continue;
       if (drop.kind === "gold") {
         const amount = Math.max(0, Math.floor(Number(drop.amount) || 0));
@@ -1161,7 +1195,7 @@ export function attachPanels(rt) {
         if (!drop.item) continue;
         if (session.pack.length >= PACK_CAP) {
           if (!drop.toldFull && rt.say) {
-            rt.say("Your pack is full.");
+            rt.say("Your pack is full. Press I to drop something.");
             drop.toldFull = true;
           }
           continue;
@@ -1169,7 +1203,10 @@ export function attachPanels(rt) {
         takeGear(drop);
         drops.splice(i, 1);
         changed = true;
-        if (rt.questEvent) rt.questEvent({ type: "gear", rarity: drop.item.rarity });
+        const cmp = compareEquip(session, drop.item);
+        const better = !!cmp && cmp.verdict === "better";
+        if (rt.questEvent) rt.questEvent({ type: "gear", rarity: drop.item.rarity, name: itemLabel(drop.item), better });
+        if (rt.say) rt.say("Picked up " + itemLabel(drop.item) + (better ? "  ·  ▲ better than what you wear." : "."));
         continue;
       }
       if (drop.kind !== "draught") continue;
@@ -1184,6 +1221,7 @@ export function attachPanels(rt) {
         continue;
       }
       changed = true;
+      if (rt.questEvent) rt.questEvent({ type: "draught", draught: id, amount: got });
       if (got < want) {
         drop.stack = want - got;
         if (!drop.toldFull && rt.say) {
@@ -1212,6 +1250,26 @@ export function attachPanels(rt) {
   rt.clearBuyback = clearBuyback;
   rt.useHealthDraught = useHealthDraught;
   rt.collectDrops = collectDrops;
+
+  // Put a carried item down below ground. Gear lands beside the Warden and can
+  // be picked up again after walking away from it; it stays on this floor only.
+  // Supplies have nothing to lie on the floor as, so they are discarded.
+  rt.dropPackItem = (index) => {
+    const s = rt.session;
+    const player = rt.player;
+    if (!s || !player || rt.space !== "dungeon" || !Array.isArray(s.pack)) return { ok: false, reason: "town" };
+    const item = s.pack[index];
+    if (!item) return { ok: false, reason: "empty" };
+    s.pack.splice(index, 1);
+    if (item.kind !== "consumable" && rt.placeGearDrop) {
+      const at = rt.clearSpotNear ? rt.clearSpotNear(player.position.x, player.position.z) : { x: player.position.x, z: player.position.z };
+      const drop = rt.placeGearDrop(item, at.x, at.z, player.position.x, player.position.z);
+      if (drop) drop.leftBehind = true;
+    }
+    if (rt.say) rt.say((item.kind === "consumable" ? "Discarded " : "Dropped ") + itemLabel(item) + ".");
+    noteChange();
+    return { ok: true, item };
+  };
   rt.tryPickupGear = tryPickupGear;
   rt.listBuyback = function () {
     return buyback.map((entry) => ({ uid: entry.item && entry.item.uid, price: entry.price }));

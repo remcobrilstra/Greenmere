@@ -6,7 +6,7 @@ import { emptyStats, normalizeStats } from "../sim/lifestats.js";
 import { applyTownLight, applyDungeonLight, dungeonTheme } from "../view/lights.js";
 import { buildFloorMesh, buildColliderOverlay } from "../view/dungeon.js";
 import { tileToWorld } from "../sim/floorgen.js";
-import { TOWN_ARRIVAL } from "../sim/townplan.js";
+import { TOWN_ARRIVAL, startFloors } from "../sim/townplan.js";
 import { biomeEntry, biomeFor } from "../sim/biomes.js";
 
 function rollSeed() {
@@ -38,6 +38,7 @@ export function attachSpace(rt) {
     blade: null,
     might: 10,
     guard: 10,
+    armor: 0,
     focus: 10,
     quick: 0,
     wardweave: 0,
@@ -348,9 +349,12 @@ export function attachSpace(rt) {
     buildAndShow(dev ? "dev" : "gate");
   }
 
-  function enterFromGate() {
+  // A delve starts on floor 1, or on any floor startFloors has unlocked.
+  function enterFromGate(floor) {
     if (rt.space !== "town" || session.run) return false;
-    beginNewRun(rollSeed(), 1, false);
+    const start = floor == null ? 1 : floor;
+    if (startFloors(session.bestDepth).indexOf(start) < 0) return false;
+    beginNewRun(rollSeed(), start, false);
     return true;
   }
 
@@ -489,6 +493,7 @@ export function attachSpace(rt) {
 
   rt.syncColliderOverlay = syncColliderOverlay;
   rt.enterFromGate = enterFromGate;
+  rt.startFloors = () => startFloors(session.bestDepth);
   rt.startRun = startRun;
   rt.startDevFloor = startDevFloor;
   rt.descendFloor = descendFloor;
