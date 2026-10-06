@@ -245,9 +245,11 @@ def hm_bone_of(fig, p):
 
 def hm_wrap(fig, keep, offset, colfn, rule=("auto", None)):
     """A garment cut from the body: the faces whose centre `keep(centre, bone, t)` accepts,
-    pushed out along the body's vertex normals by `offset`. Same shape, same weights as
-    the skin under it, so it bends with it and nothing shows through."""
+    pushed out along the body's vertex normals by `offset` (a number, or offset(p) for the
+    body point p). Same shape, same weights as the skin under it, so it bends with it and
+    nothing shows through."""
     v, f = hm_body_shell(fig)
+    push = offset if callable(offset) else (lambda p: offset)
     nrm = hm_vertex_normals(v, f)
     used = {}
     out_v, out_f = [], []
@@ -260,7 +262,7 @@ def hm_wrap(fig, keep, offset, colfn, rule=("auto", None)):
         for i in face:
             if i not in used:
                 used[i] = len(out_v)
-                out_v.append(v[i] + nrm[i] * offset)
+                out_v.append(v[i] + nrm[i] * push(v[i]))
             nf.append(used[i])
         out_f.append(tuple(nf))
     fig.add(out_v, out_f, hm_paint(fig, out_v, out_f, colfn), rule)
@@ -1278,52 +1280,99 @@ def wd_coat(f):
 
 
 def wd_hood(f):
-    S, j, rnd = f.S, f.j, f.rnd
-    h = S["head"]
-    c = j["neckTop"].lerp(j["crown"], 0.52)
+    """The hood, shaped from the head's own loops like the helm: cloth standing off the
+    skull (no hair under it), open for the face from the chin to the brow, a cowl under
+    the chin down round the neck, trim along every open edge."""
+    S = f.S
+    U, h = hm_head_frame(f)
+    loops = HM_HEAD_LOOPS
+    T = 0.1                                      # standing off the skull (head units)
+    face = (8, 9, 0, 1, 2)                       # ring points across the face, cheek to cheek
+    rows = []
+    # the cowl: rings round the neck under the chin, matched point for point to the jaw loop
+    jaw = hm_head_ring(S, loops[1][0], 0)
+    for y, rx, rz in ((-0.3, 0.52, 0.52), (-0.13, 0.43, 0.45)):
+        row = []
+        for x, z in jaw:
+            a = math.atan2(x, z - 0.05)
+            row.append((math.sin(a) * rx, 0.05 + math.cos(a) * rz))
+        rows.append([U(x, y, z) for x, z in row])
+    first = len(rows)
+    fall = hm_head_ring(S, loops[4][0], T)       # at the back it falls straight from the skull
+    for li, (y, _) in enumerate(loops):
+        ring_pts = hm_head_ring(S, y, T)
+        snug = hm_head_ring(S, y, T * 0.6)       # the face opening tucks in to frame it
+        row = []
+        for k, (x, z) in enumerate(ring_pts):
+            if li <= 5 and k in face:
+                x, z = snug[k]
+            elif li < 4 and z > 0:
+                fx, fz = fall[k]
+                x, z = (x if abs(x) > abs(fx) else fx), max(z, fz)
+            row.append((x, z))
+        lift = T * 0.7 * max(0.0, y - 0.62) / 0.3   # over the crown the cloth stands up off it too
+        rows.append([U(x, y + lift, z) for x, z in row])
+    top = U(0, 1.0 + T, 0.05)
+    w = len(rows[0])
+    verts = [p_ for r in rows for p_ in r] + [top]
+    faces, cols = [], []
+    for r in range(len(rows) - 1):
+        for k in range(w):
+            q = (k + 1) % w
+            if first <= r and r + 1 <= first + 5 and k in face and q in face:
+                continue                         # the face
+            faces.append((r * w + k, r * w + q, (r + 1) * w + q, (r + 1) * w + k))
+            cols.append(hm_tone(HM_CLOTH, f.rnd) if r >= first else hm_tone(HM_CLOTH_D, f.rnd))
+    tr = len(rows) - 1
+    for k in range(w):
+        faces.append((tr * w + k, tr * w + (k + 1) % w, len(verts) - 1))
+        cols.append(hm_tone(HM_CLOTH, f.rnd))
+    f.add(verts, faces, cols, ("rigid", "head"))
     kit = Kit(0)
-    kit.r = rnd
-    blob(kit, "hood", 1.0, lambda n, p: hm_tone(HM_CLOTH, rnd), c.x, c.y + 0.01, c.z + 0.02, h * 0.53, h * 0.6, h * 0.56, noise=0.04, subdiv=2, seed=9)
-    R = kit.roles["hood"]
-    keep, keepc = [], []
-    for fc, col in zip(R["f"], R["c"]):
-        cen = sum((R["v"][i] for i in fc), Vector()) / 3
-        rel = cen - c
-        if rel.z < -h * 0.18 and abs(rel.x) < h * 0.3 and -h * 0.42 < rel.y < h * 0.3:
-            continue
-        keep.append(fc)
-        keepc.append(col)
-    R["f"], R["c"] = keep, keepc
-    ring(kit, "hood", h * 0.34, 0.02, HM_TRIM, c.x, c.y - h * 0.05, c.z - h * 0.42, rx=0.12, sx=0.86, sy=1.12, segs=14, sides=4)
+    kit.r = f.rnd
+    hm_edge_rim(kit, verts, faces, U, h, "trim", HM_TRIM)
     f.from_kit(kit, ("rigid", "head"))
 
 
 def wd_mantle(f):
-    j, b = f.j, f.S["build"] * 1.2
-    kit = Kit(0)
-    kit.r = f.rnd
-    dk_lathe(kit, "mantle", [(0.27 * b, j["chest"].y + 0.02), (0.2 * b, j["neck"].y - 0.02), (0.1 * b, j["neck"].y + 0.03)], 14,
-             [HM_CLOTH, HM_CLOTH, HM_CLOTH_D], 0, 0, cap=False)
-    f.from_kit(kit, ("rigid", "chest"))
+    """A short shoulder mantle cut from the body over the gambeson: the upper chest and
+    back and the tops of the arms, flaring a little towards its dark hem."""
+    j, rnd = f.j, f.rnd
+    low = j["chest"].y - 0.01
+    def keep(c, bone, t):
+        if bone == "chest":
+            return low < c.y < j["neck"].y - 0.02
+        if bone in ("upperArm.L", "upperArm.R"):
+            return t <= 0.22
+        return False
+    def off(p):
+        return 0.05 + 0.02 * max(0.0, min(1.0, (j["neck"].y - p.y) / (j["neck"].y - low)))
+    hm_wrap(f, keep, off, lambda c, n: hm_tone(HM_CLOTH_D, rnd) if c.y < low + 0.04 else hm_tone(HM_CLOTH, rnd))
 
 
 def wd_pauldrons(f, big=False, horns=False):
-    j, rnd, b = f.j, f.rnd, f.S["build"] * 1.2
-    sc = 1.3 if big else 1.0
-    kit = Kit(0)
-    kit.r = rnd
-    for t, s in (("L", -1), ("R", 1)):
-        p = j["sh" + t] + Vector((s * 0.02 * sc, 0.04 * sc, 0))
-        if horns:
+    """Steel shoulder caps cut from the body over the mantle (the top of the arm, from the
+    shoulder ball out), a gold rim round their edge; the relic's reach further and stand out."""
+    j, rnd = f.j, f.rnd
+    if horns:
+        b = f.S["build"] * 1.2
+        kit = Kit(0)
+        kit.r = rnd
+        for t, s in (("L", -1), ("R", 1)):
+            p = j["sh" + t] + Vector((s * 0.026, 0.052, 0))
             for k, (dy, dz) in enumerate(((0.06, -0.04), (0.02, 0.06))):
-                kit.cone("horn", 0.035, 0.2, 5, HM_TRIM, p.x + s * 0.12 * sc, p.y + dy + 0.08, p.z + dz, rz=-s * 0.9, rx=dz * 3)
-        else:
-            blob(kit, "pauldron", 0.13 * b * sc, lambda n, pp: hm_tone(HM_STEEL, rnd) if n.y > -0.2 else shade(HM_STEEL[0], 0.8),
-                 p.x, p.y, p.z, 1.05, 0.62, 1.1, noise=0.0, subdiv=1, seed=1)
-            ring(kit, "pauldron", 0.12 * b * sc, 0.016 * sc, HM_TRIM, p.x, p.y - 0.035 * sc, p.z, rz=s * 0.35, sz=1.05, segs=12, sides=4)
-            if big:
-                ring(kit, "pauldron", 0.09 * b * sc, 0.014 * sc, HM_TRIM, p.x, p.y + 0.02 * sc, p.z, rz=s * 0.35, sz=1.05, segs=12, sides=4)
-        f.from_kit(kit, ("rigid", "shoulder." + t))
+                kit.cone("horn", 0.035, 0.2, 5, HM_TRIM, p.x + s * 0.1 * b, p.y + dy + 0.03, p.z + dz, rz=-s * 0.9, rx=dz * 3)
+            f.from_kit(kit, ("rigid", "upperArm." + t))     # on the pauldron, which rides the arm
+        return
+    reach = 0.4 if big else 0.3
+    for t in "LR":
+        arm = "upperArm." + t
+        def keep(c, bone, u, arm=arm):
+            return bone == arm and u <= reach
+        def col(c, n):
+            return hm_tone(HM_TRIM, rnd) if hm_bone_of(f, c)[1] > reach - 0.08 else hm_tone(HM_STEEL, rnd)
+        # rigid on the arm: a cap rides it whole, where a skinned one would tear at the armpit
+        hm_wrap(f, keep, 0.09 if big else 0.068, col, ("rigid", arm))
 
 
 def wd_cape(f, long=False, hem_only=False):
@@ -1386,6 +1435,25 @@ def hm_head_ring(S, y, push):
     return out
 
 
+def hm_edge_rim(kit, verts, faces, U, h, role, pal):
+    """A trim strip along every open edge of a head-gear shell (faces in `verts`)."""
+    edge_count = {}
+    for fc in faces:
+        for i in range(len(fc)):
+            e = tuple(sorted((fc[i], fc[(i + 1) % len(fc)])))
+            edge_count[e] = edge_count.get(e, 0) + 1
+    o = U(0, 0, 0)
+    for (i, j), n in edge_count.items():
+        if n != 1:
+            continue
+        a_, b_ = verts[i], verts[j]
+        mid = (a_ + b_) / 2
+        out = Vector((mid.x - o.x, 0, mid.z - o.z)).normalized()
+        kit.frame = wd_frame(mid + out * 0.006, b_ - a_, out)
+        kit.box(role, h * 0.045, (b_ - a_).length + h * 0.02, h * 0.035, pal)
+        kit.frame = Matrix.Identity(4)
+
+
 def wd_helm(f):
     """The heirloom helm, shaped from the head's own loops: a cap from the brow up, down
     behind the ears and to the nape at the back, a gold rim on its edge, a nasal and a crest."""
@@ -1411,13 +1479,9 @@ def wd_helm(f):
     w = len(rows[0])
     verts = [p for r in rows for p in r] + [top]
     faces, cols = [], []
-    edge_count = {}
     def add_face(fc, col):
         faces.append(fc)
         cols.append(col)
-        for i in range(len(fc)):
-            e = tuple(sorted((fc[i], fc[(i + 1) % len(fc)])))
-            edge_count[e] = edge_count.get(e, 0) + 1
     for r in range(len(rows) - 1):
         for k in range(w):
             q = (k + 1) % w
@@ -1429,16 +1493,7 @@ def wd_helm(f):
     f.add(verts, faces, cols, ("rigid", "head"))
     kit = Kit(0)
     kit.r = f.rnd
-    # gold rim along every open edge of the cap
-    for (i, j), n in edge_count.items():
-        if n != 1:
-            continue
-        a_, b_ = verts[i], verts[j]
-        mid = (a_ + b_) / 2
-        out = Vector((mid.x - U(0, 0, 0).x, 0, mid.z - U(0, 0, 0).z)).normalized()
-        kit.frame = wd_frame(mid + out * 0.006, b_ - a_, out)
-        kit.box("rim", h * 0.045, (b_ - a_).length + h * 0.02, h * 0.035, HM_TRIM)
-        kit.frame = Matrix.Identity(4)
+    hm_edge_rim(kit, verts, faces, U, h, "rim", HM_TRIM)
     # nasal: down the bridge of the nose from the brow
     # (it lies on the bridge: the brow and nose-bridge points of the head, a hair in front)
     br = U(0, 0.62, loops[5][1][0][1] - 0.045)
@@ -1461,15 +1516,9 @@ def wd_circlet(f, hood=False, part="circlet"):
     j, S = f.j, f.S
     kit = Kit(0)
     kit.r = f.rnd
-    if hood:
-        c = j["neckTop"].lerp(j["crown"], 0.52)
-        at = c + Vector((0, h * 0.18, 0.0))
-        rx, rz = h * 0.5, h * 0.53
-        band = [at + Vector((math.sin(a) * rx, 0, -math.cos(a) * rz)) for a in [i * math.pi * 2 / 16 for i in range(16)]]
-    else:
-        # traced round the head at the forehead, out past the hair
-        y = 0.74
-        band = [U(x, y, z) for x, z in hm_head_ring(S, y, 0.105)]
+    # traced round the head at the forehead, out past the hair or over the hood (wd_hood)
+    y = 0.74
+    band = [U(x, y, z) for x, z in hm_head_ring(S, y, 0.125 if hood else 0.105)]
     front = band[0]
     n = len(band)
     if part == "circlet":
